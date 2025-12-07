@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: hookah_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hookah
+      POSTGRES_USER: hookah_user
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  app:
+    image: php:8.2-cli
+    container_name: hookah_app
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    command: php -S 0.0.0.0:8000 -t public
+
+volumes:
+  postgres_data:

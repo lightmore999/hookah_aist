@@ -42,6 +42,5 @@ Thumbs.db
 vendor/
 node_modules/
 .env
-docker-compose.yml
 *.backup
 storage/logs/*.log
