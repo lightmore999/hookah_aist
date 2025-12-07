@@ -26,7 +26,6 @@ yarn-error.log
 !storage/app/public/.gitignore
 
 # Docker
-docker-compose.yml
 Dockerfile
 .dockerignore
 
