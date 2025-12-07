@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: hookah_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hookah
+      POSTGRES_USER: hookah_user
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  app:
+    image: php:8.2-cli
+    container_name: hookah_app
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    command: php -S 0.0.0.0:8000 -t public
+
+volumes:
+  postgres_data:
+
+
+APP_NAME="Hookah Manager"
+APP_ENV=local
+APP_KEY=base64:wVXUciJexNJv3D5BXPPY1zovr026uiiAv6StBOjpR5M=
+APP_DEBUG=true
+APP_URL=http://localhost:8000
+
+DB_CONNECTION=pgsql
+DB_HOST=postgres
+DB_PORT=5432
+DB_DATABASE=hookah
+DB_USERNAME=hookah_user
+DB_PASSWORD=secret
+
+SESSION_DRIVER=file
+CACHE_DRIVER=file
