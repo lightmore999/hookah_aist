@@ -25,9 +25,6 @@ yarn-error.log
 !storage/app/.gitignore
 !storage/app/public/.gitignore
 
-# Docker
-Dockerfile
-.dockerignore
 
 # IDE
 .idea
@@ -44,3 +41,4 @@ node_modules/
 .env
 *.backup
 storage/logs/*.log
+public/storage

@@ -13,7 +13,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   app:
-    image: php:8.2-cli
+    build: .  # ← ИЗМЕНЕНИЕ: вместо "image" используем "build"
     container_name: hookah_app
     restart: unless-stopped
     working_dir: /app
@@ -23,7 +23,6 @@ services:
       - "8000:8000"
     depends_on:
       - postgres
-    command: php -S 0.0.0.0:8000 -t public
 
 volumes:
   postgres_data:
