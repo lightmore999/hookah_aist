@@ -23,4 +23,16 @@ class Hookah extends Model
         'hookah_maker_rate' => 'decimal:2',
         'administrator_rate' => 'decimal:2',
     ];
+
+    public function orderItems()
+    {
+        return $this->hasMany(OrderItemHookah::class, 'IDHookah');
+    }
+
+    // Новая связь для продаж
+    public function sales()
+    {
+        return $this->belongsToMany(Sale::class, 'sale_hookahs')
+                    ->withTimestamps();
+    }
 }

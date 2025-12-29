@@ -18,10 +18,13 @@
                 <i class="bi bi-tags me-1"></i>
                 Товары
             </a>
-            <a href="{{ route('product_categories.create') }}" class="btn btn-primary">
+            <button type="button" 
+                    class="btn btn-primary"
+                    data-bs-toggle="modal"
+                    data-bs-target="#createCategoryModal">
                 <i class="bi bi-plus-circle me-1"></i>
                 Добавить категорию
-            </a>
+            </button>
         </div>
     </div>
     
@@ -41,9 +44,12 @@
                 <div class="text-center py-5">
                     <i class="bi bi-inbox display-1 text-muted"></i>
                     <p class="mt-3 text-muted">Нет категорий. Добавьте первую!</p>
-                    <a href="{{ route('product_categories.create') }}" class="btn btn-primary mt-2">
-                        Добавить Категорию 
-                    </a>
+                    <button type="button" 
+                            class="btn btn-primary mt-2"
+                            data-bs-toggle="modal"
+                            data-bs-target="#createCategoryModal">
+                        Добавить категорию
+                    </button>
                 </div>
             @else
                 <div class="table-responsive">
@@ -62,10 +68,22 @@
                                 </td>
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm">
-                                        <a href="{{ route('product_categories.edit', $category) }}" 
-                                           class="btn btn-outline-warning">
+                                        <button type="button" 
+                                                class="btn btn-outline-warning edit-category-btn"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#editCategoryModal"
+                                                data-id="{{ $category->id }}"
+                                                data-name="{{ $category->name }}">
                                             <i class="bi bi-pencil"></i>
-                                        </a>
+                                        </button>
+                                        <button type="button" 
+                                                class="btn btn-outline-danger delete-category-btn"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#deleteCategoryModal"
+                                                data-id="{{ $category->id }}"
+                                                data-name="{{ $category->name }}">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -73,11 +91,40 @@
                         </tbody>
                     </table>
                 </div>
-                <div class="d-flex justify-content-between align-items-center mt-4">
-                        {{ $product_categories->links() }}
-                </div>
             @endif
         </div>
     </div>
 </div>
+
+
+@include('product_categories.modals.create')
+@include('product_categories.modals.edit') 
+@include('product_categories.modals.delete')
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const editCategoryModal = document.getElementById('editCategoryModal');
+    if (editCategoryModal) {
+        editCategoryModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            if (button && button.classList.contains('edit-category-btn')) {
+                document.getElementById('edit_category_name').value = button.dataset.name;
+                document.getElementById('editCategoryForm').action = `/product_categories/${button.dataset.id}`;
+            }
+        });
+    }
+
+    const deleteCategoryModal = document.getElementById('deleteCategoryModal');
+    if (deleteCategoryModal) {
+        deleteCategoryModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            if (button && button.classList.contains('delete-category-btn')) {
+                document.getElementById('deleteCategoryName').textContent = button.dataset.name;
+                document.getElementById('deleteCategoryForm').action = `/product_categories/${button.dataset.id}`;
+            }
+        });
+    }
+});
+</script>
+
 @endsection

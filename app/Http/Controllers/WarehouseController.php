@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Warehouse;
 use App\Models\Purchase;
 use Illuminate\Http\Request;
+use App\Models\Stock;
 
 class WarehouseController extends Controller
 {
@@ -106,4 +107,5 @@ class WarehouseController extends Controller
         return redirect()->route('warehouses.index')
             ->with('success', 'Склад успешно удалён!');
     }
+
 }

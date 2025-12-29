@@ -64,7 +64,7 @@
                         </div>
                     @endif
 
-                    <form action="{{ route('purchases.store') }}" method="POST">
+                    <form action="{{ route('purchases.store') }}" method="POST" id="purchaseForm">
                         @csrf
                         
                         
@@ -75,17 +75,21 @@
                             <select name="product_id" 
                                     class="form-select form-select-lg @error('product_id') is-invalid @enderror" 
                                     id="product_id" 
-                                    required>
+                                    required
+                                    onchange="updateUnitInfo()">
                                 <option value="">-- Выберите товар --</option>
                                 @foreach($products as $product)
-                                    <option value="{{ $product->id }}" {{ old('product_id') == $product->id ? 'selected' : '' }}>
-                                        {{ $product->name }}
+                                    <option value="{{ $product->id }}" 
+                                            data-unit="{{ $product->unit }}"
+                                            {{ old('product_id') == $product->id ? 'selected' : '' }}>
+                                        {{ $product->name }} ({{ $product->unit }})
                                     </option>
                                 @endforeach
                             </select>
                             @error('product_id')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
+                            <div id="unitInfo" class="form-text mt-1"></div>
                         </div>
 
                         
@@ -110,44 +114,49 @@
                         </div>
 
                         
-                        <div class="row">
-                            <div class="col-md-6 mb-4">
-                                <label for="quantity" class="form-label">
-                                    <strong>Количество</strong> *
-                                </label>
+                        <div class="mb-4">
+                            <label for="quantity" class="form-label">
+                                <strong>Количество</strong> *
+                            </label>
+                            <div class="input-group">
                                 <input type="number" 
-                                       min="1" 
+                                       step="0.001"
+                                       min="0.001" 
                                        class="form-control @error('quantity') is-invalid @enderror" 
                                        id="quantity" 
                                        name="quantity" 
                                        value="{{ old('quantity') }}" 
-                                       placeholder="0" 
+                                       placeholder="0"
                                        required>
-                                @error('quantity')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
+                                <span class="input-group-text" id="unitLabel">ед.</span>
                             </div>
+                            @error('quantity')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                            <div class="form-text">Количество в указанных единицах товара</div>
+                        </div>
 
-                            <div class="col-md-6 mb-4">
-                                <label for="unit_price" class="form-label">
-                                    <strong>Цена за единицу (₽)</strong> *
-                                </label>
-                                <div class="input-group">
-                                    <input type="number" 
-                                           step="0.01" 
-                                           min="0" 
-                                           class="form-control @error('unit_price') is-invalid @enderror" 
-                                           id="unit_price" 
-                                           name="unit_price" 
-                                           value="{{ old('unit_price') }}" 
-                                           placeholder="0.00" 
-                                           required>
-                                    <span class="input-group-text">₽</span>
-                                    @error('unit_price')
-                                        <div class="invalid-feedback">{{ $message }}</div>
-                                    @enderror
-                                </div>
+                        
+                        <div class="mb-4">
+                            <label for="unit_price" class="form-label">
+                                <strong>Цена за единицу (₽)</strong> *
+                            </label>
+                            <div class="input-group">
+                                <input type="number" 
+                                       step="0.01" 
+                                       min="0.01" 
+                                       class="form-control @error('unit_price') is-invalid @enderror" 
+                                       id="unit_price" 
+                                       name="unit_price" 
+                                       value="{{ old('unit_price') }}" 
+                                       placeholder="0.00" 
+                                       required>
+                                <span class="input-group-text" id="priceLabel">₽/ед.</span>
                             </div>
+                            @error('unit_price')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                            <small id="priceInfo" class="form-text text-muted">Цена за указанную единицу товара</small>
                         </div>
 
                         
@@ -166,6 +175,25 @@
                             @enderror
                         </div>
 
+                        
+                        <div class="mb-4">
+                            <div class="form-check">
+                                <input type="checkbox" 
+                                       class="form-check-input" 
+                                       id="update_cost_price" 
+                                       name="update_cost_price" 
+                                       value="1" 
+                                       {{ old('update_cost_price') ? 'checked' : 'checked' }}>
+                                <label class="form-check-label" for="update_cost_price">
+                                    Обновить себестоимость товара
+                                </label>
+                            </div>
+                            <small class="text-muted">
+                                Себестоимость будет обновлена на основе цены за единицу
+                            </small>
+                        </div>
+
+                        
                         <div class="d-flex justify-content-between pt-3">
                             <button type="submit" class="btn btn-primary btn-lg">
                                 <i class="bi bi-check-circle me-1"></i> Сохранить закупку
@@ -178,7 +206,37 @@
     </div>
 </div>
 
+<script>
+let currentUnit = 'шт';
+
+function updateUnitInfo() {
+    const productSelect = document.getElementById('product_id');
+    const selectedOption = productSelect.options[productSelect.selectedIndex];
+    
+    if (selectedOption.value) {
+        currentUnit = selectedOption.getAttribute('data-unit') || 'шт';
+        
+        // Обновляем метки
+        document.getElementById('unitLabel').textContent = currentUnit;
+        document.getElementById('priceLabel').textContent = `₽/${currentUnit}`;
+        
+        // Обновляем информацию
+        document.getElementById('unitInfo').innerHTML = `
+            <strong>Информация о товаре:</strong><br>
+            Единица измерения: ${currentUnit}
+        `;
+    } else {
+        document.getElementById('unitInfo').innerHTML = '';
+        document.getElementById('unitLabel').textContent = 'ед.';
+        document.getElementById('priceLabel').textContent = '₽/ед.';
+        currentUnit = 'шт';
+    }
+}
+
+// Инициализация при загрузке
+document.addEventListener('DOMContentLoaded', function() {
+    updateUnitInfo();
+});
+</script>
 
 @endsection
-
-

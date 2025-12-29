@@ -83,7 +83,7 @@ class ProductCategoryController extends Controller
 
         $productCategory->update($validated);
 
-        return redirect()->route('product_categories.index')
+        return redirect()->route('product_categories.indexы')
             ->with('success', 'Категория успешно обновлена!');
     }
 

@@ -7,185 +7,147 @@ use App\Models\Product;
 use App\Models\Warehouse;
 use App\Models\Stock;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class PurchaseController extends Controller
 {
-
     public function create()
     {
-        $products = Product::orderBy('name')->get();
+        // Берем только НЕ составные товары (те, у которых нет рецепта)
+        $products = Product::whereDoesntHave('recipeComponents')
+            ->orderBy('name')
+            ->get();
+        
         $warehouses = Warehouse::orderBy('name')->get();
         return view('purchases.create', compact('products', 'warehouses'));
     }
-
 
     public function store(Request $request)
     {
         $validated = $request->validate([
             'product_id' => 'required|exists:products,id',
             'warehouse_id' => 'required|exists:warehouses,id',
-            'quantity' => 'required|integer|min:1',
-            'unit_price' => 'required|numeric|min:0',
+            'quantity' => 'required|numeric|min:0.001', // количество в единицах товара
+            'unit_price' => 'required|numeric|min:0', // цена за единицу товара
             'purchase_date' => 'required|date',
+            'update_cost_price' => 'nullable|boolean',
         ]);
         
-        DB::beginTransaction();
-
-        try {
-            $purchase = Purchase::create($validated);
-
-            $stock = Stock::firstOrNew([
-                'warehouse_id' => $validated['warehouse_id'],
-                'product_id' => $validated['product_id'],
-            ]);
-
-            if ($stock->exists) {
-                $stock->quantity += $validated['quantity'];
-            } else {
-                $stock->quantity = $validated['quantity'];
-            }
-
-            $stock->last_updated = now();
-
-            $stock->save();
-            
-
-            DB::commit();
-            
-        } catch (\Exception $e) {
-
-            DB::rollBack();
-            
-            return back()->withInput()
-                ->with('error', 'Ошибка при создании закупки: ' . $e->getMessage());
+        $product = Product::find($validated['product_id']);
+        
+        // Создаем закупку
+        $purchase = Purchase::create([
+            'product_id' => $validated['product_id'],
+            'warehouse_id' => $validated['warehouse_id'],
+            'quantity' => $validated['quantity'], // количество в указанных единицах
+            'unit_price' => $validated['unit_price'], // цена за указанную единицу
+            'purchase_date' => $validated['purchase_date'],
+        ]);
+        
+        // Обновляем себестоимость товара, если отмечен чекбокс
+        if ($request->has('update_cost_price') && $request->boolean('update_cost_price')) {
+            $product->cost = $validated['unit_price'];
+            $product->save();
         }
-
+        
+        // Добавляем количество на склад (используем новый метод из модели Purchase)
+        $purchase->addToStock();
+        
+        $successMessage = 'Закупка успешно добавлена! ';
+        if ($request->has('update_cost_price') && $request->boolean('update_cost_price')) {
+            $successMessage .= 'Себестоимость товара обновлена. ';
+        }
+        
         return redirect()->route('warehouses.index')
-            ->with('success', 'Закупка успешно добавлена!');
+            ->with('success', $successMessage);
     }
-
 
     public function edit(Purchase $purchase)
     {
+        // Для редактирования показываем все товары, но выделяем составные
         $products = Product::orderBy('name')->get();
         $warehouses = Warehouse::orderBy('name')->get();
-        return view('purchases.edit', compact('purchase', 'products', 'warehouses'));
+        
+        return view('purchases.edit', compact(
+            'purchase', 
+            'products', 
+            'warehouses'
+        ));
     }
 
-
-   public function update(Request $request, Purchase $purchase)
+    public function update(Request $request, Purchase $purchase)
     {
         $validated = $request->validate([
             'product_id' => 'required|exists:products,id',
             'warehouse_id' => 'required|exists:warehouses,id',
-            'quantity' => 'required|integer|min:1',
+            'quantity' => 'required|numeric|min:0.001',
             'unit_price' => 'required|numeric|min:0',
             'purchase_date' => 'required|date',
+            'update_cost_price' => 'nullable|boolean',
         ]);
-
-        DB::beginTransaction();
-
-        try {
-            $oldQuantity = $purchase->quantity;
-            $oldWarehouseId = $purchase->warehouse_id;
-            $oldProductId = $purchase->product_id;
+        
+        $product = Product::find($validated['product_id']);
+        
+        // Старое количество (для корректировки остатков)
+        $oldQuantity = $purchase->quantity;
+        $oldWarehouseId = $purchase->warehouse_id;
+        $oldProductId = $purchase->product_id;
+        
+        // 1. Убираем старое количество со склада
+        if ($oldQuantity > 0) {
+            $oldStock = Stock::where([
+                'warehouse_id' => $oldWarehouseId,
+                'product_id' => $oldProductId,
+            ])->first();
             
-            $newQuantity = $validated['quantity'];
-            $newWarehouseId = $validated['warehouse_id'];
-            $newProductId = $validated['product_id'];
-
-
-            $purchase->update($validated);
-
-            if ($oldQuantity != $newQuantity || 
-                $oldWarehouseId != $newWarehouseId || 
-                $oldProductId != $newProductId) {
-                
-                if ($oldWarehouseId != $newWarehouseId || $oldProductId != $newProductId) {
-                    
-                    if ($oldWarehouseId && $oldProductId) {
-                        Stock::where([
-                            'warehouse_id' => $oldWarehouseId,
-                            'product_id' => $oldProductId,
-                        ])->decrement('quantity', $oldQuantity);
-                    }
-                    
-                    Stock::updateOrCreate(
-                        [
-                            'warehouse_id' => $newWarehouseId,
-                            'product_id' => $newProductId,
-                        ],
-                        [
-                            'quantity' => DB::raw('COALESCE(quantity, 0) + ' . $newQuantity),
-                            'last_updated' => now(),
-                        ]
-                    );
-                }
-                else {
-                    $quantityDiff = $newQuantity - $oldQuantity;
-                    
-                    Stock::where([
-                        'warehouse_id' => $newWarehouseId,
-                        'product_id' => $newProductId,
-                    ])->increment('quantity', $quantityDiff);
-                    
-                    Stock::where([
-                        'warehouse_id' => $newWarehouseId,
-                        'product_id' => $newProductId,
-                    ])->update(['last_updated' => now()]);
-                }
+            if ($oldStock) {
+                $oldStock->useQuantity($oldQuantity);
             }
-
-            DB::commit();
-
-            return redirect()->route('warehouses.index')
-                ->with('success', 'Закупка успешно обновлена! Остатки скорректированы.');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            
-            return back()->withInput()
-                ->with('error', 'Ошибка при обновлении закупки: ' . $e->getMessage());
         }
+        
+        // 2. Обновляем закупку
+        $purchase->update([
+            'product_id' => $validated['product_id'],
+            'warehouse_id' => $validated['warehouse_id'],
+            'quantity' => $validated['quantity'],
+            'unit_price' => $validated['unit_price'],
+            'purchase_date' => $validated['purchase_date'],
+        ]);
+        
+        // 3. Обновляем себестоимость товара, если отмечен чекбокс
+        if ($request->has('update_cost_price') && $request->boolean('update_cost_price')) {
+            $product->cost = $validated['unit_price'];
+            $product->save();
+        }
+        
+        // 4. Добавляем новое количество на склад
+        $purchase->addToStock();
+        
+        $successMessage = 'Закупка успешно обновлена! ';
+        if ($request->has('update_cost_price') && $request->boolean('update_cost_price')) {
+            $successMessage .= 'Себестоимость товара обновлена. ';
+        }
+        $successMessage .= 'Остатки скорректированы.';
+        
+        return redirect()->route('warehouses.index')
+            ->with('success', $successMessage);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Purchase $purchase)
     {
-        DB::beginTransaction();
+        // Убираем количество со склада
+        $stock = Stock::where([
+            'warehouse_id' => $purchase->warehouse_id,
+            'product_id' => $purchase->product_id,
+        ])->first();
         
-        try {
-            $warehouseId = $purchase->warehouse_id;
-            $productId = $purchase->product_id;
-            $quantity = $purchase->quantity;
-            
-            $purchase->delete();
-            
-            if ($warehouseId && $productId && $quantity > 0) {
-                Stock::where([
-                    'warehouse_id' => $warehouseId,
-                    'product_id' => $productId,
-                ])->decrement('quantity', $quantity);
-                
-                Stock::where([
-                    'warehouse_id' => $warehouseId,
-                    'product_id' => $productId,
-                ])->update(['last_updated' => now()]);
-            }
-            
-            DB::commit();
-            
-            return redirect()->route('warehouses.index') 
-                ->with('success', 'Закупка успешно удалена! Остатки скорректированы.');
-                
-        } catch (\Exception $e) {
-            DB::rollBack();
-            
-            return redirect()->route('warehouses.index')
-                ->with('error', 'Ошибка при удалении закупки: ' . $e->getMessage());
+        if ($stock) {
+            $stock->useQuantity($purchase->quantity);
         }
+        
+        // Удаляем закупку
+        $purchase->delete();
+        
+        return redirect()->route('warehouses.index')
+            ->with('success', 'Закупка успешно удалена! Остатки скорректированы.');
     }
 }

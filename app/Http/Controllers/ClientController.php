@@ -3,82 +3,70 @@
 namespace App\Http\Controllers;
 
 use App\Models\Client;
+use App\Models\BonusCard;
 use Illuminate\Http\Request;
 
 class ClientController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        $clients = Client::latest()->get();
-        return view('clients.index', compact('clients'));
+        $clients = Client::with('bonusCard')->latest()->get();
+        $bonusCards = BonusCard::all();
+        return view('clients.index', compact('clients', 'bonusCards'));
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
     public function create()
     {
-        return view('clients.create');
+        $bonusCards = BonusCard::all();
+        return view('clients.create', compact('bonusCards'));
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'phone' => 'required|string|max:255',
+            'phone' => 'required|string|max:20|unique:clients,phone',
             'comment' => 'nullable|string',
             'birth_date' => 'nullable|date',
+            'bonus_card_id' => 'nullable|exists:bonus_cards,IDBonusCard',
+            'bonus_points' => 'integer|min:0',
         ]);
 
         Client::create($validated);
 
         return redirect()->route('clients.index')
-            ->with('success', 'Клиент успешно добавлен!');
+            ->with('success', 'Клиент успешно создан!');
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(Client $client)
     {
+        $client->load('bonusCard');
         return view('clients.show', compact('client'));
     }
 
-    /**
-     * Show the form for editing the specified resource.
-     */
     public function edit(Client $client)
     {
-        return view('clients.edit', compact('client'));
+        $bonusCards = BonusCard::all();
+        return view('clients.edit', compact('client', 'bonusCards'));
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, Client $client)
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'phone' => 'required|string|max:255',
+            'phone' => 'required|string|max:20|unique:clients,phone,' . $client->id,
             'comment' => 'nullable|string',
             'birth_date' => 'nullable|date',
+            'bonus_card_id' => 'nullable|exists:bonus_cards,IDBonusCard',
+            'bonus_points' => 'integer|min:0',
         ]);
 
         $client->update($validated);
 
         return redirect()->route('clients.index')
-            ->with('success', 'Клиент успешно обновлён!');
+            ->with('success', 'Данные клиента обновлены!');
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Client $client)
     {
         $client->delete();

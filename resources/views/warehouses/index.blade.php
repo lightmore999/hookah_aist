@@ -13,11 +13,13 @@
         </div>
 
         <div class="d-flex gap-3">
-            
-            <a href="{{ route('warehouses.create') }}" class="btn btn-primary">
+            <button type="button" 
+                    class="btn btn-primary"
+                    data-bs-toggle="modal"
+                    data-bs-target="#createWarehouseModal">
                 <i class="bi bi-plus-circle me-1"></i>
                 Добавить склад
-            </a>
+            </button>
         </div>
     </div>
     
@@ -30,9 +32,12 @@
                 <div class="text-center py-5">
                     <i class="bi bi-inbox display-1 text-muted"></i>
                     <p class="mt-3 text-muted">Нет складов. Добавьте первый!</p>
-                    <a href="{{ route('warehouses.create') }}" class="btn btn-primary mt-2">
+                    <button type="button" 
+                            class="btn btn-primary mt-2"
+                            data-bs-toggle="modal"
+                            data-bs-target="#createWarehouseModal">
                         Добавить склад
-                    </a>
+                    </button>
                 </div>
             @else
                 <div class="table-responsive">
@@ -55,10 +60,22 @@
                                            class="btn btn-outline-primary">
                                             <i class="bi bi-eye"></i>
                                         </a>
-                                        <a href="{{ route('warehouses.edit', $warehouse) }}" 
-                                           class="btn btn-outline-warning">
+                                        <button type="button" 
+                                                class="btn btn-outline-warning edit-warehouse-btn"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#editWarehouseModal"
+                                                data-id="{{ $warehouse->id }}"
+                                                data-name="{{ $warehouse->name }}">
                                             <i class="bi bi-pencil"></i>
-                                        </a>
+                                        </button>
+                                        <button type="button" 
+                                                class="btn btn-outline-danger delete-warehouse-btn"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#deleteWarehouseModal"
+                                                data-id="{{ $warehouse->id }}"
+                                                data-name="{{ $warehouse->name }}">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -70,14 +87,14 @@
         </div>
     </div>
 
-     <div class="d-flex justify-content-end align-items-center mb-4">
+    <div class="d-flex justify-content-end align-items-center mb-4">
         <a href="{{ route('purchases.create') }}" class="btn btn-success">
-                <i class="bi bi-plus-circle me-1"></i>
-                Добавить закупку
+            <i class="bi bi-plus-circle me-1"></i>
+            Добавить закупку
         </a>
     </div>
+    
     <div class="card border-0 shadow-sm">
-        
         <div class="card-header bg-light">
             <h5 class="mb-0">Закупки</h5>
         </div>
@@ -98,8 +115,8 @@
                                 <th>Товар</th>
                                 <th>Склад</th>
                                 <th>Количество</th>
-                                <th>Цена за единицу (₽)</th>
-                                <th>Общая стоимость (₽)</th>
+                                <th>Цена за ед. (₽)</th>
+                                <th>Общая сумма (₽)</th>
                                 <th>Дата закупки</th>
                                 <th class="text-end">Действия</th>
                             </tr>
@@ -109,11 +126,26 @@
                             <tr>
                                 <td>
                                     <strong>{{ $purchase->product->name }}</strong>
+                                    <br>
+                                    <small class="text-muted">
+                                        {{ $purchase->product->unit }}
+                                        @if($purchase->product->packaging > 1)
+                                            ({{ $purchase->product->packaging }} {{ $purchase->product->unit }}/уп.)
+                                        @endif
+                                    </small>
                                 </td>
                                 <td>{{ $purchase->warehouse->name }}</td>
-                                <td>{{ $purchase->quantity }}</td>
-                                <td>{{ number_format($purchase->unit_price, 2) }}</td>
-                                <td>{{ number_format($purchase->quantity * $purchase->unit_price, 2) }}</td>
+                                <td>
+                                    {{ $purchase->formatted_quantity }}
+                                    @if($purchase->product->packaging > 1 && $purchase->product->unit !== 'шт')
+                                        <br>
+                                        <small class="text-muted">
+                                            {{ number_format($purchase->quantity_in_packages, 2) }} уп.
+                                        </small>
+                                    @endif
+                                </td>
+                                <td>{{ number_format($purchase->unit_price, 2) }}</td>                              
+                                <td>{{ number_format($purchase->total_price, 2) }}</td>
                                 <td>{{ $purchase->purchase_date->format('d.m.Y H:i') }}</td>
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm">
@@ -121,6 +153,16 @@
                                            class="btn btn-outline-warning">
                                             <i class="bi bi-pencil"></i>
                                         </a>
+                                        <form action="{{ route('purchases.destroy', $purchase) }}" 
+                                              method="POST" 
+                                              class="d-inline"
+                                              onsubmit="return confirm('Удалить закупку?')">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="btn btn-outline-danger">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
                                     </div>
                                 </td>
                             </tr>
@@ -132,5 +174,35 @@
         </div>
     </div>
 </div>
-@endsection
 
+@include('warehouses.modals.warehouses_create')
+@include('warehouses.modals.warehouses_edit')
+@include('warehouses.modals.warehouses_delete')
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const editWarehouseModal = document.getElementById('editWarehouseModal');
+    if (editWarehouseModal) {
+        editWarehouseModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            if (button && button.classList.contains('edit-warehouse-btn')) {
+                document.getElementById('edit_warehouse_name').value = button.dataset.name;
+                document.getElementById('editWarehouseForm').action = `/warehouses/${button.dataset.id}`;
+            }
+        });
+    }
+
+    const deleteWarehouseModal = document.getElementById('deleteWarehouseModal');
+    if (deleteWarehouseModal) {
+        deleteWarehouseModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            if (button && button.classList.contains('delete-warehouse-btn')) {
+                document.getElementById('deleteWarehouseName').textContent = button.dataset.name;
+                document.getElementById('deleteWarehouseForm').action = `/warehouses/${button.dataset.id}`;
+            }
+        });
+    }
+});
+</script>
+
+@endsection
