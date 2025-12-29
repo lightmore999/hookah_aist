@@ -13,11 +13,6 @@ use App\Http\Controllers\TableController;
 use App\Http\Controllers\WriteOffController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\ShiftController;
-use App\Http\Controllers\RecipeItemController;
-use App\Http\Controllers\OrderController;
-use App\Http\Controllers\ProductOrderItemController;
-use App\Http\Controllers\HookahOrderItemController;
-use App\Http\Controllers\RecipeOrderItemController;
 use App\Http\Controllers\BonusCardController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\FineController;
@@ -127,36 +122,6 @@ Route::middleware('auth')->group(function () {
 
     Route::resource('write-offs', WriteOffController::class);
     Route::resource('employees', EmployeeController::class);
-    Route::resource('recipe-items', RecipeItemController::class);
-    
-    // УДАЛЯЕМ маршруты для заказов, так как теперь используем продажи через столы
-    // Route::resource('orders', OrderController::class);
-    // Route::prefix('orders/{order}')->group(function () {
-    //     Route::prefix('product-items')->group(function () {
-    //         Route::post('/', [ProductOrderItemController::class, 'store'])
-    //             ->name('orders.product-items.store');
-    //         Route::put('/{item}', [ProductOrderItemController::class, 'update'])
-    //             ->name('orders.product-items.update');
-    //         Route::delete('/{item}', [ProductOrderItemController::class, 'destroy'])
-    //             ->name('orders.product-items.destroy');
-    //     });
-    //
-    //     Route::prefix('hookah-items')->group(function () {
-    //         Route::post('/', [HookahOrderItemController::class, 'store'])
-    //             ->name('orders.hookah-items.store');
-    //         Route::delete('/{item}', [HookahOrderItemController::class, 'destroy'])
-    //             ->name('orders.hookah-items.destroy');
-    //     });
-    //
-    //     Route::prefix('recipe-items')->group(function () {
-    //         Route::post('/', [RecipeOrderItemController::class, 'store'])
-    //             ->name('orders.recipe-items.store');
-    //         Route::put('/{item}', [RecipeOrderItemController::class, 'update'])
-    //             ->name('orders.recipe-items.update');
-    //         Route::delete('/{item}', [RecipeOrderItemController::class, 'destroy'])
-    //             ->name('orders.recipe-items.destroy');
-    //     });
-    // });
 
    // Смены
     Route::prefix('shifts')->name('shifts.')->group(function () {
