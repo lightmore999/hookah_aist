@@ -52,16 +52,34 @@
                     <!-- Скидка -->
                     <div class="mb-3">
                         <label for="closeDiscount" class="form-label fw-bold">Скидка</label>
-                        <div class="input-group">
-                            <input type="number" 
-                                min="0" 
-                                step="0.01"
-                                class="form-control" 
-                                id="closeDiscount" 
-                                name="discount" 
-                                value="0">
-                            <span class="input-group-text">₽</span>
+                        
+                        <div class="row mb-2">
+                            <div class="col-4">
+                                <select class="form-select form-select-sm" id="discountTypeSelect">
+                                    <option value="fixed">₽ Сумма</option>
+                                    <option value="percent">% Процент</option>
+                                </select>
+                            </div>
+                            <div class="col-8">
+                                <div class="input-group">
+                                    <input type="number" 
+                                        min="0" 
+                                        step="0.01"
+                                        class="form-control" 
+                                        id="closeDiscount" 
+                                        name="discount" 
+                                        value="0"
+                                        placeholder="0">
+                                    <span class="input-group-text" id="discountSuffix">₽</span>
+                                </div>
+                            </div>
                         </div>
+                        
+                        <div class="mt-2 small" id="discountConversion" style="display: none;">
+                            <span class="text-muted">Скидка составит: </span>
+                            <span id="discountAmount" class="fw-bold">0.00 ₽</span>
+                        </div>
+                        
                         <div class="form-text">Необязательно</div>
                     </div>
                     
@@ -165,3 +183,151 @@
         </div>
     </div>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+    const discountTypeFixed = document.getElementById('discountTypeFixed');
+    const discountTypePercent = document.getElementById('discountTypePercent');
+    const closeDiscountInput = document.getElementById('closeDiscount');
+    const discountSuffix = document.getElementById('discountSuffix');
+    const discountConversion = document.getElementById('discountConversion');
+    const discountAmount = document.getElementById('discountAmount');
+    
+    let currentDiscountType = 'fixed'; // 'fixed' или 'percent'
+    let currentItemsTotal = 0;
+    let currentHookahsTotal = 0;
+    let currentSubtotal = 0;
+
+    // Функция для обновления отображения скидки
+    function updateDiscountDisplay() {
+        const discountValue = parseFloat(closeDiscountInput.value) || 0;
+        
+        if (currentDiscountType === 'percent') {
+            // Показываем конвертацию
+            discountConversion.style.display = 'block';
+            
+            // Рассчитываем сумму скидки
+            const subtotal = currentItemsTotal + currentHookahsTotal;
+            const discountInRubles = (subtotal * discountValue / 100);
+            
+            discountAmount.textContent = discountInRubles.toFixed(2) + ' ₽';
+            discountSuffix.textContent = '%';
+            
+            // Устанавливаем максимум 100% для процентов
+            closeDiscountInput.max = 100;
+            closeDiscountInput.step = "0.1";
+            closeDiscountInput.placeholder = "0-100";
+        } else {
+            // Скрываем конвертацию для фиксированной суммы
+            discountConversion.style.display = 'none';
+            discountSuffix.textContent = '₽';
+            
+            // Снимаем ограничение максимума
+            closeDiscountInput.removeAttribute('max');
+            closeDiscountInput.step = "0.01";
+            closeDiscountInput.placeholder = "0";
+        }
+        
+        // Пересчитываем итоговую сумму
+        calculateFinalTotal();
+    }
+
+    // Обработчики для переключателей
+    if (discountTypeFixed) {
+        discountTypeFixed.addEventListener('change', function() {
+            if (this.checked) {
+                currentDiscountType = 'fixed';
+                updateDiscountDisplay();
+            }
+        });
+    }
+
+    if (discountTypePercent) {
+        discountTypePercent.addEventListener('change', function() {
+            if (this.checked) {
+                currentDiscountType = 'percent';
+                updateDiscountDisplay();
+            }
+        });
+    }
+
+    // Обработчик изменения значения скидки
+    if (closeDiscountInput) {
+        closeDiscountInput.addEventListener('input', function() {
+            updateDiscountDisplay();
+        });
+    }
+
+    // Функция для получения скидки в рублях (для отправки на сервер)
+    function getDiscountInRubles() {
+        const discountValue = parseFloat(closeDiscountInput.value) || 0;
+        
+        if (currentDiscountType === 'percent') {
+            const subtotal = currentItemsTotal + currentHookahsTotal;
+            return (subtotal * discountValue / 100);
+        }
+        
+        return discountValue;
+    }
+
+    // Модифицируем существующую функцию calculateFinalTotal
+    // (предполагая, что она уже есть в вашем коде)
+    window.calculateFinalTotal = function() {
+        const discountInRubles = getDiscountInRubles();
+        const subtotal = currentItemsTotal + currentHookahsTotal;
+        const finalTotal = Math.max(0, subtotal - discountInRubles - currentBonusDiscount);
+        
+        // Обновляем отображение (ваш существующий код)
+        // ... ваш существующий код обновления интерфейса ...
+        
+        return finalTotal;
+    };
+
+    // Модифицируем обработчик открытия модалки
+    const closeSaleModal = document.getElementById('closeSaleModal');
+    if (closeSaleModal) {
+        closeSaleModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            if (button && button.classList.contains('close-sale-btn')) {
+                // Ваш существующий код установки данных
+                
+                // Сбрасываем тип скидки на "фиксированная сумма"
+                if (discountTypeFixed) discountTypeFixed.checked = true;
+                if (discountTypePercent) discountTypePercent.checked = false;
+                
+                // Сбрасываем значение скидки
+                if (closeDiscountInput) {
+                    closeDiscountInput.value = button.dataset.discount || 0;
+                }
+                
+                // Обновляем отображение
+                currentDiscountType = 'fixed';
+                updateDiscountDisplay();
+            }
+        });
+    }
+
+    // Модифицируем отправку формы - конвертируем проценты в рубли перед отправкой
+    const closeSaleForm = document.getElementById('closeSaleForm');
+    if (closeSaleForm) {
+        closeSaleForm.addEventListener('submit', function(e) {
+            // Если выбраны проценты, конвертируем в рубли
+            if (currentDiscountType === 'percent') {
+                const discountInRubles = getDiscountInRubles();
+                
+                // Создаем скрытое поле для отправки скидки в рублях
+                const hiddenDiscountField = document.createElement('input');
+                hiddenDiscountField.type = 'hidden';
+                hiddenDiscountField.name = 'discount';
+                hiddenDiscountField.value = discountInRubles.toFixed(2);
+                
+                // Добавляем в форму
+                this.appendChild(hiddenDiscountField);
+                
+                // Отключаем оригинальное поле (чтобы не отправлялось два значения)
+                closeDiscountInput.disabled = true;
+            }
+        });
+    }
+});
+</script>

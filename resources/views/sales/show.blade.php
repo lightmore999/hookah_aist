@@ -411,7 +411,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Закрытие продажи
+    // =========== Закрытие продажи ===========
     const closeSaleModal = document.getElementById('closeSaleModal');
     const itemsTotalElem = document.getElementById('closeItemsTotal');
     const hookahsTotalElem = document.getElementById('closeHookahsTotal');
@@ -423,6 +423,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const hookahRow = document.getElementById('hookahRow');
     const subtotalRow = document.getElementById('subtotalRow');
     const finalTotalBreakdown = document.getElementById('finalTotalBreakdown');
+    
+    // Новые элементы для переключения типа скидки
+    const discountTypeSelect = document.getElementById('discountTypeSelect');
+    const discountSuffix = document.getElementById('discountSuffix');
+    const discountConversion = document.getElementById('discountConversion');
+    const discountAmount = document.getElementById('discountAmount');
 
     // Элементы бонусов
     const clientBonusInfo = document.getElementById('clientBonusInfo');
@@ -444,11 +450,24 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentClientBonusPoints = 0;
     let maxUsableBonuses = 0;
     let currentBonusDiscount = 0;
+    let currentDiscountType = 'fixed'; // 'fixed' или 'percent'
+
+    // Функция для получения скидки в рублях
+    function getDiscountInRubles() {
+        const discountValue = parseFloat(closeDiscountInput.value) || 0;
+        
+        if (currentDiscountType === 'percent') {
+            const subtotal = currentItemsTotal + currentHookahsTotal;
+            return (subtotal * discountValue / 100);
+        }
+        
+        return discountValue;
+    }
 
     function calculateFinalTotal() {
-        const discount = parseFloat(closeDiscountInput.value) || 0;
+        const discountInRubles = getDiscountInRubles();
         const subtotal = currentItemsTotal + currentHookahsTotal;
-        const finalTotal = subtotal - discount - currentBonusDiscount;
+        const finalTotal = Math.max(0, subtotal - discountInRubles - currentBonusDiscount);
         
         // Обновляем отображение сумм
         itemsTotalElem.textContent = currentItemsTotal.toFixed(2) + ' ₽';
@@ -478,36 +497,76 @@ document.addEventListener('DOMContentLoaded', function() {
         // Формируем строку разбивки
         let breakdown = '(Товары';
         if (currentHookahsTotal > 0) breakdown += ' + Кальяны';
-        if (discount > 0) breakdown += ' - Скидка';
+        if (discountInRubles > 0) {
+            breakdown += ' - Скидка (' + (currentDiscountType === 'percent' ? closeDiscountInput.value + '%' : discountInRubles.toFixed(2) + '₽') + ')';
+        }
         if (currentBonusDiscount > 0) breakdown += ' - Бонусы';
         breakdown += ')';
         finalTotalBreakdown.textContent = breakdown;
     }
 
+    // Функция для обновления отображения скидки
+    function updateDiscountDisplay() {
+        const discountValue = parseFloat(closeDiscountInput.value) || 0;
+        
+        if (currentDiscountType === 'percent') {
+            // Показываем конвертацию
+            if (discountConversion) discountConversion.style.display = 'block';
+            
+            // Рассчитываем сумму скидки
+            const subtotal = currentItemsTotal + currentHookahsTotal;
+            const discountInRubles = (subtotal * discountValue / 100);
+            
+            if (discountAmount) discountAmount.textContent = discountInRubles.toFixed(2) + ' ₽';
+            if (discountSuffix) discountSuffix.textContent = '%';
+            
+            // Устанавливаем максимум 100% для процентов
+            if (closeDiscountInput) {
+                closeDiscountInput.max = 100;
+                closeDiscountInput.step = "0.1";
+                closeDiscountInput.placeholder = "0-100";
+            }
+        } else {
+            // Скрываем конвертацию для фиксированной суммы
+            if (discountConversion) discountConversion.style.display = 'none';
+            if (discountSuffix) discountSuffix.textContent = '₽';
+            
+            // Снимаем ограничение максимума
+            if (closeDiscountInput) {
+                closeDiscountInput.removeAttribute('max');
+                closeDiscountInput.step = "0.01";
+                closeDiscountInput.placeholder = "0";
+            }
+        }
+        
+        // Пересчитываем итоговую сумму
+        calculateFinalTotal();
+    }
+
     function updateBonusInfo() {
         if (!currentClientId) {
             // Нет клиента - скрываем секцию бонусов
-            clientBonusInfo.style.display = 'none';
-            bonusSection.style.display = 'none';
+            if (clientBonusInfo) clientBonusInfo.style.display = 'none';
+            if (bonusSection) bonusSection.style.display = 'none';
             currentBonusDiscount = 0;
             return;
         }
         
         // Показываем информацию о клиенте
-        clientBonusInfo.style.display = 'block';
-        clientNameElem.textContent = currentClientName;
-        clientBonusPointsElem.textContent = currentClientBonusPoints.toLocaleString();
+        if (clientBonusInfo) clientBonusInfo.style.display = 'block';
+        if (clientNameElem) clientNameElem.textContent = currentClientName;
+        if (clientBonusPointsElem) clientBonusPointsElem.textContent = currentClientBonusPoints.toLocaleString();
         
         // Используем процент из бонусной карты (по умолчанию 50%)
         const maxSpendPercent = window.maxSpendPercent || 50;
         
         // Рассчитываем максимальное количество бонусов
         const totalAmount = currentItemsTotal + currentHookahsTotal;
-        const discount = parseFloat(closeDiscountInput.value) || 0;
+        const discountInRubles = getDiscountInRubles();
         
         // Максимум бонусов = X% от (сумма товаров - скидка)
         const percentage = maxSpendPercent / 100;
-        maxUsableBonuses = Math.floor((totalAmount - discount) * percentage);
+        maxUsableBonuses = Math.floor((totalAmount - discountInRubles) * percentage);
         
         // Нельзя использовать больше, чем есть у клиента
         maxUsableBonuses = Math.min(currentClientBonusPoints, maxUsableBonuses);
@@ -515,37 +574,48 @@ document.addEventListener('DOMContentLoaded', function() {
         // Не может быть меньше 0
         maxUsableBonuses = Math.max(0, maxUsableBonuses);
         
-        maxUsableBonusesElem.textContent = maxUsableBonuses.toLocaleString() + ' бонусов';
+        if (maxUsableBonusesElem) maxUsableBonusesElem.textContent = maxUsableBonuses.toLocaleString() + ' бонусов';
         
         // Обновляем текст в блоке предупреждения
-        bonusWarning.style.display = 'block';
+        if (bonusWarning) bonusWarning.style.display = 'block';
         
-        if (maxUsableBonuses > 0) {
+        if (maxUsableBonuses > 0 && bonusWarningText) {
             bonusWarningText.innerHTML = `
                 <div>Клиент может использовать до <strong>${maxUsableBonuses.toLocaleString()}</strong> бонусов</div>
                 <div class="small mt-1">Лимит из бонусной карты: <strong>${maxSpendPercent}%</strong> от суммы заказа</div>
             `;
-        } else if (currentClientBonusPoints > 0) {
+        } else if (currentClientBonusPoints > 0 && bonusWarningText) {
             bonusWarningText.innerHTML = `
                 <div>У клиента недостаточно бонусов для использования</div>
                 <div class="small mt-1">Лимит из бонусной карты: <strong>${maxSpendPercent}%</strong> от суммы заказа</div>
             `;
-        } else {
+        } else if (bonusWarningText) {
             bonusWarningText.textContent = 'У клиента нет бонусов';
         }
         
         // Показываем секцию бонусов
-        bonusSection.style.display = 'block';
+        if (bonusSection) bonusSection.style.display = 'block';
         
         // Сбрасываем состояние бонусов
-        useBonusesCheckbox.checked = false;
-        bonusPointsToUseInput.value = 0;
-        bonusPointsToUseInput.disabled = true;
-        bonusInputRow.style.display = 'none';
+        if (useBonusesCheckbox) useBonusesCheckbox.checked = false;
+        if (bonusPointsToUseInput) {
+            bonusPointsToUseInput.value = 0;
+            bonusPointsToUseInput.disabled = true;
+        }
+        if (bonusInputRow) bonusInputRow.style.display = 'none';
         currentBonusDiscount = 0;
         
         // Пересчитываем сумму с учетом обновленных бонусов
         calculateFinalTotal();
+    }
+
+    // Инициализация обработчиков для переключения типа скидки
+    if (discountTypeSelect) {
+        discountTypeSelect.addEventListener('change', function() {
+            currentDiscountType = this.value;
+            updateDiscountDisplay();
+            updateBonusInfo();
+        });
     }
 
     if (closeSaleModal) {
@@ -575,10 +645,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Сохраняем процент из бонусной карты
                 window.maxSpendPercent = parseInt(button.dataset.clientMaxSpendPercent) || 50;
                 
+                // Сбрасываем тип скидки на фиксированную сумму
+                currentDiscountType = 'fixed';
+                if (discountTypeSelect) discountTypeSelect.value = 'fixed';
+                
                 // Заполняем существующие значения
                 document.getElementById('closeDiscount').value = button.dataset.discount || 0;
                 document.getElementById('closePaymentMethod').value = button.dataset.paymentMethod || '';
                 document.getElementById('closeComment').value = button.dataset.comment || '';
+                
+                // Обновляем отображение скидки
+                updateDiscountDisplay();
                 
                 // Обновляем информацию о бонусах
                 updateBonusInfo();
@@ -593,22 +670,24 @@ document.addEventListener('DOMContentLoaded', function() {
     if (useBonusesCheckbox) {
         useBonusesCheckbox.addEventListener('change', function() {
             if (this.checked && maxUsableBonuses > 0) {
-                bonusPointsToUseInput.disabled = false;
-                bonusInputRow.style.display = 'flex';
-                bonusPointsToUseInput.max = maxUsableBonuses;
-                bonusPointsToUseInput.placeholder = `До ${maxUsableBonuses}`;
-                
-                // Автоматически ставим максимальное значение
-                if (bonusPointsToUseInput.value == 0) {
-                    bonusPointsToUseInput.value = Math.min(100, maxUsableBonuses);
+                if (bonusPointsToUseInput) {
+                    bonusPointsToUseInput.disabled = false;
+                    bonusPointsToUseInput.max = maxUsableBonuses;
+                    bonusPointsToUseInput.placeholder = `До ${maxUsableBonuses}`;
+                    
+                    // Автоматически ставим максимальное значение
+                    if (bonusPointsToUseInput.value == 0) {
+                        bonusPointsToUseInput.value = Math.min(100, maxUsableBonuses);
+                    }
                 }
+                if (bonusInputRow) bonusInputRow.style.display = 'flex';
                 
                 // Сразу пересчитываем
-                currentBonusDiscount = parseInt(bonusPointsToUseInput.value) || 0;
+                currentBonusDiscount = parseInt(bonusPointsToUseInput ? bonusPointsToUseInput.value : 0) || 0;
                 calculateFinalTotal();
             } else {
-                bonusPointsToUseInput.disabled = true;
-                bonusInputRow.style.display = 'none';
+                if (bonusPointsToUseInput) bonusPointsToUseInput.disabled = true;
+                if (bonusInputRow) bonusInputRow.style.display = 'none';
                 currentBonusDiscount = 0;
                 calculateFinalTotal();
             }
@@ -636,7 +715,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (useMaxBonusesBtn) {
         useMaxBonusesBtn.addEventListener('click', function() {
             if (maxUsableBonuses > 0) {
-                bonusPointsToUseInput.value = maxUsableBonuses;
+                if (bonusPointsToUseInput) bonusPointsToUseInput.value = maxUsableBonuses;
                 currentBonusDiscount = maxUsableBonuses;
                 calculateFinalTotal();
             }
@@ -646,12 +725,34 @@ document.addEventListener('DOMContentLoaded', function() {
     // Пересчет при изменении скидки
     if (closeDiscountInput) {
         closeDiscountInput.addEventListener('input', function() {
-            // При изменении суммы пересчитываем доступные бонусы
+            updateDiscountDisplay();
             updateBonusInfo();
-            calculateFinalTotal();
         });
     }
 
+    // Добавляем обработчик отправки формы для конвертации процентов в рубли
+    const closeSaleForm = document.getElementById('closeSaleForm');
+    if (closeSaleForm) {
+        closeSaleForm.addEventListener('submit', function(e) {
+            // Если выбраны проценты, конвертируем в рубли
+            if (currentDiscountType === 'percent') {
+                const discountInRubles = getDiscountInRubles();
+                
+                // Создаем скрытое поле для отправки скидки в рублях
+                const hiddenDiscountField = document.createElement('input');
+                hiddenDiscountField.type = 'hidden';
+                hiddenDiscountField.name = 'discount';
+                hiddenDiscountField.value = discountInRubles.toFixed(2);
+                
+                // Добавляем в форму
+                this.appendChild(hiddenDiscountField);
+                
+                // Отключаем оригинальное поле (чтобы не отправлялось два значения)
+                if (closeDiscountInput) closeDiscountInput.disabled = true;
+            }
+        });
+    }
+    
     // Редактирование товара
     const editItemModal = document.getElementById('editItemModal');
     if (editItemModal) {

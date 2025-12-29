@@ -93,7 +93,7 @@ Route::middleware('auth')->group(function () {
     Route::resource('tables', TableController::class)->except(['show']);
     Route::delete('/tables/{table}', [TableController::class, 'destroy'])->name('tables.destroy');
     Route::post('tables/{table}/change-status', [TableController::class, 'changeStatus'])->name('tables.change-status');
-
+     Route::resource('recipe-items', RecipeItemController::class);
 
     // НОВЫЕ маршруты для модальных окон столов
     Route::prefix('tables/{table}')->group(function () {

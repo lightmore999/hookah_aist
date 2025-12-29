@@ -1415,31 +1415,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // =============== ФУНКЦИИ ДЛЯ РАСЧЕТА СУММ ===============
-
-    function calculateCloseTotal() {
-    // Получаем элементы
-        const discountInput = document.getElementById('closeDiscount');
-        const subtotalElement = document.getElementById('closeSubtotal');
-        const finalTotalElement = document.getElementById('closeFinalTotal');
-        const discountDisplay = document.getElementById('closeDiscountDisplay');
-        
-        if (!discountInput || !subtotalElement || !finalTotalElement) return;
-        
-        // Получаем значения
-        const discount = parseFloat(discountInput.value) || 0;
-        const subtotalText = subtotalElement.textContent;
-        const subtotal = parseFloat(subtotalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
-        
-        // Рассчитываем
-        const finalTotal = Math.max(0, subtotal - discount);
-        
-        // Обновляем
-        finalTotalElement.textContent = formatPrice(finalTotal);
-        if (discountDisplay) {
-            discountDisplay.textContent = formatPrice(discount);
-        }
-    }
 
     // =============== ИНИЦИАЛИЗАЦИЯ ОБРАБОТЧИКА СКИДКИ ===============
 
@@ -1688,43 +1663,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentBonusDiscount = 0;
     let clientMaxSpendPercent = 50;
 
-    // =============== ОБНОВЛЕННАЯ ФУНКЦИЯ ДЛЯ ЗАГРУЗКИ ДАННЫХ ===============
-
-    function updateCloseModalData(data) {
-        // Обновляем суммы
-        document.getElementById('closeItemsTotal').textContent = formatPrice(data.productsTotal);
-        document.getElementById('closeHookahsTotal').textContent = formatPrice(data.hookahsTotal);
-        document.getElementById('closeSubtotal').textContent = formatPrice(data.subtotal);
-        
-        // Устанавливаем скидку и отображаем ее
-        const discountInput = document.getElementById('closeDiscount');
-        const discountDisplay = document.getElementById('closeDiscountDisplay');
-        
-        if (discountInput) {
-            discountInput.value = data.discount || 0;
-        }
-        
-        if (discountDisplay) {
-            discountDisplay.textContent = formatPrice(data.discount || 0);
-        }
-        
-        // Отображаем бонусную скидку если есть
-        if (data.usedBonusPoints > 0) {
-            currentBonusDiscount = data.usedBonusPoints;
-            bonusDiscountRow.style.display = 'flex';
-            closeBonusDiscountDisplay.textContent = formatPrice(data.usedBonusPoints);
-        }
-        
-        // Обновляем информацию о клиенте и бонусах
-        updateClientBonusInfo(data);
-        
-        // Заполняем списки товаров и кальянов
-        fillProductsList(data.products || []);
-        fillHookahsList(data.hookahs || []);
-        
-        // Пересчитываем итоговую сумму
-        calculateCloseTotal();
-    }
 
     // =============== ФУНКЦИЯ ОБНОВЛЕНИЯ ИНФОРМАЦИИ О БОНУСАХ ===============
 
@@ -1803,45 +1741,64 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function calculateCloseTotal() {
         // Получаем элементы
-        const discountInput = document.getElementById('closeDiscount');
         const subtotalElement = document.getElementById('closeSubtotal');
         const finalTotalElement = document.getElementById('closeFinalTotal');
-        const discountDisplay = document.getElementById('closeDiscountDisplay');
         
-        if (!discountInput || !subtotalElement || !finalTotalElement) return;
+        if (!subtotalElement || !finalTotalElement) return;
         
-        // Получаем значения
-        const discount = parseFloat(discountInput.value) || 0;
+        // Получаем значения (убираем символы валюты и пробелы)
         const subtotalText = subtotalElement.textContent;
         const subtotal = parseFloat(subtotalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
         
-        // Рассчитываем
-        const finalTotal = Math.max(0, subtotal - discount - currentBonusDiscount);
+        // Рассчитываем скидку в рублях
+        let discountInRubles = 0;
+        if (currentDiscountType === 'percent') {
+            const discountPercent = parseFloat(closeDiscountInput.value) || 0;
+            discountInRubles = (subtotal * discountPercent) / 100;
+        } else {
+            discountInRubles = parseFloat(closeDiscountInput.value) || 0;
+        }
         
-        // Обновляем
+        // Ограничиваем скидку промежуточной суммой
+        discountInRubles = Math.min(discountInRubles, subtotal);
+        
+        // Рассчитываем
+        const finalTotal = Math.max(0, subtotal - discountInRubles - currentBonusDiscount);
+        
+        // Обновляем отображение
         finalTotalElement.textContent = formatPrice(finalTotal);
+        
+        // Обновляем отображение скидки
+        const discountDisplay = document.getElementById('closeDiscountDisplay');
         if (discountDisplay) {
-            discountDisplay.textContent = formatPrice(discount);
+            discountDisplay.textContent = formatPrice(discountInRubles);
         }
         
         // Обновляем отображение бонусной скидки
-        if (currentBonusDiscount > 0) {
-            bonusDiscountRow.style.display = 'flex';
-            closeBonusDiscountDisplay.textContent = formatPrice(currentBonusDiscount);
-        } else {
-            bonusDiscountRow.style.display = 'none';
+        if (bonusDiscountRow && closeBonusDiscountDisplay) {
+            if (currentBonusDiscount > 0) {
+                bonusDiscountRow.style.display = 'flex';
+                closeBonusDiscountDisplay.textContent = formatPrice(currentBonusDiscount);
+            } else {
+                bonusDiscountRow.style.display = 'none';
+            }
         }
         
         // Формируем строку разбивки
-        let breakdown = '(Товары + Кальяны)';
-        if (discount > 0) breakdown += ' - Скидка';
-        if (currentBonusDiscount > 0) breakdown += ' - Бонусы';
-        
         if (finalTotalBreakdown) {
+            let breakdown = '(Товары + Кальяны)';
+            if (discountInRubles > 0) {
+                breakdown += ' - Скидка';
+                if (currentDiscountType === 'percent') {
+                    breakdown += ` (${closeDiscountInput.value}%)`;
+                }
+            }
+            if (currentBonusDiscount > 0) breakdown += ' - Бонусы';
+            
             finalTotalBreakdown.textContent = breakdown;
         }
         
-        // Обновляем расчет доступных бонусов (если есть данные клиента)
+        // Обновляем расчет доступных бонусов
         updateBonusCalculation();
     }
 
@@ -1945,6 +1902,217 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // =============== ЛОГИКА ВЫБОРА ТИПА СКИДКИ ===============
+
+    // Элементы для работы со скидкой
+    let discountTypeSelect = document.getElementById('discountTypeSelect');
+    let closeDiscountInput = document.getElementById('closeDiscount');
+    let discountSuffix = document.getElementById('discountSuffix');
+    let discountConversion = document.getElementById('discountConversion');
+    let discountAmount = document.getElementById('discountAmount');
+    let discountPercentInput = document.getElementById('discountPercent');
+
+    // Текущий тип скидки
+    let currentDiscountType = 'fixed'; // 'fixed' или 'percent'
+    let currentSubtotal = 0; // Промежуточная сумма для расчета процентов
+
+    // Инициализация обработчиков скидки
+    function initDiscountLogic() {
+        if (!discountTypeSelect || !closeDiscountInput) return;
+        
+        // Обработчик изменения типа скидки
+        discountTypeSelect.addEventListener('change', function() {
+            currentDiscountType = this.value;
+            updateDiscountUI();
+            recalculateDiscount();
+        });
+        
+        // Обработчик ввода значения скидки
+        closeDiscountInput.addEventListener('input', function() {
+            recalculateDiscount();
+        });
+    }
+
+    // Обновление интерфейса в зависимости от типа скидки
+    function updateDiscountUI() {
+        if (currentDiscountType === 'percent') {
+            // Режим процентов
+            discountSuffix.textContent = '%';
+            discountConversion.style.display = 'block';
+            
+            // Обновляем placeholder и шаг
+            closeDiscountInput.placeholder = '0';
+            closeDiscountInput.step = '0.01';
+            closeDiscountInput.max = '100'; // Максимум 100%
+            
+            // Показываем конвертацию
+            updateDiscountConversion();
+        } else {
+            // Режим рублей
+            discountSuffix.textContent = '₽';
+            discountConversion.style.display = 'none';
+            
+            // Обновляем placeholder и шаг
+            closeDiscountInput.placeholder = '0';
+            closeDiscountInput.step = '0.01';
+            closeDiscountInput.max = ''; // Снимаем ограничение
+            
+            // Скрываем конвертацию
+            discountAmount.textContent = '0.00 ₽';
+        }
+    }
+
+    // Пересчет скидки
+    function recalculateDiscount() {
+        const discountValue = parseFloat(closeDiscountInput.value) || 0;
+        
+        if (currentDiscountType === 'percent') {
+            // Конвертируем проценты в рубли
+            const discountInRubles = (currentSubtotal * discountValue) / 100;
+            discountAmount.textContent = formatPrice(discountInRubles);
+            
+            // Сохраняем проценты в скрытое поле
+            if (discountPercentInput) {
+                discountPercentInput.value = discountValue;
+            }
+            
+            // Вызываем обновление итоговой суммы
+            updateTotalAfterDiscount(discountInRubles);
+        } else {
+            // Рубли - просто передаем значение
+            if (discountPercentInput) {
+                discountPercentInput.value = 0; // Обнуляем проценты
+            }
+            
+            // Вызываем обновление итоговой суммы
+            updateTotalAfterDiscount(discountValue);
+        }
+    }
+
+    // Обновление итоговой суммы после скидки
+    function updateTotalAfterDiscount(discountInRubles) {
+        // Обновляем отображение скидки
+        const discountDisplay = document.getElementById('closeDiscountDisplay');
+        if (discountDisplay) {
+            discountDisplay.textContent = formatPrice(discountInRubles);
+        }
+        
+        // Вызываем пересчет итоговой суммы
+        if (typeof calculateCloseTotal === 'function') {
+            calculateCloseTotal();
+        }
+    }
+
+    // Обновление конвертации (вызывается при загрузке данных)
+    function updateDiscountConversion() {
+        if (currentDiscountType === 'percent') {
+            const discountValue = parseFloat(closeDiscountInput.value) || 0;
+            const discountInRubles = (currentSubtotal * discountValue) / 100;
+            discountAmount.textContent = formatPrice(discountInRubles);
+        }
+    }
+
+    // Функция для установки промежуточной суммы
+    function setCurrentSubtotal(subtotal) {
+        currentSubtotal = subtotal;
+        if (currentDiscountType === 'percent') {
+            updateDiscountConversion();
+        }
+    }
+
+    // =============== ОБНОВЛЕНИЕ ФУНКЦИИ updateCloseModalData ===============
+
+    function updateCloseModalData(data) {
+        // Обновляем промежуточную сумму
+        let subtotal = 0;
+        
+        // Проверяем формат данных
+        if (typeof data.subtotal === 'string') {
+            // Старый формат: строка с "₽"
+            subtotal = parseFloat(data.subtotal.replace(' ₽', '').replace(/\s/g, '')) || 0;
+        } else if (typeof data.subtotal === 'number') {
+            // Новый формат: число
+            subtotal = data.subtotal;
+        } else {
+            // Если непонятный формат
+            subtotal = 0;
+            console.warn('Unexpected subtotal format:', data.subtotal);
+        }
+        
+        // Устанавливаем текущую промежуточную сумму
+        setCurrentSubtotal(subtotal);
+        
+        // Обновляем суммы в формате для отображения
+        document.getElementById('closeItemsTotal').textContent = formatPrice(data.productsTotal || 0);
+        document.getElementById('closeHookahsTotal').textContent = formatPrice(data.hookahsTotal || 0);
+        document.getElementById('closeSubtotal').textContent = formatPrice(subtotal);
+        
+        // Устанавливаем скидку (если она есть в данных)
+        if (closeDiscountInput) {
+            closeDiscountInput.value = data.discount || 0;
+        }
+        
+        // Обновляем информацию о клиенте и бонусах
+        updateClientBonusInfo(data);
+        
+        // Заполняем списки товаров и кальянов
+        fillProductsList(data.products || []);
+        fillHookahsList(data.hookahs || []);
+        
+        // Пересчитываем итоговую сумму
+        recalculateDiscount();
+    }
+
+
+    // =============== ОБНОВЛЕНИЕ ФУНКЦИИ updateBonusCalculation ===============
+
+    function updateBonusCalculation() {
+        // Проверяем, есть ли элементы
+        if (!clientBonusPointsElem || !maxUsableBonusesElem || !closeDiscountInput) return;
+        
+        // Проверяем, есть ли данные клиента
+        const clientBonusPoints = parseInt(clientBonusPointsElem.textContent.replace(/\D/g, '')) || 0;
+        if (clientBonusPoints === 0) return;
+        
+        // Получаем текущие суммы
+        const subtotalElement = document.getElementById('closeSubtotal');
+        if (!subtotalElement) return;
+        
+        const subtotalText = subtotalElement.textContent;
+        const subtotal = parseFloat(subtotalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
+        
+        // Рассчитываем скидку для расчета бонусов
+        let discountForBonusCalc = 0;
+        if (currentDiscountType === 'percent') {
+            const discountPercent = parseFloat(closeDiscountInput.value) || 0;
+            discountForBonusCalc = (subtotal * discountPercent) / 100;
+        } else {
+            discountForBonusCalc = parseFloat(closeDiscountInput.value) || 0;
+        }
+        
+        // Пересчитываем максимальные бонусы
+        const percentage = clientMaxSpendPercent / 100;
+        maxUsableBonuses = Math.floor((subtotal - discountForBonusCalc) * percentage);
+        maxUsableBonuses = Math.min(clientBonusPoints, maxUsableBonuses);
+        maxUsableBonuses = Math.max(0, maxUsableBonuses);
+        
+        if (maxUsableBonusesElem) {
+            maxUsableBonusesElem.textContent = maxUsableBonuses.toLocaleString() + ' бонусов';
+        }
+        
+        // Обновляем максимальное значение в input
+        if (bonusPointsToUseInput && !bonusPointsToUseInput.disabled) {
+            bonusPointsToUseInput.max = maxUsableBonuses;
+            
+            // Если текущее значение больше нового максимума, уменьшаем его
+            if (parseInt(bonusPointsToUseInput.value) > maxUsableBonuses) {
+                bonusPointsToUseInput.value = maxUsableBonuses;
+                currentBonusDiscount = maxUsableBonuses;
+                calculateCloseTotal();
+            }
+        }
+    }
+
     
     // =============== ИНИЦИАЛИЗАЦИЯ ===============
     
@@ -1956,6 +2124,7 @@ document.addEventListener('DOMContentLoaded', function() {
             trigger: 'hover'
         });
     });
+    initDiscountLogic();
     
     // Экспорт функций
     window.TableManager = {
@@ -1976,7 +2145,11 @@ document.addEventListener('DOMContentLoaded', function() {
         calculateCloseTotal,
         updateClientBonusInfo,
         calculateCloseTotal,
-        updateBonusCalculation        
+        updateBonusCalculation,
+        initDiscountLogic,
+        recalculateDiscount,
+        setCurrentSubtotal,
+        updateDiscountUI,      
     };
     
     console.log('Table Manager initialized');

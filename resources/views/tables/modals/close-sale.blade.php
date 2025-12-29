@@ -48,20 +48,43 @@
                             </div>
                             
                             <!-- Скидка -->
-                            <div class="mb-3">
-                                <label for="closeDiscount" class="form-label fw-bold">Скидка</label>
-                                <div class="input-group">
-                                    <input type="number" 
-                                        min="0" 
-                                        step="0.01"
-                                        class="form-control" 
-                                        id="closeDiscount" 
-                                        name="discount" 
-                                        value="0">
-                                    <span class="input-group-text">₽</span>
+                                <div class="mb-3">
+                                    <label for="closeDiscount" class="form-label fw-bold">Скидка</label>
+                                    
+                                    <div class="row mb-2">
+                                        <div class="col-4">
+                                            <select class="form-select form-select-sm" id="discountTypeSelect">
+                                                <option value="fixed">₽ Сумма</option>
+                                                <option value="percent">% Процент</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-8">
+                                            <!-- Основное поле для рублей -->
+                                            <div class="input-group">
+                                                <input type="number" 
+                                                    min="0" 
+                                                    step="0.01"
+                                                    class="form-control" 
+                                                    id="closeDiscount" 
+                                                    name="discount" 
+                                                    value="0"
+                                                    placeholder="0">
+                                                <span class="input-group-text" id="discountSuffix">₽</span>
+                                            </div>
+                                            
+                                            <!-- Скрытое поле для отправки процентов -->
+                                            <input type="hidden" id="discountPercent" name="discount_percent" value="0">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Конвертация процентов -->
+                                    <div class="mt-2 small" id="discountConversion" style="display: none;">
+                                        <span class="text-muted">Скидка составит: </span>
+                                        <span id="discountAmount" class="fw-bold">0.00 ₽</span>
+                                    </div>
+                                    
+                                    <div class="form-text">Выберите тип скидки и введите значение</div>
                                 </div>
-                                <div class="form-text">Введите сумму скидки</div>
-                            </div>
                             
                             <!-- Использование бонусов -->
                             <div class="mb-3 border p-3 rounded" id="bonusSection" style="display: none;">
@@ -210,3 +233,4 @@
         </div>
     </div>
 </div>
+
