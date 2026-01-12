@@ -23,18 +23,39 @@ class TableController extends Controller
             ? Carbon::parse($request->date)
             : Carbon::today();
         
-        // Получаем все столы на выбранную дату
-        $tables = Table::whereDate('booking_date', $selectedDate)
-            ->orderBy('table_number')
-            ->orderBy('booking_time')
-            ->get()
-            ->groupBy('table_number');
+        
+        // Создаем временные границы
+        $startOfDay = $selectedDate->copy()->startOfDay();
+        $nextDay = $selectedDate->copy()->addDay()->startOfDay();
+        $nightCutoff = $selectedDate->copy()->addDay()->setTime(3, 30, 0); // До 03:30 следующего дня
+        
+        // Получаем все столы, которые пересекаются с выбранной датой
+        $tables = Table::where(function($query) use ($selectedDate, $startOfDay, $nextDay, $nightCutoff) {
+            // Столы, которые начинаются в выбранный день (с 00:00 до 23:59)
+            $query->whereDate('booking_date', $selectedDate)
+                ->whereTime('booking_time', '>=', '00:00')
+                ->whereTime('booking_time', '<', '23:59');
+            
+            // ИЛИ столы, которые начинаются после 00:00 предыдущего дня и заканчиваются после 00:00
+            $query->orWhere(function($q) use ($selectedDate) {
+                // Предыдущий день
+                $prevDay = $selectedDate->copy()->subDay();
+                $q->whereDate('booking_date', $prevDay)
+                ->whereTime('booking_time', '>=', '14:00'); // Начались вечером предыдущего дня
+            });
+        })
+        ->orderBy('table_number')
+        ->orderBy('booking_time')
+        ->get()
+        ->groupBy('table_number');
         
         // Номера столов: 1, 2, 3, 4, "Барная стойка", 6, 7
         $tableNumbers = [1, 2, 3, 4, 'Барная стойка', 6, 7];
         
+        // Получаем ID всех найденных столов
+        $tableIds = $tables->flatten()->pluck('id');
+        
         // Получаем продажи для этих столов
-        $tableIds = Table::whereDate('booking_date', $selectedDate)->pluck('id');
         $allSalesForTables = Sale::whereIn('table_id', $tableIds)
             ->with(['items.product', 'hookahs'])
             ->get()
@@ -66,7 +87,7 @@ class TableController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'table_number' => 'required|integer|min:1|max:50',
+            'table_number' => 'required|string|max:50',
             'booking_date' => 'required|date',
             'booking_time' => 'required|date_format:H:i',
             'duration' => 'required|integer|min:30|max:720',
@@ -77,6 +98,13 @@ class TableController extends Controller
             'client_id' => 'nullable|exists:clients,id',
             'status' => 'nullable|string|in:new,opened_without_hookah,opened_with_hookah,closed'
         ]);
+        
+        // Проверка на пересечение времени с учетом ночной логики
+        if (!$this->checkTimeAvailability($validated['table_number'], $validated['booking_date'], $validated['booking_time'], $validated['duration'])) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Этот стол уже занят на выбранное время!');
+        }
         
         // Если статус не указан, устанавливаем по умолчанию 'new' (забронирован)
         if (!isset($validated['status'])) {
@@ -101,10 +129,10 @@ class TableController extends Controller
     public function update(Request $request, Table $table)
     {
         $validated = $request->validate([
-            'table_number' => 'required|integer|min:1|max:50',
+            'table_number' => 'required|string|max:50',
             'booking_date' => 'required|date',
             'booking_time' => 'required|date_format:H:i',
-            'end_time' => 'required|date_format:H:i', // Добавили end_time
+            'end_time' => 'required|date_format:H:i',
             'guest_name' => 'nullable|string|max:255',
             'phone' => 'nullable|string|max:20',
             'guests_count' => 'nullable|integer|min:1|max:50',
@@ -127,6 +155,13 @@ class TableController extends Controller
         // Добавляем рассчитанную длительность в массив данных
         $validated['duration'] = $duration;
         
+        // Проверка на пересечение времени (исключаем текущий стол из проверки)
+        if (!$this->checkTimeAvailability($validated['table_number'], $validated['booking_date'], $validated['booking_time'], $duration, $table->id)) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Этот стол уже занят на выбранное время!');
+        }
+        
         // Если выбран клиент, берем его данные
         if (!empty($validated['client_id'])) {
             $client = Client::find($validated['client_id']);
@@ -141,6 +176,69 @@ class TableController extends Controller
         
         return redirect()->route('tables.index')
             ->with('success', 'Стол обновлен успешно!');
+    }
+
+    private function checkTimeAvailability($tableNumber, $bookingDate, $bookingTime, $durationMinutes, $excludeTableId = null)
+    {
+        // Преобразуем входные данные
+        $newBookingDate = \Carbon\Carbon::parse($bookingDate);
+        $newBookingTime = \Carbon\Carbon::parse($newBookingDate->format('Y-m-d') . ' ' . $bookingTime);
+        $newBookingEnd = $newBookingTime->copy()->addMinutes($durationMinutes);
+        
+        // Находим все существующие брони для этого стола
+        $existingBookings = Table::where('table_number', $tableNumber)
+            ->when($excludeTableId, function ($query) use ($excludeTableId) {
+                return $query->where('id', '!=', $excludeTableId);
+            })
+            ->get();
+        
+        foreach ($existingBookings as $existingBooking) {
+            // Получаем время существующей брони с учетом ночной логики
+            $existingBookingTimeStr = is_string($existingBooking->booking_time) ? 
+                $existingBooking->booking_time : 
+                $existingBooking->booking_time->format('H:i:s');
+            
+            $existingBookingHour = (int)substr($existingBookingTimeStr, 0, 2);
+            
+            // Учитываем ночную логику для существующей брони
+            if ($existingBookingHour < 4) {
+                // Время 00:00-03:30 - это продолжение предыдущего дня
+                $existingBookingTime = \Carbon\Carbon::parse(
+                    $existingBooking->booking_date->copy()->subDay()->format('Y-m-d') . ' ' . 
+                    substr($existingBookingTimeStr, 0, 8)
+                );
+            } else {
+                // Время 04:00-23:30 - это текущий день
+                $existingBookingTime = \Carbon\Carbon::parse(
+                    $existingBooking->booking_date->format('Y-m-d') . ' ' . 
+                    substr($existingBookingTimeStr, 0, 8)
+                );
+            }
+            
+            $existingBookingEnd = $existingBookingTime->copy()->addMinutes($existingBooking->duration);
+            
+            // Проверяем пересечение временных интервалов
+            $overlaps = $this->timeRangesOverlap(
+                $newBookingTime,
+                $newBookingEnd,
+                $existingBookingTime,
+                $existingBookingEnd
+            );
+            
+            if ($overlaps) {
+                return false; // Время пересекается
+            }
+        }
+        
+        return true; // Время доступно
+    }
+
+    // Функция проверки пересечения временных интервалов
+    private function timeRangesOverlap($start1, $end1, $start2, $end2)
+    {
+        // Два промежутка пересекаются если:
+        // start1 < end2 И start2 < end1
+        return $start1->lt($end2) && $start2->lt($end1);
     }
     
     // Удаление стола
@@ -174,10 +272,8 @@ class TableController extends Controller
         $oldStatus = $table->status;
         $newStatus = $request->status;
         
-        // Если стол открывается (из статуса 'new' в любой opened_*)
-        if (($newStatus === 'opened_without_hookah' || $newStatus === 'opened_with_hookah') && 
-            $oldStatus === 'new') {
-            
+        // Если стол открывается (из статуса 'new' в 'opened_without_hookah')
+        if ($newStatus === 'opened_without_hookah' && $oldStatus === 'new') {
             // Проверяем, есть ли уже продажа для этого стола
             $existingSale = Sale::where('table_id', $table->id)->first();
             if (!$existingSale) {
@@ -198,7 +294,7 @@ class TableController extends Controller
                     'table_id' => $table->id,
                     'total' => 0,
                     'discount' => 0,
-                    'status' => 'new',
+                    'status' => 'active',
                     'sale_date' => now(),
                     'payment_method' => null,
                     'comment' => null,
@@ -206,10 +302,16 @@ class TableController extends Controller
             }
         }
         
+        // Если стол переходит в статус "с кальяном" из "без кальяна"
+        if ($newStatus === 'opened_with_hookah' && $oldStatus === 'opened_without_hookah') {
+            // Здесь можно добавить логику при добавлении кальяна
+        }
+        
         // Обновляем статус стола
         $table->update(['status' => $newStatus]);
         
-        if ($request->expectsJson()) {
+        // Если это AJAX запрос - возвращаем JSON
+        if ($request->expectsJson() || $request->ajax()) {
             return response()->json([
                 'success' => true,
                 'message' => 'Статус стола изменен',
@@ -217,7 +319,7 @@ class TableController extends Controller
             ]);
         }
         
-        // Для обычного POST запроса - редирект
+        // Если обычный POST запрос - редирект
         return redirect()->route('tables.index')
             ->with('success', 'Стол успешно открыт!');
     }
@@ -296,19 +398,24 @@ class TableController extends Controller
             'hookah_id' => 'required|exists:hookahs,id'
         ]);
         
+        // Добавляем кальян (самый простой способ)
         $sale->hookahs()->attach($validated['hookah_id']);
+        
+        // Обновляем статус стола
+        $table->update(['status' => 'opened_with_hookah']);
         
         // Пересчитываем сумму
         $this->recalculateSaleTotal($sale);
+        $sale->refresh();
         
         return response()->json([
             'success' => true,
             'message' => 'Кальян добавлен успешно',
-            'total' => $sale->fresh()->total
+            'total' => $sale->total,
+            'status' => 'opened_with_hookah'
         ]);
     }
-    
-    // Удалить кальян из продажи
+
     public function removeHookahFromSale(Table $table, Hookah $hookah)
     {
         $sale = Sale::where('table_id', $table->id)->firstOrFail();
@@ -322,13 +429,18 @@ class TableController extends Controller
         
         $sale->hookahs()->detach($hookah->id);
         
+        // Считаем сколько кальянов осталось
+        $remainingHookahs = $sale->hookahs()->count();
+        
         // Пересчитываем сумму
         $this->recalculateSaleTotal($sale);
         
         return response()->json([
             'success' => true,
             'message' => 'Кальян удален успешно',
-            'total' => $sale->fresh()->total
+            'total' => $sale->fresh()->total,
+            'status' => 'opened_with_hookah', // ВСЕГДА возвращаем статус "с кальяном"
+            'remainingHookahs' => $remainingHookahs
         ]);
     }
     
@@ -785,5 +897,13 @@ class TableController extends Controller
                 'message' => 'Ошибка загрузки данных продажи'
             ]);
         }
+    }
+
+    public function getOpenedAtAttribute()
+    {
+        if (in_array($this->status, ['opened_without_hookah', 'opened_with_hookah'])) {
+            return $this->created_at;
+        }
+        return null;
     }
 }

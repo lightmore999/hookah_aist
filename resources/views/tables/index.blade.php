@@ -138,19 +138,36 @@
                                         
                                         foreach($tableBookings as $booking) {
                                             $bookingTimeStr = is_string($booking->booking_time) ? $booking->booking_time : (is_object($booking->booking_time) ? $booking->booking_time->format('H:i:s') : '00:00:00');
-                                            $bookingTime = \Carbon\Carbon::parse($booking->booking_date->format('Y-m-d') . ' ' . substr($bookingTimeStr, 0, 8));
+                                            
+                                            // =========== ИСПРАВЛЕНИЕ: Время бронирования ===========
+                                            $bookingHour = (int)substr($bookingTimeStr, 0, 2);
+                                            if ($bookingHour < 4) {
+                                                // Время бронирования 00:00-03:30 - это продолжение предыдущего дня
+                                                $bookingTime = \Carbon\Carbon::parse($booking->booking_date->copy()->subDay()->format('Y-m-d') . ' ' . substr($bookingTimeStr, 0, 8));
+                                            } else {
+                                                // Время бронирования 04:00-23:30 - это текущий день
+                                                $bookingTime = \Carbon\Carbon::parse($booking->booking_date->format('Y-m-d') . ' ' . substr($bookingTimeStr, 0, 8));
+                                            }
+                                            // ======================================================
+                                            
                                             $bookingEnd = $bookingTime->copy()->addMinutes($booking->duration);
                                             
                                             $timeHour = (int)substr($timeStr, 0, 2);
                                             $timeMin = (int)substr($timeStr, 3, 2);
                                             
+                                            // =========== ИСПРАВЛЕНИЕ: Время из таблицы ===========
                                             if ($timeHour < 4) {
-                                                $timeCarbon = \Carbon\Carbon::parse($selectedDate->format('Y-m-d') . ' ' . $timeStr)->addDay();
+                                                // Время 00:00-03:30 - это продолжение предыдущего дня
+                                                $timeCarbon = \Carbon\Carbon::parse($selectedDate->copy()->subDay()->format('Y-m-d') . ' ' . $timeStr);
                                             } else {
+                                                // Время 04:00-23:30 - это текущий день
                                                 $timeCarbon = \Carbon\Carbon::parse($selectedDate->format('Y-m-d') . ' ' . $timeStr);
                                             }
+                                            // =====================================================
                                             
+                                            // Проверяем, попадает ли текущее время в интервал бронирования
                                             if ($timeCarbon->gte($bookingTime) && $timeCarbon->lt($bookingEnd)) {
+                                                // Проверяем, совпадает ли время начала бронирования с текущим временем
                                                 if ($bookingTime->format('H:i') == $timeStr) {
                                                     $currentBooking = $booking;
                                                     $isStart = true;
@@ -190,11 +207,6 @@
                                                 </div>
                                                 
                                                 <!-- Информация о столе -->
-                                                @if($tableNum == 'Барная стойка')
-                                                    <div class="badge bg-warning text-dark mb-1">
-                                                        <i class="bi bi-cup-hot-fill"></i> Барная стойка                                                              
-                                                    </div>
-                                                @endif
 
                                                 @if($currentBooking->phone || $currentBooking->client?->phone)
                                                     <div class="mb-1"><i class="bi bi-telephone"></i> {{ $currentBooking->phone ?? $currentBooking->client->phone }}</div>
@@ -260,8 +272,115 @@
                                                             </button>
                                                         </div>
                                                         
-                                                    @elseif(in_array($currentBooking->status, ['opened_without_hookah', 'opened_with_hookah']) && $hasSale)
-                                                        <!-- СТАТУС: ОТКРЫТ (есть продажа) -->
+                                                   @elseif($currentBooking->status === 'opened_without_hookah' && $hasSale)
+                                                    <!-- СТАТУС: ОТКРЫТ БЕЗ КАЛЬЯНА -->
+                                                    <div class="mb-2">
+                                                        <!-- Таймер "Требуется кальян" сразу в HTML -->
+                                                        <div class="timer-container">
+                                                            <div class="hookah-requirement-timer" data-table-id="{{ $currentBooking->id }}">
+                                                                <div class="alert alert-danger alert-dismissible fade show p-1 mb-2" role="alert" style="font-size: 0.8rem;">
+                                                                    <div class="d-flex align-items-center justify-content-between">
+                                                                        <div class="d-flex align-items-center">
+                                                                            <i class="bi bi-alarm me-1"></i>
+                                                                            <span>Поставьте кальян: <strong class="time-display">--:--</strong></span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <!-- Кнопки товаров и кальянов -->
+                                                            <div class="d-flex gap-1 mb-2">
+                                                                <!-- Кнопка Товары -->
+                                                                <button type="button" 
+                                                                        class="btn btn-sm btn-primary"
+                                                                        data-bs-toggle="modal"
+                                                                        data-bs-target="#saleProductsModal"
+                                                                        data-table-id="{{ $currentBooking->id }}"
+                                                                        data-sale-id="{{ $sale->id ?? '' }}">
+                                                                    <i class="bi bi-cart"></i> Товары
+                                                                </button>
+                                                                
+                                                                <!-- Кнопка Кальяны -->
+                                                                <button type="button" 
+                                                                    class="btn btn-sm btn-warning open-sale-hookahs-btn"
+                                                                    data-bs-toggle="modal"                 
+                                                                    data-bs-target="#saleHookahsModal"        
+                                                                    data-table-id="{{ $currentBooking->id }}"
+                                                                    data-table-number="{{ $currentBooking->table_number }}"
+                                                                    data-guest-name="{{ $currentBooking->guest_name ?? ($currentBooking->client->name ?? 'Без имени') }}"
+                                                                    data-sale-id="{{ $sale->id ?? '' }}">
+                                                                <i class="bi bi-cup-straw"></i> Кальяны
+                                                                </button>
+                                                                
+                                                                <!-- Кнопка редактирования стола -->
+                                                                <button type="button" 
+                                                                        class="btn btn-sm btn-outline-warning edit-table-btn"
+                                                                        data-bs-toggle="modal"
+                                                                        data-bs-target="#editTableModal"
+                                                                        data-id="{{ $currentBooking->id }}"
+                                                                        data-table-number="{{ $currentBooking->table_number }}"
+                                                                        data-booking-date="{{ $currentBooking->booking_date->format('Y-m-d') }}"
+                                                                        data-booking-time="{{ is_string($currentBooking->booking_time) ? $currentBooking->booking_time : $currentBooking->booking_time->format('H:i') }}"
+                                                                        data-duration="{{ $currentBooking->duration }}"
+                                                                        data-guest-name="{{ $currentBooking->guest_name }}"
+                                                                        data-phone="{{ $currentBooking->phone }}"
+                                                                        data-guests-count="{{ $currentBooking->guests_count }}"
+                                                                        data-comment="{{ $currentBooking->comment }}"
+                                                                        data-client-id="{{ $currentBooking->client_id }}"
+                                                                        data-client-name="{{ $currentBooking->client->name ?? '' }}"
+                                                                        data-client-phone="{{ $currentBooking->client->phone ?? '' }}"
+                                                                        data-status="{{ $currentBooking->status }}"
+                                                                        title="Только для редактирования данных, не влияет на продажу">
+                                                                    <i class="bi bi-pencil"></i>
+                                                                </button>
+                                                            </div>
+                                                            
+                                                            <!-- Кнопка закрытия и сумма -->
+                                                            <div class="d-flex align-items-center justify-content-between border-top pt-2">
+                                                                <!-- Таймер и сумма -->
+                                                                <div class="d-flex justify-content-between align-items-center mb-2 bg-light rounded p-2">
+                                                                    <!-- Таймер -->
+                                                                    <div class="d-flex align-items-center">
+                                                                        <i class="bi bi-clock text-primary me-2"></i>
+                                                                        <div>
+                                                                            <small class="text-muted d-block">Осталось времени:</small>
+                                                                            <div class="table-timer" 
+                                                                                data-booking-date="{{ $currentBooking->booking_date->format('Y-m-d') }}"
+                                                                                data-booking-time="{{ is_string($currentBooking->booking_time) ? $currentBooking->booking_time : $currentBooking->booking_time->format('H:i') }}"
+                                                                                data-duration="{{ $currentBooking->duration }}">
+                                                                                <span class="badge bg-warning text-dark fs-6">
+                                                                                    <span class="timer-hours">00</span>:<span class="timer-minutes">00</span>:<span class="timer-seconds">00</span>
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                    
+                                                                    <!-- Сумма -->
+                                                                    <div class="text-end">
+                                                                        <small class="text-muted d-block">Сумма заказа:</small>
+                                                                        <span class="badge bg-success fs-6">
+                                                                            {{ number_format($sale->total, 0) }} ₽
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                <!-- Кнопка Закрыть стол -->
+                                                                <button type="button" 
+                                                                    class="btn btn-sm btn-success"
+                                                                    data-bs-toggle="modal"
+                                                                    data-bs-target="#closeSaleModal"   
+                                                                    data-table-id="{{ $currentBooking->id }}"
+                                                                    data-table-number="{{ $currentBooking->table_number }}"
+                                                                    data-guest-name="{{ $currentBooking->guest_name ?? ($currentBooking->client->name ?? 'Без имени') }}"
+                                                                    data-sale-id="{{ $sale->id ?? '' }}">
+                                                                    <i class="bi bi-door-closed"></i> Закрыть
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                    @elseif($currentBooking->status === 'opened_with_hookah' && $hasSale)
+                                                        <!-- СТАТУС: ОТКРЫТ С КАЛЬЯНОМ -->
                                                         <div class="mb-2">
                                                             <!-- Кнопки товаров и кальянов -->
                                                             <div class="d-flex gap-1 mb-2">
@@ -309,7 +428,11 @@
                                                                     <i class="bi bi-pencil"></i>
                                                                 </button>
                                                             </div>
-                                                            
+
+                                                            <!-- МЕСТО ДЛЯ ТАЙМЕРА УГЛЕЙ (будет добавлен JavaScript) -->
+                                                            <div id="coal-timer-placeholder-{{ $currentBooking->id }}" style="min-height: 50px;"></div>
+
+
                                                             <!-- Кнопка закрытия и сумма -->
                                                             <div class="d-flex align-items-center justify-content-between border-top pt-2">
                                                                 <!-- Таймер и сумма -->
@@ -416,6 +539,7 @@
 @include('tables.modals.delete')
 @include('tables.modals.view-order')
 
+<script src="{{ asset('js/coal-timer.js') }}"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -1147,20 +1271,15 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const hookahId = hookahSelect.value;
         
-        // Валидация
         if (!hookahId) {
             showToast('warning', 'Внимание', 'Выберите кальян');
             hookahSelect.focus();
             return;
         }
         
-        // Отправка запроса как JSON
         const requestData = {
             hookah_id: hookahId
         };
-        
-        // Добавьте отладку
-        console.log('Adding hookah:', requestData);
         
         makeRequest(`/tables/${currentHookahsTableId}/add-hookah`, {
             method: 'POST',
@@ -1173,6 +1292,22 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             if (data.success) {
                 showToast('success', 'Успех', 'Кальян добавлен');
+                
+                // Останавливаем таймер "Требуется кальян"
+                stopHookahRequirementTimer(currentHookahsTableId);
+                
+                // Обновляем статус на странице
+                updateTableStatusOnPage(currentHookahsTableId, 'opened_with_hookah');
+                
+                // ДОБАВЛЯЕМ ТАЙМЕР УГЛЕЙ (через отдельную систему)
+                setTimeout(() => {
+                    if (window.CoalTimerSystem) {
+                        const system = window.CoalTimerSystem.init();
+                        if (system) {
+                            system.onHookahAdded(currentHookahsTableId);
+                        }
+                    }
+                }, 500);
                 
                 // Перезагружаем список кальянов
                 loadSaleHookahs();
@@ -1219,6 +1354,9 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.success) {
                 showToast('success', 'Успех', 'Кальян удален');
                 
+                // Убираем запуск таймера "требуется кальян" при удалении кальяна
+                // Таймер должен запускаться только при открытии стола без кальяна
+                
                 // Удаляем строку из таблицы
                 const row = document.getElementById(`hookahRow${hookahId}`);
                 if (row) {
@@ -1250,6 +1388,41 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(error => {
             console.error('Error removing hookah:', error);
             showToast('danger', 'Ошибка', 'Не удалось удалить кальян');
+        });
+    }
+
+    
+    function updateTableStatusOnPage(tableId, newStatus) {
+        console.log('Updating table status:', tableId, 'to', newStatus);
+        
+        // Находим все ячейки
+        const cells = document.querySelectorAll('td[style*="border: 2px solid #2196f3"]');
+        
+        cells.forEach(cell => {
+            // Проверяем, есть ли в этой ячейке кнопка с нужным table-id
+            const buttons = cell.querySelectorAll('button[data-table-id]');
+            let found = false;
+            
+            buttons.forEach(button => {
+                if (button.getAttribute('data-table-id') == tableId) {
+                    found = true;
+                }
+            });
+            
+            if (found) {
+                const badge = cell.querySelector('.badge');
+                if (badge) {
+                    if (newStatus === 'opened_with_hookah') {
+                        badge.textContent = 'Открыт (с кальяном)';
+                        badge.classList.remove('bg-success');
+                        badge.classList.add('bg-info');
+                    } else if (newStatus === 'opened_without_hookah') {
+                        badge.textContent = 'Открыт (без кальяна)';
+                        badge.classList.remove('bg-info');
+                        badge.classList.add('bg-success');
+                    }
+                }
+            }
         });
     }
 
@@ -2113,8 +2286,287 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // =============== ТАЙМЕР "ТРЕБУЕТСЯ КАЛЬЯН" ===============
+
+    // Запуск таймеров при загрузке
+    document.addEventListener('DOMContentLoaded', function() {
+        // Ждем немного, чтобы все таблицы отрисовались
+        setTimeout(() => {
+            initHookahRequirementTimers();
+        }, 1500); // Увеличил время до 1500 мс
+    });
+
+    // Инициализация таймеров
+    function initHookahRequirementTimers() {
+        console.log('=== INIT HOOKAH TIMERS ===');
+        
+        // Находим все ячейки со столами
+        const tableCells = document.querySelectorAll('td[style*="border: 2px solid #2196f3"]');
+        
+        console.log('Found table cells for hookah timers:', tableCells.length);
+        
+        tableCells.forEach((cell, index) => {
+            // Ищем бейдж статуса
+            const statusBadge = cell.querySelector('.badge');
+            if (!statusBadge) return;
+            
+            const statusText = statusBadge.textContent.trim();
+            
+            // Если статус "без кальяна"
+            if (statusText.includes('без кальяна') || statusText.includes('Открыт (без кальяна)')) {
+                // Находим tableId для этого стола
+                const tableIdButton = cell.querySelector('button[data-table-id]');
+                if (!tableIdButton) return;
+                
+                const tableId = tableIdButton.getAttribute('data-table-id');
+                console.log(`Cell ${index} - Found table without hookah, tableId: ${tableId}`);
+                
+                let timerContainer = cell.querySelector('.timer-container');
+                if (!timerContainer) {
+                    // Создаем контейнер если его нет
+                    timerContainer = document.createElement('div');
+                    timerContainer.className = 'timer-container';
+                    
+                    // Находим место для вставки
+                    const mb2Div = cell.querySelector('.mb-2');
+                    if (mb2Div) {
+                        mb2Div.prepend(timerContainer);
+                    } else {
+                        const firstChild = cell.querySelector('div');
+                        if (firstChild) {
+                            cell.insertBefore(timerContainer, firstChild);
+                        } else {
+                            cell.prepend(timerContainer);
+                        }
+                    }
+                }
+                
+                // Запускаем таймер с сохранением tableId
+                startHookahRequirementTimer(timerContainer, tableId);
+            }
+        });
+        
+        console.log('=== HOOKAH TIMERS INITIALIZED ===');
+    }
+
+    // Запуск таймера (исправленная версия с одним параметром)
+    function startHookahRequirementTimer(container, tableId) {
+        console.log('Starting hookah requirement timer for table:', tableId);
+        
+        const timeLimitMinutes = 15;
+        const timeLimitMs = timeLimitMinutes * 60 * 1000;
+        
+        // Проверяем, есть ли сохраненное время старта
+        const storageKey = `hookah_timer_${tableId}`;
+        let startTime = localStorage.getItem(storageKey);
+        
+        if (!startTime) {
+            // Сохраняем время старта
+            startTime = new Date().getTime();
+            localStorage.setItem(storageKey, startTime);
+        } else {
+            startTime = parseInt(startTime);
+        }
+        
+        // Удаляем старый таймер если есть
+        const oldTimer = container.querySelector('.hookah-requirement-timer');
+        if (oldTimer) {
+            oldTimer.remove();
+        }
+        
+        // Создаем элемент таймера
+        const timerElement = document.createElement('div');
+        timerElement.className = 'hookah-requirement-timer';
+        timerElement.innerHTML = `
+            <div class="alert alert-danger alert-dismissible fade show p-1 mb-2" role="alert" style="font-size: 0.8rem;">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-alarm me-1"></i>
+                        <span>Поставьте кальян: <strong class="time-display">15:00</strong></span>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        container.appendChild(timerElement);
+        const timeDisplay = timerElement.querySelector('.time-display');
+        
+        // Функция обновления таймера
+        function updateTimer() {
+            const now = new Date().getTime();
+            const elapsedMs = now - startTime;
+            const remainingMs = Math.max(0, timeLimitMs - elapsedMs);
+            
+            if (remainingMs <= 0) {
+                // Время вышло
+                timeDisplay.textContent = '00:00';
+                timeDisplay.classList.add('text-decoration-line-through');
+                timerElement.querySelector('.alert').innerHTML = `
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-alarm-fill me-1 text-danger"></i>
+                            <span><strong>Пора поставить кальян!</strong></span>
+                        </div>
+                    </div>
+                `;
+                
+                // Фиксированный красный цвет
+                const alertEl = timerElement.querySelector('.alert');
+                alertEl.classList.remove('alert-warning');
+                alertEl.classList.add('alert-danger');
+            } else {
+                const remainingMinutes = Math.floor(remainingMs / 60000);
+                const seconds = Math.floor((remainingMs % 60000) / 1000);
+                
+                const displayMinutes = remainingMinutes.toString().padStart(2, '0');
+                const displaySeconds = seconds.toString().padStart(2, '0');
+                
+                timeDisplay.textContent = `${displayMinutes}:${displaySeconds}`;
+                timeDisplay.classList.remove('text-decoration-line-through');
+                
+                // ВСЕГДА красный, без изменения цвета
+                const alertElement = timerElement.querySelector('.alert');
+                alertElement.classList.remove('alert-warning', 'alert-danger');
+                alertElement.classList.add('alert-danger');
+            }
+        }
+        
+        const interval = setInterval(updateTimer, 1000);
+        updateTimer();
+        
+        // Сохраняем интервал и tableId для остановки
+        timerElement._interval = interval;
+        timerElement._tableId = tableId;
+        
+        return timerElement;
+    }
+
+    // Функция для сброса таймера
+    function resetHookahTimer(tableId, button) {
+        const storageKey = `hookah_timer_${tableId}`;
+        localStorage.removeItem(storageKey);
+
+        cleanupOldTimers();
+        
+        // Находим и удаляем таймер
+        const timerElement = button.closest('.hookah-requirement-timer');
+        if (timerElement && timerElement._interval) {
+            clearInterval(timerElement._interval);
+        }
+        
+        // Удаляем элемент
+        timerElement?.remove();
+        
+        // Показываем уведомление
+        showToast('info', 'Таймер сброшен', 'Таймер "требуется кальян" сброшен');
+    }
+
+    // Функция для остановки таймера при добавлении кальяна
+    function stopHookahRequirementTimer(tableId) {
+        console.log('Stopping timer for table:', tableId);
+        
+        // Удаляем из localStorage
+        const storageKey = `hookah_timer_${tableId}`;
+        localStorage.removeItem(storageKey);
+        
+        // Находим все таймеры для этого стола
+        document.querySelectorAll('.hookah-requirement-timer').forEach(timerElement => {
+            if (timerElement._tableId == tableId) {
+                if (timerElement._interval) {
+                    clearInterval(timerElement._interval);
+                }
+                timerElement.remove();
+            }
+        });
+        
+        // Также удаляем контейнер таймера
+        const timerContainers = document.querySelectorAll('.timer-container');
+        timerContainers.forEach(container => {
+            const hasButtons = container.closest('td').querySelector(`button[data-table-id="${tableId}"]`);
+            if (hasButtons) {
+                container.remove();
+            }
+        });
+    }
+
+   function initTableTimers() {
+        const timerElements = document.querySelectorAll('.table-timer');
+        
+        console.log('Found table timers:', timerElements.length);
+        
+        timerElements.forEach(timerElement => {
+            // Проверяем, не инициализирован ли уже таймер
+            if (timerElement.hasAttribute('data-initialized')) {
+                console.log('Timer already initialized, skipping');
+                return; // Пропускаем уже инициализированные
+            }
+            
+            // Первоначальное обновление
+            updateTimer(timerElement);
+            
+            // Обновляем каждую секунду
+            const intervalId = setInterval(() => updateTimer(timerElement), 1000);
+            
+            // Сохраняем ID интервала для очистки
+            timerElement.setAttribute('data-interval-id', intervalId);
+            timerElement.setAttribute('data-initialized', 'true');
+        });
+        
+        console.log('Table timers initialized');
+    }
+
+    // Функция для очистки таймеров
+    function cleanupTableTimers() {
+        const timerElements = document.querySelectorAll('.table-timer');
+        
+        timerElements.forEach(timerElement => {
+            const intervalId = timerElement.getAttribute('data-interval-id');
+            if (intervalId) {
+                clearInterval(parseInt(intervalId));
+            }
+            timerElement.removeAttribute('data-interval-id');
+            timerElement.removeAttribute('data-initialized');
+        });
+    }
+
     
-    // =============== ИНИЦИАЛИЗАЦИЯ ===============
+
+    // =============== ОЧИСТКА СТАРЫХ ТАЙМЕРОВ ИЗ LOCALSTORAGE ===============
+
+    function cleanupOldTimers() {
+        const now = Date.now();
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        
+        console.log('Cleaning up old timers from localStorage...');
+        
+        // Собираем ключи, которые нужно проверить
+        const keysToRemove = [];
+        
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith('hookah_timer_')) {
+                try {
+                    const startTime = parseInt(localStorage.getItem(key));
+                    if (now - startTime > oneDayMs) {
+                        keysToRemove.push(key);
+                    }
+                } catch (error) {
+                    console.error('Error checking timer key:', key, error);
+                }
+            }
+        }
+        
+        // Удаляем старые таймеры
+        keysToRemove.forEach(key => {
+            localStorage.removeItem(key);
+            console.log('Removed old timer:', key);
+        });
+        
+        console.log('Cleaned up', keysToRemove.length, 'old timers');
+    }
+
+    
+     // =============== ИНИЦИАЛИЗАЦИЯ ===============
     
     // Всплывающие подсказки
     const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -2126,6 +2578,59 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     initDiscountLogic();
     
+
+    
+    console.log('Table Manager initialized');
+    
+    // =============== ИНИЦИАЛИЗАЦИЯ ТАЙМЕРОВ ===============
+    // Очищаем старые таймеры из localStorage (старше 24 часов)
+    cleanupOldTimers();
+    
+    // Сначала очищаем старые таймеры (на всякий случай)
+    cleanupTableTimers();
+    
+    // Инициализируем основные таймеры
+    initTableTimers();
+    
+    // Затем инициализируем таймеры "требуется кальян" с задержкой
+    setTimeout(() => {
+        initHookahRequirementTimers();
+        // debugHookahTimers();
+    }, 1500);
+
+    // =============== ИНИЦИАЛИЗАЦИЯ ТАЙМЕРА УГЛЕЙ ===============
+
+    // setTimeout(() => {
+    //     // Проверяем, загрузился ли файл coal-timer.js
+    //     if (typeof window.CoalTimerSystem !== 'undefined') {
+    //         console.log('CoalTimerSystem found, initializing...');
+    //         const system = window.CoalTimerSystem.init();
+            
+    //         // ДОПОЛНИТЕЛЬНО: Проверяем все столы с кальянами при загрузке
+    //         setTimeout(() => {
+    //             if (system && system.restoreTimersForAllTablesWithHookah) {
+    //                 system.restoreTimersForAllTablesWithHookah();
+    //             }
+    //         }, 1500);
+    //     } else {
+    //         console.error('CoalTimerSystem NOT FOUND! Check file path.');
+    //     }
+    // }, 1000); // Уменьшаем задержку
+
+
+    if (typeof window.CoalTimerSystem !== 'undefined') {
+        console.log('CoalTimerSystem found, initializing...');
+        const system = window.CoalTimerSystem.init();
+        
+        // ДОПОЛНИТЕЛЬНО: Проверяем все столы с кальянами при загрузке
+        if (system && system.restoreTimersForAllTablesWithHookah) {
+            system.restoreTimersForAllTablesWithHookah();
+        }
+    } else {
+        console.error('CoalTimerSystem NOT FOUND! Check file path.');
+    }
+
+
     // Экспорт функций
     window.TableManager = {
         showToast,
