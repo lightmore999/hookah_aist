@@ -406,24 +406,31 @@ class CoalTimerSystem {
     onHookahAdded(tableId) {
         console.log(`➕ Hookah added to table ${tableId}, adding coal timer`);
         
-        // Проверяем, не был ли таймер уже создан
-        const isVisible = localStorage.getItem(`coal_timer_visible_${tableId}`) === 'true';
+        // Сбрасываем все данные таймера для этого стола
+        localStorage.setItem(`coal_timer_count_${tableId}`, '0');
+        localStorage.setItem(`coal_timer_visible_${tableId}`, 'true');
+        localStorage.setItem(`coal_timer_start_${tableId}`, Date.now().toString());
         
-        if (!isVisible) {
-            // Устанавливаем видимость по умолчанию
-            localStorage.setItem(`coal_timer_visible_${tableId}`, 'true');
-            
-            // Ждем обновления DOM и добавляем таймер
-            setTimeout(() => {
-                const cell = this.findTableCell(tableId);
-                if (cell) {
-                    this.showCoalTimer(tableId, cell, 15 * 60, 0);
-                }
-            }, 300);
-        } else {
-            console.log(`ℹ️ Timer already exists for table ${tableId}`);
-        }
-    }
+        // Ждем обновления DOM и добавляем таймер
+        setTimeout(() => {
+            const cell = this.findTableCell(tableId);
+            if (cell) {
+                console.log(`✅ Ячейка найдена для таймера углей, tableId: ${tableId}`);
+                this.showCoalTimer(tableId, cell, 15 * 60, 0);
+            } else {
+                console.error(`❌ Ячейка не найдена для tableId: ${tableId}`);
+                
+                // Пробуем еще раз через 500ms
+                setTimeout(() => {
+                    const cell2 = this.findTableCell(tableId);
+                    if (cell2) {
+                        console.log(`✅ Ячейка найдена при повторной попытке`);
+                        this.showCoalTimer(tableId, cell2, 15 * 60, 0);
+                    }
+                }, 500);
+            }
+        }, 500);
+}
 
     // Очистить все данные таймера
     clearCoalTimer(tableId) {
@@ -489,6 +496,27 @@ class CoalTimerSystem {
         console.log('🔄 Force restoring all coal timers...');
         this.restoreAllTimers();
     }
+
+    updateTableStatus(tableId, newStatus) {
+        console.log(`CoalTimerSystem: Updating table ${tableId} to ${newStatus}`);
+        
+        const cell = this.findTableCell(tableId);
+        if (!cell) return;
+        
+        if (newStatus === 'opened_with_hookah') {
+            // Стол с кальяном - проверяем таймер углей
+            const isVisible = localStorage.getItem(`coal_timer_visible_${tableId}`) === 'true';
+            
+            if (isVisible) {
+                this.checkAndRestoreTimer(tableId, cell);
+            } else {
+                this.showCoalTimer(tableId, cell, 15 * 60, 0);
+            }
+        } else if (newStatus === 'opened_without_hookah') {
+            // Стол без кальяна - скрываем таймер углей
+            this.closeCoalTimer(tableId);
+        }
+    }
 }
 
 // Глобальная инициализация
@@ -520,4 +548,4 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 1000);
 });
 
-console.log('✅ Coal Timer System ready');ч 
+console.log('✅ Coal Timer System ready');

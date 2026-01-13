@@ -89,6 +89,7 @@ Route::middleware('auth')->group(function () {
             });
         });
     });
+    Route::post('/sales/{sale}/check-stock', [SaleController::class, 'checkStock'])->name('sales.check-stock');
 
     Route::resource('tables', TableController::class)->except(['show']);
     Route::delete('/tables/{table}', [TableController::class, 'destroy'])->name('tables.destroy');

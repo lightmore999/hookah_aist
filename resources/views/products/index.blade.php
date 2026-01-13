@@ -249,32 +249,63 @@ document.addEventListener('DOMContentLoaded', function() {
         const editProductForm = document.getElementById('editProductForm');
         
         let editComponents = [];
+        let currentProductId = 0;
         
         // Упрощенная функция расчета стоимости компонента
         function calculateEditComponentCost(componentCost, quantity) {
             return parseFloat((componentCost * quantity).toFixed(4));
         }
         
-        // Заполнение селекта продуктами
+        // Заполнение селекта продуктами (ВОЗВРАТ К СТАРОМУ ПОДХОДУ)
         function populateEditComponentSelect() {
             if (!editComponentProductSelect) return;
             
             editComponentProductSelect.innerHTML = '<option value="">Выберите продукт</option>';
             
-            // Берем продукты из селекта создания (если он есть)
-            const createSelect = document.getElementById('component_product_id');
-            if (createSelect && createSelect.options.length > 1) {
-                // Копируем все опции кроме пустой первой
-                for (let i = 0; i < createSelect.options.length; i++) {
-                    const option = createSelect.options[i];
-                    if (option.value && option.value !== '') {
-                        // Проверяем, не добавлен ли уже этот продукт
-                        const isAlreadyAdded = editComponents.some(c => c.product_id == option.value);
-                        if (!isAlreadyAdded) {
-                            const newOption = new Option(option.text, option.value);
-                            newOption.dataset.unit = option.dataset.unit;
-                            newOption.dataset.cost = option.dataset.cost || '0';
-                            editComponentProductSelect.add(newOption);
+            // Берем продукты из глобальной переменной или из селекта создания
+            // В вашем Blade шаблоне должен быть доступ к $allProducts
+            const allProducts = window.allProducts || [];
+            
+            if (allProducts.length > 0) {
+                // Фильтруем: убираем текущий продукт и уже добавленные компоненты
+                allProducts.forEach(product => {
+                    // Пропускаем текущий продукт
+                    if (parseInt(product.id) === currentProductId) {
+                        return;
+                    }
+                    
+                    // Проверяем, не добавлен ли уже этот продукт
+                    const isAlreadyAdded = editComponents.some(c => c.product_id == product.id);
+                    if (!isAlreadyAdded) {
+                        const option = new Option(
+                            `${product.name} (${product.unit})`,
+                            product.id
+                        );
+                        option.dataset.unit = product.unit;
+                        option.dataset.cost = product.cost || '0';
+                        editComponentProductSelect.add(option);
+                    }
+                });
+            } else {
+                // Fallback: берем продукты из селекта создания (как было раньше)
+                const createSelect = document.getElementById('component_product_id');
+                if (createSelect && createSelect.options.length > 1) {
+                    for (let i = 0; i < createSelect.options.length; i++) {
+                        const option = createSelect.options[i];
+                        if (option.value && option.value !== '') {
+                            // Проверяем, не текущий ли это продукт
+                            if (parseInt(option.value) === currentProductId) {
+                                continue;
+                            }
+                            
+                            // Проверяем, не добавлен ли уже этот продукт
+                            const isAlreadyAdded = editComponents.some(c => c.product_id == option.value);
+                            if (!isAlreadyAdded) {
+                                const newOption = new Option(option.text, option.value);
+                                newOption.dataset.unit = option.dataset.unit;
+                                newOption.dataset.cost = option.dataset.cost || '0';
+                                editComponentProductSelect.add(newOption);
+                            }
                         }
                     }
                 }
@@ -287,6 +318,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const quantity = parseFloat(editComponentQuantityInput.value);
             
             if (!productId || !quantity || quantity <= 0) {
+                return; // Никаких уведомлений
+            }
+            
+            // Проверка на добавление самого себя
+            if (parseInt(productId) === currentProductId) {
                 return; // Никаких уведомлений
             }
             
@@ -323,6 +359,7 @@ document.addEventListener('DOMContentLoaded', function() {
             editComponentProductSelect.value = '';
         }
         
+        // Остальные функции остаются без изменений...
         // Удаление компонента
         function removeEditComponent(componentId) {
             editComponents = editComponents.filter(c => c.id !== componentId);
@@ -450,10 +487,13 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
         
-        // Обработчик открытия модалки редактирования
+        // Обработчик открытия модалки редактирования (ДОБАВИЛИ СОХРАНЕНИЕ ID)
         editProductModal.addEventListener('show.bs.modal', function(event) {
             const button = event.relatedTarget;
             if (!button || !button.classList.contains('edit-product-btn')) return;
+            
+            // Сохраняем ID текущего продукта
+            currentProductId = parseInt(button.dataset.id);
             
             // Загружаем компоненты из data-атрибута
             try {
@@ -496,6 +536,7 @@ document.addEventListener('DOMContentLoaded', function() {
         editProductModal.addEventListener('hidden.bs.modal', function() {
             // Сброс данных
             editComponents = [];
+            currentProductId = 0;
             
             // Удаляем скрытое поле если оно было создано
             const existingField = document.getElementById('edit_components_data');
@@ -523,11 +564,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 editCostSourceHint.className = 'text-muted d-block';
             }
         });
-        
-        // Первоначальная инициализация
-        setTimeout(() => {
-            populateEditComponentSelect();
-        }, 100);
     }
     
     // ========== ОБЩИЕ ФУНКЦИИ ==========

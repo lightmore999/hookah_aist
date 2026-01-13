@@ -10,6 +10,8 @@
             
             <form method="POST" id="closeSaleForm">
                 @csrf
+                <input type="hidden" name="discount_in_rubles" id="discountInRublesHidden" value="0">
+                <input type="hidden" name="discount_type" id="discountTypeHidden" value="fixed">
                 
                 <div class="modal-body">
                     <div class="row">

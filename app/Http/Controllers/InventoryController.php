@@ -53,16 +53,46 @@ class InventoryController extends Controller
             'inventory_date' => 'nullable|date',
         ]);
         
-        $inventory = Inventory::create($validated);
-        
-        return redirect()->route('inventories.show', $inventory)
-            ->with('success', 'Инвентаризация успешно создана! Теперь добавьте товары.');
+        try {
+            DB::beginTransaction();
+            
+            // Создаем инвентаризацию
+            $inventory = Inventory::create($validated);
+            
+            // Получаем все товары на складе
+            $stockItems = Stock::where('warehouse_id', $inventory->warehouse_id)
+                ->with('product')
+                ->get();
+            
+            // Добавляем все товары в инвентаризацию
+            foreach ($stockItems as $stock) {
+                if ($stock->product) {
+                    InventoryItem::create([
+                        'inventory_id' => $inventory->id,
+                        'product_id' => $stock->product_id,
+                        'system_quantity' => (int)$stock->quantity,
+                        'actual_quantity' => (int)$stock->quantity, // По умолчанию фактическое = системному
+                    ]);
+                }
+            }
+            
+            DB::commit();
+            
+            return redirect()->route('inventories.show', $inventory)
+                ->with('success', 'Инвентаризация успешно создана! Все товары со склада добавлены.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Ошибка при создании инвентаризации: ' . $e->getMessage());
+        }
     }
 
     public function show(Inventory $inventory)
     {
         $inventory->load(['warehouse', 'creator', 'completer', 'items.product']);
         
+        // Получаем только те товары, которые еще не добавлены
         $stockItems = Stock::where('warehouse_id', $inventory->warehouse_id)
             ->with('product')
             ->get();

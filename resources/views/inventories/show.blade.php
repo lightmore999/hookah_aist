@@ -89,46 +89,6 @@
                 </div>
             @endif
 
-            <!-- Статистика -->
-            <div class="row mb-4">
-                <div class="col-md-3">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-body text-center">
-                            <h5 class="card-title text-muted small">Товаров</h5>
-                            <h3 class="mb-0">{{ $inventory->items->count() }}</h3>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-3">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-body text-center">
-                            <h5 class="card-title text-muted small">Разница</h5>
-                            <h3 class="mb-0 {{ $inventory->total_difference > 0 ? 'text-success' : ($inventory->total_difference < 0 ? 'text-danger' : '') }}">
-                                {{ $inventory->total_difference > 0 ? '+' : '' }}{{ $inventory->total_difference }}
-                            </h3>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-3">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-body text-center">
-                            <h5 class="card-title text-muted small">Системное кол-во</h5>
-                            <h3 class="mb-0">{{ $inventory->items->sum('system_quantity') }}</h3>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-3">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-body text-center">
-                            <h5 class="card-title text-muted small">Фактическое кол-во</h5>
-                            <h3 class="mb-0">{{ $inventory->items->sum('actual_quantity') }}</h3>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
             <!-- Список товаров -->
             <div class="card border-0 shadow-sm">

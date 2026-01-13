@@ -355,12 +355,52 @@ class TableController extends Controller
         ]);
         
         $product = Product::find($validated['product_id']);
+        $requestedQuantity = $validated['quantity'];
         
         // Для штучных товаров проверяем целое число
-        if ($product->unit === 'шт' && floor($validated['quantity']) != $validated['quantity']) {
+        if ($product->unit === 'шт' && floor($requestedQuantity) != $requestedQuantity) {
             return response()->json([
                 'success' => false,
                 'message' => 'Для штучных товаров количество должно быть целым числом'
+            ], 400);
+        }
+        
+        // ✅ ПРОВЕРКА НАЛИЧИЯ НА СКЛАДЕ
+        $availableQuantity = $this->getAvailableQuantity($sale->warehouse_id, $product);
+        
+        if (!$this->checkStockAvailability($sale->warehouse_id, $product, $requestedQuantity)) {
+            $unitText = $product->unit === 'шт' ? 'штук' : $product->unit;
+            
+            // Формируем детальное сообщение об ошибке
+            $errorMessage = "Недостаточно товара '{$product->name}' на складе.\n";
+            $errorMessage .= "Запрошено: {$requestedQuantity} {$unitText}\n";
+            $errorMessage .= "Доступно: {$availableQuantity} {$unitText}";
+            
+            // Для составных товаров добавляем детали по компонентам
+            if ($product->is_composite) {
+                $componentDetails = $this->getComponentAvailabilityDetails($sale->warehouse_id, $product, $requestedQuantity);
+                $errorMessage .= "\n\nНедостаточно компонентов:\n";
+                
+                foreach ($componentDetails as $detail) {
+                    if (!$detail['is_available']) {
+                        $errorMessage .= "- {$detail['component_name']}: нужно {$detail['required_total']} {$detail['unit']}, есть {$detail['available']} {$detail['unit']}\n";
+                    }
+                }
+            }
+            
+            return response()->json([
+                'success' => false,
+                'message' => $errorMessage,
+                'details' => [
+                    'product_id' => $product->id,
+                    'product_name' => $product->name,
+                    'unit' => $product->unit,
+                    'requested' => $requestedQuantity,
+                    'available' => $availableQuantity,
+                    'can_add_max' => $availableQuantity > 0,
+                    'is_composite' => $product->is_composite,
+                    'components' => $product->is_composite ? $this->getComponentAvailabilityDetails($sale->warehouse_id, $product, $requestedQuantity) : null
+                ]
             ], 400);
         }
         
@@ -373,12 +413,43 @@ class TableController extends Controller
         
         // Пересчитываем сумму
         $this->recalculateSaleTotal($sale);
+        $sale->refresh(); // Обновляем объект
         
         return response()->json([
             'success' => true,
             'message' => 'Товар добавлен успешно',
-            'total' => $sale->fresh()->total
+            'total' => $sale->total,
+            'newTotal' => $sale->total,
+            'saleId' => $sale->id
         ]);
+    }
+
+    private function getComponentAvailabilityDetails($warehouseId, Product $product, $requestedQuantity)
+    {
+        $details = [];
+        
+        foreach ($product->recipeComponents as $component) {
+            $componentStock = Stock::where('warehouse_id', $warehouseId)
+                ->where('product_id', $component->component_product_id)
+                ->first();
+            
+            $availableComponent = $componentStock ? $componentStock->quantity : 0;
+            $requiredComponent = $requestedQuantity * $component->quantity;
+            
+            $details[] = [
+                'component_id' => $component->component_product_id,
+                'component_name' => $component->componentProduct->name ?? 'Компонент #' . $component->component_product_id,
+                'required_per_unit' => $component->quantity,
+                'required_total' => $requiredComponent,
+                'available' => $availableComponent,
+                'unit' => $component->componentProduct->unit ?? 'шт',
+                'is_available' => $requiredComponent <= $availableComponent,
+                'shortage' => max(0, $requiredComponent - $availableComponent),
+                'can_make_units' => floor($availableComponent / $component->quantity)
+            ];
+        }
+        
+        return $details;
     }
 
     
@@ -412,6 +483,8 @@ class TableController extends Controller
             'success' => true,
             'message' => 'Кальян добавлен успешно',
             'total' => $sale->total,
+            'newTotal' => $sale->total, // ✅ Добавляем это!
+            'saleId' => $sale->id,
             'status' => 'opened_with_hookah'
         ]);
     }
@@ -434,12 +507,15 @@ class TableController extends Controller
         
         // Пересчитываем сумму
         $this->recalculateSaleTotal($sale);
+        $sale->refresh();
         
         return response()->json([
             'success' => true,
             'message' => 'Кальян удален успешно',
-            'total' => $sale->fresh()->total,
-            'status' => 'opened_with_hookah', // ВСЕГДА возвращаем статус "с кальяном"
+            'total' => $sale->total,
+            'newTotal' => $sale->total, // ✅ Добавляем это!
+            'saleId' => $sale->id,
+            'status' => 'opened_with_hookah',
             'remainingHookahs' => $remainingHookahs
         ]);
     }
@@ -655,11 +731,14 @@ class TableController extends Controller
         
         // Пересчитываем сумму
         $this->recalculateSaleTotal($sale);
+        $sale->refresh();
         
         return response()->json([
             'success' => true,
             'message' => 'Товар удален успешно',
-            'total' => $sale->fresh()->total
+            'total' => $sale->total,
+            'newTotal' => $sale->total, // ✅ Добавляем это!
+            'saleId' => $sale->id
         ]);
     }
     
@@ -683,11 +762,13 @@ class TableController extends Controller
         
         // Пересчитываем сумму
         $this->recalculateSaleTotal($sale);
+        $sale->refresh();
         
         return response()->json([
             'success' => true,
             'message' => 'Количество обновлено',
-            'total' => $sale->fresh()->total
+            'total' => $sale->total,
+            'newTotal' => $sale->total // ✅ Добавляем это!
         ]);
     }
     
@@ -722,28 +803,45 @@ class TableController extends Controller
         if (!$sale) {
             return response()->json([
                 'success' => false,
-                'message' => 'Продажа не найдена'
-            ], 404);
+                'message' => 'Продажа не найдена',
+                'items' => [],
+                'total' => 0,
+                'tableInfo' => [
+                    'tableNumber' => $table->table_number,
+                    'guestName' => $table->guest_name ?? ($table->client->name ?? 'Клиент')
+                ]
+            ]);
         }
+        
+        $sale->load('items.product');
         
         $items = $sale->items->map(function($item) {
             return [
                 'id' => $item->id,
                 'product_name' => $item->product->name,
-                'quantity' => $item->quantity,
+                'quantity' => (float)$item->quantity,
                 'unit' => $item->product->unit,
-                'unit_price' => $item->unit_price,
-                'total' => $item->quantity * $item->unit_price
+                'unit_price' => (float)$item->unit_price,
+                'total' => (float)($item->quantity * $item->unit_price)
             ];
+        });
+        
+        // Считаем сумму ТОЛЬКО товаров (без кальянов)
+        $productsTotal = $sale->items->sum(function($item) {
+            return $item->quantity * $item->unit_price;
         });
         
         return response()->json([
             'success' => true,
             'items' => $items,
-            'total' => $sale->total
+            'total' => (float)$productsTotal, // ✅ Только товары!
+            'saleId' => $sale->id,
+            'tableInfo' => [
+                'tableNumber' => $table->table_number,
+                'guestName' => $table->guest_name ?? ($table->client->name ?? 'Клиент')
+            ]
         ]);
     }
-
 
     public function getSaleHookahs($id)
     {
@@ -906,4 +1004,73 @@ class TableController extends Controller
         }
         return null;
     }
+
+    // =============== ПРОВЕРКА НАЛИЧИЯ НА СКЛАДЕ ===============
+
+    /**
+     * Проверяет наличие товара на складе
+     */
+    private function checkStockAvailability($warehouseId, Product $product, $requestedQuantity)
+    {
+        if ($product->is_composite) {
+            // Проверка для составных товаров
+            foreach ($product->recipeComponents as $component) {
+                $stock = Stock::where('warehouse_id', $warehouseId)
+                            ->where('product_id', $component->component_product_id)
+                            ->first();
+                
+                $requiredQuantity = $requestedQuantity * $component->quantity;
+                
+                if (!$stock || $stock->quantity < $requiredQuantity) {
+                    return false;
+                }
+            }
+        } else {
+            // Проверка для обычных товаров
+            $stock = Stock::where('warehouse_id', $warehouseId)
+                        ->where('product_id', $product->id)
+                        ->first();
+            
+            if (!$stock || $stock->quantity < $requestedQuantity) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+
+    /**
+     * Получает доступное количество товара на складе
+     */
+    private function getAvailableQuantity($warehouseId, Product $product)
+    {
+        if ($product->is_composite) {
+            // Для составных товаров находим минимальное количество среди компонентов
+            $minAvailable = PHP_INT_MAX;
+            
+            foreach ($product->recipeComponents as $component) {
+                $stock = Stock::where('warehouse_id', $warehouseId)
+                            ->where('product_id', $component->component_product_id)
+                            ->first();
+                
+                if (!$stock) {
+                    return 0;
+                }
+                
+                // Сколько можно сделать из доступных компонентов
+                $availableForComponent = floor($stock->quantity / $component->quantity);
+                $minAvailable = min($minAvailable, $availableForComponent);
+            }
+            
+            return $minAvailable;
+        } else {
+            // Для обычных товаров
+            $stock = Stock::where('warehouse_id', $warehouseId)
+                        ->where('product_id', $product->id)
+                        ->first();
+            
+            return $stock ? $stock->quantity : 0;
+        }
+    }
+
 }

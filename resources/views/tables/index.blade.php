@@ -540,6 +540,7 @@
 @include('tables.modals.view-order')
 
 <script src="{{ asset('js/coal-timer.js') }}"></script>
+<script src="{{ asset('js/tables/modules/hookah-timer.js') }}"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -596,10 +597,32 @@ document.addEventListener('DOMContentLoaded', function() {
         
         return fetch(url, { ...defaultOptions, ...options })
             .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
+                // Пробуем получить ответ как текст
+                return response.text().then(text => {
+                    // Пробуем парсить как JSON
+                    try {
+                        const data = JSON.parse(text);
+                        
+                        // Если статус не успешный, бросаем ошибку
+                        if (!response.ok) {
+                            const error = new Error(`HTTP error! status: ${response.status}`);
+                            error.status = response.status;
+                            error.data = data;
+                            throw error;
+                        }
+                        
+                        return data;
+                    } catch (e) {
+                        // Если не JSON, возвращаем текст
+                        if (!response.ok) {
+                            const error = new Error(`HTTP error! status: ${response.status}`);
+                            error.status = response.status;
+                            error.text = text;
+                            throw error;
+                        }
+                        return { message: text };
+                    }
+                });
             })
             .catch(error => {
                 console.error('Request error:', error);
@@ -830,17 +853,12 @@ document.addEventListener('DOMContentLoaded', function() {
             items.forEach(item => {
                 const row = document.createElement('tr');
                 row.id = `productRow${item.id}`;
+                // ✅ ИСПРАВЛЕНО: Убрали input для изменения количества
                 row.innerHTML = `
                     <td>${item.product_name}</td>
                     <td>
-                        <input type="number" 
-                               class="form-control form-control-sm quantity-input"
-                               value="${item.quantity}"
-                               data-item-id="${item.id}"
-                               style="width: 80px;"
-                               min="0.001" 
-                               step="${item.unit === 'шт' ? '1' : '0.001'}">
-                        <small class="text-muted">${item.unit}</small>
+                        <span class="fw-bold">${parseFloat(item.quantity).toLocaleString('ru-RU')}</span>
+                        <small class="text-muted ms-1">${item.unit}</small>
                     </td>
                     <td>${parseFloat(item.unit_price).toFixed(2)} ₽</td>
                     <td>${parseFloat(item.total).toFixed(2)} ₽</td>
@@ -949,35 +967,81 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Отправка запроса как JSON
         const requestData = {
             product_id: productId,
             quantity: quantity,
             unit_price: price
         };
         
-        // Добавьте отладку
         console.log('Adding product:', requestData);
         
-        makeRequest(`/tables/${currentTableId}/add-product`, {
+        // Используем fetch напрямую с обработкой текста
+        fetch(`/tables/${currentTableId}/add-product`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
             },
             body: JSON.stringify(requestData)
         })
-        .then(data => {
-            if (data.success) {
-                showToast('success', 'Успех', 'Товар добавлен');
-                
-                // Перезагружаем список товаров
-                loadSaleItems();
-                
-                // Сбрасываем форму
-                resetProductForm();
+        .then(response => {
+            return response.text().then(text => {
+                // Пробуем парсить JSON
+                try {
+                    const data = JSON.parse(text);
+                    return { response, data };
+                } catch {
+                    // Если не JSON, возвращаем текст
+                    return { response, text };
+                }
+            });
+        })
+        .then(({ response, data, text }) => {
+            console.log('Response:', response.status, data || text);
+            
+            if (response.ok) {
+                if (data && data.success) {
+                    showToast('success', 'Успех', 'Товар добавлен');
+                    loadSaleItems();
+                    if (data.newTotal !== undefined) {
+                        updateTableTotal(currentTableId, data.newTotal);
+                    }
+                    resetProductForm();
+                } else {
+                    showToast('danger', 'Ошибка', 'Некорректный ответ от сервера');
+                }
             } else {
-                showToast('danger', 'Ошибка', data.message || 'Не удалось добавить товар');
+                // Обработка ошибки
+                if (data) {
+                    // Есть JSON данные
+                    if (data.message && data.message.includes('Недостаточно товара')) {
+                        const productName = selectedOption.text.split(' - ')[0];
+                        const unit = selectedOption.dataset.unit;
+                        
+                        let errorMessage = `Недостаточно товара на складе:<br>`;
+                        errorMessage += `<strong>${productName}</strong><br>`;
+                        
+                        if (data.details && data.details.requested) {
+                            errorMessage += `Запрошено: <span class="text-danger">${data.details.requested} ${data.details.unit || unit}</span><br>`;
+                            errorMessage += `Доступно: <span class="text-success">${data.details.available} ${data.details.unit || unit}</span>`;
+                        } else if (data.requested !== undefined) {
+                            errorMessage += `Запрошено: <span class="text-danger">${data.requested} ${unit}</span><br>`;
+                            errorMessage += `Доступно: <span class="text-success">${data.available} ${unit}</span>`;
+                        } else {
+                            errorMessage += data.message;
+                        }
+                        
+                        showCustomToast('danger', 'Недостаточно товара', errorMessage, true);
+                    } else {
+                        showToast('danger', 'Ошибка', data.message || 'Не удалось добавить товар');
+                    }
+                } else if (text) {
+                    // Только текст
+                    showToast('danger', 'Ошибка ' + response.status, text.substring(0, 200));
+                } else {
+                    showToast('danger', 'Ошибка', 'Не удалось добавить товар');
+                }
             }
         })
         .catch(error => {
@@ -999,6 +1063,133 @@ document.addEventListener('DOMContentLoaded', function() {
             hint.textContent = '';
             hint.className = 'text-muted';
         }
+    }
+
+    function showCustomToast(type, title, message, isHtml = false) {
+        const toastContainer = document.getElementById('toastContainer') || createToastContainer();
+        
+        const toastId = 'toast-' + Date.now();
+        const toastHtml = `
+            <div id="${toastId}" class="toast" role="alert">
+                <div class="toast-header bg-${type} text-white">
+                    <strong class="me-auto">${title}</strong>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                </div>
+                <div class="toast-body ${isHtml ? '' : 'text-bg-' + type}">
+                    ${isHtml ? message : `<strong>${title}:</strong> ${message}`}
+                </div>
+            </div>
+        `;
+        
+        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+        
+        const toastElement = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastElement, {
+            autohide: isHtml ? false : true, // Для HTML сообщений не скрываем автоматически
+            delay: isHtml ? 8000 : 3000 // Для HTML даем больше времени на чтение
+        });
+        toast.show();
+        
+        toastElement.addEventListener('hidden.bs.toast', function() {
+            this.remove();
+        });
+    }
+
+    // Добавьте эту функцию для модального окна с предупреждением
+    function showStockWarningModal(productName, available, unit, requested) {
+        // Создаем модальное окно
+        const modalId = 'stockWarningModal';
+        let modalElement = document.getElementById(modalId);
+        
+        if (!modalElement) {
+            // Создаем модальное окно
+            modalElement = document.createElement('div');
+            modalElement.className = 'modal fade';
+            modalElement.id = modalId;
+            modalElement.innerHTML = `
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header bg-warning text-dark">
+                            <h5 class="modal-title">
+                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                Недостаточно товара
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="alert alert-warning">
+                                <i class="bi bi-info-circle me-2"></i>
+                                На складе недостаточно товара для добавления в полном объеме.
+                            </div>
+                            
+                            <div class="row mb-3">
+                                <div class="col-6">
+                                    <div class="card border-danger">
+                                        <div class="card-body text-center">
+                                            <h6 class="card-subtitle mb-2 text-muted">Запрошено</h6>
+                                            <h4 class="text-danger">${requested} ${unit}</h4>
+                                            <p class="small text-muted">${productName}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="card border-success">
+                                        <div class="card-body text-center">
+                                            <h6 class="card-subtitle mb-2 text-muted">Доступно</h6>
+                                            <h4 class="text-success">${available} ${unit}</h4>
+                                            <p class="small text-muted">${productName}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <p class="mb-0">Хотите добавить максимально доступное количество?</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                <i class="bi bi-x-circle me-1"></i> Отмена
+                            </button>
+                            <button type="button" class="btn btn-primary" id="confirmAddMaxBtn">
+                                <i class="bi bi-check-circle me-1"></i> Добавить ${available} ${unit}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modalElement);
+            
+            // Инициализируем модальное окно
+            const modal = new bootstrap.Modal(modalElement);
+            
+            // Обработчик подтверждения
+            modalElement.addEventListener('shown.bs.modal', function() {
+                const confirmBtn = document.getElementById('confirmAddMaxBtn');
+                if (confirmBtn) {
+                    confirmBtn.addEventListener('click', function() {
+                        // Устанавливаем максимальное доступное количество
+                        const quantityInput = document.getElementById('productQuantity');
+                        if (quantityInput) {
+                            quantityInput.value = available;
+                        }
+                        
+                        // Закрываем модальное окно
+                        modal.hide();
+                        
+                        // Показываем сообщение
+                        showToast('info', 'Количество обновлено', `Установлено максимальное доступное количество: ${available} ${unit}`);
+                    });
+                }
+            });
+            
+            // Удаляем обработчик при закрытии
+            modalElement.addEventListener('hidden.bs.modal', function() {
+                this.remove();
+            });
+        }
+        
+        // Показываем модальное окно
+        const modal = new bootstrap.Modal(modalElement);
+        modal.show();
     }
     
     // =============== ЛОГИКА УДАЛЕНИЯ ТОВАРА ===============
@@ -1032,10 +1223,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     row.remove();
                 }
                 
-                // Обновляем итоговую сумму
+                // Обновляем итоговую сумму в модалке
                 const totalElement = document.getElementById('totalAmount');
                 if (totalElement && data.total !== undefined) {
                     totalElement.textContent = parseFloat(data.total).toFixed(2);
+                }
+                
+                // ✅ ОБНОВЛЯЕМ СУММУ В ЯЧЕЙКЕ СТОЛА
+                if (data.newTotal !== undefined) {
+                    updateTableTotal(currentTableId, data.newTotal);
                 }
                 
                 // Если товаров не осталось, показываем сообщение
@@ -1060,74 +1256,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // =============== ЛОГИКА ИЗМЕНЕНИЯ КОЛИЧЕСТВА ===============
-    
-    document.addEventListener('change', function(e) {
-        if (e.target.classList.contains('quantity-input')) {
-            const input = e.target;
-            const itemId = input.dataset.itemId;
-            const quantity = parseFloat(input.value);
-            
-            if (!itemId || !currentTableId) return;
-            
-            updateProductQuantity(itemId, quantity);
-        }
-    });
-    
-    function updateProductQuantity(itemId, quantity) {
-        if (!quantity || quantity <= 0) {
-            showToast('warning', 'Внимание', 'Количество должно быть больше 0');
-            return;
-        }
-        
-        makeRequest(`/tables/${currentTableId}/update-quantity/${itemId}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ quantity: quantity })
-        })
-        .then(data => {
-            if (data.success) {
-                // Обновляем итоговую сумму
-                const totalElement = document.getElementById('totalAmount');
-                if (totalElement) {
-                    totalElement.textContent = parseFloat(data.total).toFixed(2);
-                }
-                
-                // Обновляем сумму в строке
-                const row = document.getElementById(`productRow${itemId}`);
-                if (row) {
-                    const unitPriceText = row.cells[2].textContent.replace(' ₽', '');
-                    const unitPrice = parseFloat(unitPriceText);
-                    const total = quantity * unitPrice;
-                    row.cells[3].textContent = total.toFixed(2) + ' ₽';
-                }
-                
-                showToast('success', 'Успех', 'Количество обновлено');
-            } else {
-                showToast('danger', 'Ошибка', data.message || 'Не удалось обновить количество');
-            }
-        })
-        .catch(error => {
-            console.error('Error updating quantity:', error);
-            showToast('danger', 'Ошибка', 'Не удалось обновить количество');
-        });
-    }
-    
-    // =============== ЛОГИКА ДЛЯ КНОПКИ "ВВОД" ===============
-    
-    document.addEventListener('keypress', function(e) {
-        // Добавление товара по нажатию Enter на поле количества или цены
-        if (e.key === 'Enter') {
-            const target = e.target;
-            if ((target.id === 'productQuantity' || target.id === 'productPrice') && 
-                target.value.trim() !== '') {
-                e.preventDefault();
-                addProduct();
-            }
-        }
-    });
 
     // =============== ПЕРЕМЕННЫЕ ДЛЯ МОДАЛКИ КАЛЬЯНОВ ===============
 
@@ -1281,6 +1409,8 @@ document.addEventListener('DOMContentLoaded', function() {
             hookah_id: hookahId
         };
         
+        console.log('Adding hookah to table:', currentHookahsTableId);
+        
         makeRequest(`/tables/${currentHookahsTableId}/add-hookah`, {
             method: 'POST',
             headers: {
@@ -1290,30 +1420,48 @@ document.addEventListener('DOMContentLoaded', function() {
             body: JSON.stringify(requestData)
         })
         .then(data => {
+            console.log('Hookah add response:', data);
+            
             if (data.success) {
                 showToast('success', 'Успех', 'Кальян добавлен');
                 
-                // Останавливаем таймер "Требуется кальян"
-                stopHookahRequirementTimer(currentHookahsTableId);
+                // ❌ УДАЛИТЕ ЭТУ СТРОКУ (она вызывает старую несуществующую функцию):
+                // stopHookahRequirementTimer(currentHookahsTableId);
                 
-                // Обновляем статус на странице
-                updateTableStatusOnPage(currentHookahsTableId, 'opened_with_hookah');
+                // ✅ ВМЕСТО НЕЕ ИСПОЛЬЗУЙТЕ НОВЫЙ МОДУЛЬ:
+                if (window.HookahTimerManager && window.HookahTimerManager.stopTimer) {
+                    window.HookahTimerManager.stopTimer(currentHookahsTableId);
+                }
                 
-                // ДОБАВЛЯЕМ ТАЙМЕР УГЛЕЙ (через отдельную систему)
-                setTimeout(() => {
-                    if (window.CoalTimerSystem) {
-                        const system = window.CoalTimerSystem.init();
-                        if (system) {
-                            system.onHookahAdded(currentHookahsTableId);
-                        }
+                console.log('Updating table status to: opened_with_hookah');
+                
+                // Обновляем интерфейс
+                updateTableInterface(currentHookahsTableId, {
+                    status: 'opened_with_hookah',
+                    hasHookah: true
+                });
+                
+                // ✅ ОБНОВЛЯЕМ СУММУ В ЯЧЕЙКЕ СТОЛА
+                if (data.newTotal !== undefined) {
+                    updateTableTotal(currentHookahsTableId, data.newTotal);
+                }
+                
+                // Закрываем модальное окно
+                const modalElement = document.getElementById('saleHookahsModal');
+                if (modalElement) {
+                    const modal = bootstrap.Modal.getInstance(modalElement);
+                    if (modal) {
+                        modal.hide();
                     }
-                }, 500);
-                
-                // Перезагружаем список кальянов
-                loadSaleHookahs();
+                }
                 
                 // Сбрасываем форму
                 resetHookahForm();
+                
+                // Показываем подтверждение
+                setTimeout(() => {
+                    showToast('info', 'Статус обновлен', 'Стол теперь с кальяном');
+                }, 500);
             } else {
                 showToast('danger', 'Ошибка', data.message || 'Не удалось добавить кальян');
             }
@@ -1323,7 +1471,7 @@ document.addEventListener('DOMContentLoaded', function() {
             showToast('danger', 'Ошибка', 'Не удалось добавить кальян');
         });
     }
-
+    
     function resetHookahForm() {
         const hookahSelect = document.getElementById('hookahSelect');
         if (hookahSelect) hookahSelect.value = '';
@@ -1354,19 +1502,21 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.success) {
                 showToast('success', 'Успех', 'Кальян удален');
                 
-                // Убираем запуск таймера "требуется кальян" при удалении кальяна
-                // Таймер должен запускаться только при открытии стола без кальяна
-                
                 // Удаляем строку из таблицы
                 const row = document.getElementById(`hookahRow${hookahId}`);
                 if (row) {
                     row.remove();
                 }
                 
-                // Обновляем итоговую сумму
+                // Обновляем итоговую сумму в модалке
                 const totalElement = document.getElementById('hookahsTotalAmount');
                 if (totalElement && data.total !== undefined) {
                     totalElement.textContent = parseFloat(data.total).toFixed(0);
+                }
+                
+                // ✅ ОБНОВЛЯЕМ СУММУ В ЯЧЕЙКЕ СТОЛА
+                if (data.newTotal !== undefined) {
+                    updateTableTotal(currentHookahsTableId, data.newTotal);
                 }
                 
                 // Если кальянов не осталось, показываем сообщение
@@ -1392,38 +1542,158 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     
-    function updateTableStatusOnPage(tableId, newStatus) {
-        console.log('Updating table status:', tableId, 'to', newStatus);
+    // ДИНАМИЧЕСКОЕ ОБНОВЛЕНИЕ ИНТЕРФЕЙСА СТОЛА
+    function updateTableInterface(tableId, data) {
+        console.log('🔄 Обновляем стол', tableId, 'статус:', data.status);
         
-        // Находим все ячейки
-        const cells = document.querySelectorAll('td[style*="border: 2px solid #2196f3"]');
+        // 1. Находим ячейку стола
+        const button = document.querySelector(`button[data-table-id="${tableId}"]`);
+        if (!button) {
+            console.error('❌ Кнопка стола не найдена');
+            return;
+        }
         
-        cells.forEach(cell => {
-            // Проверяем, есть ли в этой ячейке кнопка с нужным table-id
-            const buttons = cell.querySelectorAll('button[data-table-id]');
-            let found = false;
+        const cell = button.closest('td');
+        if (!cell) {
+            console.error('❌ Ячейка td не найдена');
+            return;
+        }
+        
+        console.log('✅ Ячейка найдена');
+        
+        // 2. МЕНЯЕМ ЦВЕТ ФОНА ЯЧЕЙКИ
+        if (data.status === 'opened_with_hookah') {
+            // Стол С кальяном - светло-голубой
+            cell.style.backgroundColor = '#e0f7fa';
+            console.log('🎨 Цвет ячейки изменен на #e0f7fa (стол с кальяном)');
             
-            buttons.forEach(button => {
-                if (button.getAttribute('data-table-id') == tableId) {
-                    found = true;
-                }
-            });
+        } else if (data.status === 'opened_without_hookah') {
+            // Стол БЕЗ кальяна - светло-зеленый (как в PHP getStatusColor())
+            cell.style.backgroundColor = '#e8f5e9';
+            console.log('🎨 Цвет ячейки изменен на #e8f5e9 (стол без кальяна)');
+        }
+        
+        // 3. МЕНЯЕМ БЕЙДЖ СТАТУСА
+        const headerDiv = cell.querySelector('.d-flex.justify-content-between.align-items-start.mb-1');
+        const badge = headerDiv ? headerDiv.querySelector('.badge') : null;
+        
+        if (badge) {
+            console.log('✅ Бейдж найден');
             
-            if (found) {
-                const badge = cell.querySelector('.badge');
-                if (badge) {
-                    if (newStatus === 'opened_with_hookah') {
-                        badge.textContent = 'Открыт (с кальяном)';
-                        badge.classList.remove('bg-success');
-                        badge.classList.add('bg-info');
-                    } else if (newStatus === 'opened_without_hookah') {
-                        badge.textContent = 'Открыт (без кальяна)';
-                        badge.classList.remove('bg-info');
-                        badge.classList.add('bg-success');
-                    }
-                }
+            if (data.status === 'opened_with_hookah') {
+                badge.textContent = 'Открытый стол (с кальяном)';
+                badge.className = 'badge bg-info';
+                console.log('📝 Бейдж: Открытый стол (с кальяном) + bg-info');
+                
+            } else if (data.status === 'opened_without_hookah') {
+                badge.textContent = 'Открытый стол (без кальяна)';
+                badge.className = 'badge bg-success';
+                console.log('📝 Бейдж: Открытый стол (без кальяна) + bg-success');
+            }
+        }
+        
+        // 4. УДАЛЯЕМ таймер "требуется кальян" если есть
+        // ❌ УДАЛИТЕ ЭТОТ БЛОК:
+        // const timerContainer = cell.querySelector('.timer-container');
+        // if (timerContainer) {
+        //     console.log('🗑 Удаляем timer-container (таймер "требуется кальян")');
+        //     timerContainer.remove();
+        // }
+        
+        // ✅ ВМЕСТО НЕГО ИСПОЛЬЗУЙТЕ НОВЫЙ МОДУЛЬ:
+        if (window.HookahTimerManager && window.HookahTimerManager.stopTimer) {
+            window.HookahTimerManager.stopTimer(tableId);
+        }
+        
+        // 5. ТАЙМЕР УГЛЕЙ - ИСПРАВЛЕННАЯ ВЕРСИЯ
+        if (data.status === 'opened_with_hookah') {
+            console.log('🔥 Добавляем таймер углей для стола', tableId);
+            
+            // ... остальной код без изменений ...
+        }
+        
+        console.log('✅ Стол успешно обновлен!');
+    }
+
+    function updateTableTotal(tableId, newTotal) {
+        console.log('🔄 Обновляем сумму для стола', tableId, 'новая сумма:', newTotal);
+        
+        // Находим ВСЕ кнопки с данным tableId
+        const buttons = document.querySelectorAll(`button[data-table-id="${tableId}"]`);
+        if (buttons.length === 0) {
+            console.error('❌ Кнопки стола не найдены для обновления суммы');
+            return;
+        }
+        
+        // Обрабатываем каждую кнопку
+        buttons.forEach(button => {
+            const cell = button.closest('td');
+            if (!cell) return;
+            
+            // 1. Находим сумму в открытом столе (зеленый бейдж)
+            const totalBadge = cell.querySelector('.badge.bg-success.fs-6');
+            if (totalBadge) {
+                totalBadge.textContent = numberFormat(newTotal) + ' ₽';
+                console.log('✅ Сумма обновлена в ячейке (открытый стол):', totalBadge.textContent);
+            }
+            
+            // 2. Находим сумму в заголовке таблицы товаров (если есть)
+            const productsBadge = cell.querySelector('.badge.bg-primary');
+            if (productsBadge && productsBadge.textContent.includes('₽')) {
+                productsBadge.textContent = numberFormat(newTotal) + ' ₽';
+            }
+            
+            // 3. Обновляем сумму в статусе "закрытый стол"
+            const closedTotalElement = cell.querySelector('.small.mt-1 strong');
+            if (closedTotalElement) {
+                closedTotalElement.textContent = numberFormat(newTotal) + ' ₽';
+            }
+            
+            // 4. Обновляем данные в кнопке "Закрыть стол"
+            const closeButton = cell.querySelector('button[data-bs-target="#closeSaleModal"]');
+            if (closeButton) {
+                closeButton.setAttribute('data-total', newTotal);
             }
         });
+    }
+
+    // Функция для форматирования числа
+    function numberFormat(number) {
+        return parseFloat(number).toLocaleString('ru-RU', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        });
+    }
+
+    // =============== ФУНКЦИЯ ОБНОВЛЕНИЯ СУММЫ ВО ВСЕХ МОДАЛКАХ ===============
+
+    function updateAllModalTotals(tableId, saleId, newTotal) {
+        console.log('📊 Обновляем суммы во всех модалках для стола', tableId);
+        
+        // 1. Обновляем в модалке товаров
+        if (currentTableId === tableId) {
+            const totalElement = document.getElementById('totalAmount');
+            if (totalElement) {
+                totalElement.textContent = formatPrice(newTotal);
+            }
+        }
+        
+        // 2. Обновляем в модалке кальянов
+        if (currentHookahsTableId === tableId) {
+            const hookahsTotalElement = document.getElementById('hookahsTotalAmount');
+            if (hookahsTotalElement) {
+                // Если это только кальяны, получаем текущую сумму кальянов
+                // Но лучше перезагрузить данные
+                loadSaleHookahs();
+            }
+        }
+        
+        // 3. Обновляем в модалке закрытия (если она открыта)
+        const closeSaleModal = document.getElementById('closeSaleModal');
+        if (closeSaleModal && closeSaleModal.classList.contains('show')) {
+            // Перезагружаем данные для закрытия
+            loadSaleDataForClosing(tableId);
+        }
     }
 
    // =============== МОДАЛКА ЗАКРЫТИЯ СТОЛА ===============
@@ -1912,6 +2182,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // =============== ОБНОВЛЕННАЯ ФУНКЦИЯ РАСЧЕТА ИТОГОВОЙ СУММЫ ===============
 
+    function getDiscountInRubles() {
+        const closeDiscountInput = document.getElementById('closeDiscount');
+        if (!closeDiscountInput) return 0;
+        
+        const discountValue = parseFloat(closeDiscountInput.value) || 0;
+        
+        if (currentDiscountType === 'percent') {
+            // Получаем промежуточную сумму
+            const subtotalElement = document.getElementById('closeSubtotal');
+            if (!subtotalElement) return discountValue;
+            
+            const subtotalText = subtotalElement.textContent;
+            const subtotal = parseFloat(subtotalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
+            
+            // Рассчитываем скидку в рублях: 20% от 1000 = 200 руб
+            return (subtotal * discountValue / 100);
+        }
+        
+        // Для фиксированной суммы просто возвращаем значение
+        return discountValue;
+    }
+
     function calculateCloseTotal() {
         // Получаем элементы
         const subtotalElement = document.getElementById('closeSubtotal');
@@ -1919,23 +2211,14 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (!subtotalElement || !finalTotalElement) return;
         
-        // Получаем значения (убираем символы валюты и пробелы)
+        // Получаем промежуточную сумму
         const subtotalText = subtotalElement.textContent;
         const subtotal = parseFloat(subtotalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
         
-        // Рассчитываем скидку в рублях
-        let discountInRubles = 0;
-        if (currentDiscountType === 'percent') {
-            const discountPercent = parseFloat(closeDiscountInput.value) || 0;
-            discountInRubles = (subtotal * discountPercent) / 100;
-        } else {
-            discountInRubles = parseFloat(closeDiscountInput.value) || 0;
-        }
+        // Рассчитываем скидку в рублях (используем новую функцию)
+        const discountInRubles = getDiscountInRubles();
         
-        // Ограничиваем скидку промежуточной суммой
-        discountInRubles = Math.min(discountInRubles, subtotal);
-        
-        // Рассчитываем
+        // Рассчитываем итог с учетом бонусов
         const finalTotal = Math.max(0, subtotal - discountInRubles - currentBonusDiscount);
         
         // Обновляем отображение
@@ -1945,6 +2228,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const discountDisplay = document.getElementById('closeDiscountDisplay');
         if (discountDisplay) {
             discountDisplay.textContent = formatPrice(discountInRubles);
+        }
+        
+        // Обновляем конвертацию для процентов
+        if (currentDiscountType === 'percent' && discountConversion && discountAmount) {
+            discountAmount.textContent = formatPrice(discountInRubles);
         }
         
         // Обновляем отображение бонусной скидки
@@ -1972,7 +2260,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Обновляем расчет доступных бонусов
-        updateBonusCalculation();
+        if (typeof updateBonusCalculation === 'function') {
+            updateBonusCalculation();
+        }
     }
 
     // =============== ФУНКЦИЯ ОБНОВЛЕНИЯ РАСЧЕТА БОНУСОВ ===============
@@ -2068,9 +2358,13 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('DOMContentLoaded', function() {
         const closeDiscountInput = document.getElementById('closeDiscount');
         if (closeDiscountInput) {
+            // Устанавливаем начальный тип скидки
+            currentDiscountType = 'fixed'; // или 'percent'
+            updateDiscountUI();
+            
+            // Обработчик изменения значения
             closeDiscountInput.addEventListener('input', function() {
                 calculateCloseTotal();
-                updateBonusCalculation();
             });
         }
     });
@@ -2137,29 +2431,48 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Пересчет скидки
     function recalculateDiscount() {
+        if (!closeDiscountInput) return;
+        
         const discountValue = parseFloat(closeDiscountInput.value) || 0;
         
         if (currentDiscountType === 'percent') {
-            // Конвертируем проценты в рубли
-            const discountInRubles = (currentSubtotal * discountValue) / 100;
-            discountAmount.textContent = formatPrice(discountInRubles);
-            
-            // Сохраняем проценты в скрытое поле
-            if (discountPercentInput) {
-                discountPercentInput.value = discountValue;
+            // Ограничиваем проценты 0-100
+            const limitedValue = Math.min(100, Math.max(0, discountValue));
+            if (discountValue !== limitedValue) {
+                closeDiscountInput.value = limitedValue;
             }
             
-            // Вызываем обновление итоговой суммы
-            updateTotalAfterDiscount(discountInRubles);
+            // Обновляем конвертацию
+            if (discountConversion && discountAmount) {
+                const discountInRubles = getDiscountInRubles();
+                discountAmount.textContent = formatPrice(discountInRubles);
+            }
+            
+            // Обновляем скрытое поле процентов
+            if (discountPercentInput) {
+                discountPercentInput.value = limitedValue;
+            }
         } else {
-            // Рубли - просто передаем значение
-            if (discountPercentInput) {
-                discountPercentInput.value = 0; // Обнуляем проценты
+            // Ограничиваем рубли промежуточной суммой
+            const discountInRubles = getDiscountInRubles();
+            const subtotalElement = document.getElementById('closeSubtotal');
+            if (subtotalElement) {
+                const subtotalText = subtotalElement.textContent;
+                const subtotal = parseFloat(subtotalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
+                const limitedValue = Math.min(subtotal, Math.max(0, discountValue));
+                if (discountValue !== limitedValue) {
+                    closeDiscountInput.value = limitedValue;
+                }
             }
             
-            // Вызываем обновление итоговой суммы
-            updateTotalAfterDiscount(discountValue);
+            // Обнуляем поле с процентами
+            if (discountPercentInput) {
+                discountPercentInput.value = 0;
+            }
         }
+        
+        // Всегда вызываем пересчет итога
+        calculateCloseTotal();
     }
 
     // Обновление итоговой суммы после скидки
@@ -2286,287 +2599,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // =============== ТАЙМЕР "ТРЕБУЕТСЯ КАЛЬЯН" ===============
-
-    // Запуск таймеров при загрузке
-    document.addEventListener('DOMContentLoaded', function() {
-        // Ждем немного, чтобы все таблицы отрисовались
-        setTimeout(() => {
-            initHookahRequirementTimers();
-        }, 1500); // Увеличил время до 1500 мс
-    });
-
-    // Инициализация таймеров
-    function initHookahRequirementTimers() {
-        console.log('=== INIT HOOKAH TIMERS ===');
-        
-        // Находим все ячейки со столами
-        const tableCells = document.querySelectorAll('td[style*="border: 2px solid #2196f3"]');
-        
-        console.log('Found table cells for hookah timers:', tableCells.length);
-        
-        tableCells.forEach((cell, index) => {
-            // Ищем бейдж статуса
-            const statusBadge = cell.querySelector('.badge');
-            if (!statusBadge) return;
-            
-            const statusText = statusBadge.textContent.trim();
-            
-            // Если статус "без кальяна"
-            if (statusText.includes('без кальяна') || statusText.includes('Открыт (без кальяна)')) {
-                // Находим tableId для этого стола
-                const tableIdButton = cell.querySelector('button[data-table-id]');
-                if (!tableIdButton) return;
-                
-                const tableId = tableIdButton.getAttribute('data-table-id');
-                console.log(`Cell ${index} - Found table without hookah, tableId: ${tableId}`);
-                
-                let timerContainer = cell.querySelector('.timer-container');
-                if (!timerContainer) {
-                    // Создаем контейнер если его нет
-                    timerContainer = document.createElement('div');
-                    timerContainer.className = 'timer-container';
-                    
-                    // Находим место для вставки
-                    const mb2Div = cell.querySelector('.mb-2');
-                    if (mb2Div) {
-                        mb2Div.prepend(timerContainer);
-                    } else {
-                        const firstChild = cell.querySelector('div');
-                        if (firstChild) {
-                            cell.insertBefore(timerContainer, firstChild);
-                        } else {
-                            cell.prepend(timerContainer);
-                        }
-                    }
-                }
-                
-                // Запускаем таймер с сохранением tableId
-                startHookahRequirementTimer(timerContainer, tableId);
-            }
-        });
-        
-        console.log('=== HOOKAH TIMERS INITIALIZED ===');
-    }
-
-    // Запуск таймера (исправленная версия с одним параметром)
-    function startHookahRequirementTimer(container, tableId) {
-        console.log('Starting hookah requirement timer for table:', tableId);
-        
-        const timeLimitMinutes = 15;
-        const timeLimitMs = timeLimitMinutes * 60 * 1000;
-        
-        // Проверяем, есть ли сохраненное время старта
-        const storageKey = `hookah_timer_${tableId}`;
-        let startTime = localStorage.getItem(storageKey);
-        
-        if (!startTime) {
-            // Сохраняем время старта
-            startTime = new Date().getTime();
-            localStorage.setItem(storageKey, startTime);
-        } else {
-            startTime = parseInt(startTime);
-        }
-        
-        // Удаляем старый таймер если есть
-        const oldTimer = container.querySelector('.hookah-requirement-timer');
-        if (oldTimer) {
-            oldTimer.remove();
-        }
-        
-        // Создаем элемент таймера
-        const timerElement = document.createElement('div');
-        timerElement.className = 'hookah-requirement-timer';
-        timerElement.innerHTML = `
-            <div class="alert alert-danger alert-dismissible fade show p-1 mb-2" role="alert" style="font-size: 0.8rem;">
-                <div class="d-flex align-items-center justify-content-between">
-                    <div class="d-flex align-items-center">
-                        <i class="bi bi-alarm me-1"></i>
-                        <span>Поставьте кальян: <strong class="time-display">15:00</strong></span>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        container.appendChild(timerElement);
-        const timeDisplay = timerElement.querySelector('.time-display');
-        
-        // Функция обновления таймера
-        function updateTimer() {
-            const now = new Date().getTime();
-            const elapsedMs = now - startTime;
-            const remainingMs = Math.max(0, timeLimitMs - elapsedMs);
-            
-            if (remainingMs <= 0) {
-                // Время вышло
-                timeDisplay.textContent = '00:00';
-                timeDisplay.classList.add('text-decoration-line-through');
-                timerElement.querySelector('.alert').innerHTML = `
-                    <div class="d-flex align-items-center justify-content-between">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-alarm-fill me-1 text-danger"></i>
-                            <span><strong>Пора поставить кальян!</strong></span>
-                        </div>
-                    </div>
-                `;
-                
-                // Фиксированный красный цвет
-                const alertEl = timerElement.querySelector('.alert');
-                alertEl.classList.remove('alert-warning');
-                alertEl.classList.add('alert-danger');
-            } else {
-                const remainingMinutes = Math.floor(remainingMs / 60000);
-                const seconds = Math.floor((remainingMs % 60000) / 1000);
-                
-                const displayMinutes = remainingMinutes.toString().padStart(2, '0');
-                const displaySeconds = seconds.toString().padStart(2, '0');
-                
-                timeDisplay.textContent = `${displayMinutes}:${displaySeconds}`;
-                timeDisplay.classList.remove('text-decoration-line-through');
-                
-                // ВСЕГДА красный, без изменения цвета
-                const alertElement = timerElement.querySelector('.alert');
-                alertElement.classList.remove('alert-warning', 'alert-danger');
-                alertElement.classList.add('alert-danger');
-            }
-        }
-        
-        const interval = setInterval(updateTimer, 1000);
-        updateTimer();
-        
-        // Сохраняем интервал и tableId для остановки
-        timerElement._interval = interval;
-        timerElement._tableId = tableId;
-        
-        return timerElement;
-    }
-
-    // Функция для сброса таймера
-    function resetHookahTimer(tableId, button) {
-        const storageKey = `hookah_timer_${tableId}`;
-        localStorage.removeItem(storageKey);
-
-        cleanupOldTimers();
-        
-        // Находим и удаляем таймер
-        const timerElement = button.closest('.hookah-requirement-timer');
-        if (timerElement && timerElement._interval) {
-            clearInterval(timerElement._interval);
-        }
-        
-        // Удаляем элемент
-        timerElement?.remove();
-        
-        // Показываем уведомление
-        showToast('info', 'Таймер сброшен', 'Таймер "требуется кальян" сброшен');
-    }
-
-    // Функция для остановки таймера при добавлении кальяна
-    function stopHookahRequirementTimer(tableId) {
-        console.log('Stopping timer for table:', tableId);
-        
-        // Удаляем из localStorage
-        const storageKey = `hookah_timer_${tableId}`;
-        localStorage.removeItem(storageKey);
-        
-        // Находим все таймеры для этого стола
-        document.querySelectorAll('.hookah-requirement-timer').forEach(timerElement => {
-            if (timerElement._tableId == tableId) {
-                if (timerElement._interval) {
-                    clearInterval(timerElement._interval);
-                }
-                timerElement.remove();
-            }
-        });
-        
-        // Также удаляем контейнер таймера
-        const timerContainers = document.querySelectorAll('.timer-container');
-        timerContainers.forEach(container => {
-            const hasButtons = container.closest('td').querySelector(`button[data-table-id="${tableId}"]`);
-            if (hasButtons) {
-                container.remove();
-            }
-        });
-    }
-
-   function initTableTimers() {
-        const timerElements = document.querySelectorAll('.table-timer');
-        
-        console.log('Found table timers:', timerElements.length);
-        
-        timerElements.forEach(timerElement => {
-            // Проверяем, не инициализирован ли уже таймер
-            if (timerElement.hasAttribute('data-initialized')) {
-                console.log('Timer already initialized, skipping');
-                return; // Пропускаем уже инициализированные
-            }
-            
-            // Первоначальное обновление
-            updateTimer(timerElement);
-            
-            // Обновляем каждую секунду
-            const intervalId = setInterval(() => updateTimer(timerElement), 1000);
-            
-            // Сохраняем ID интервала для очистки
-            timerElement.setAttribute('data-interval-id', intervalId);
-            timerElement.setAttribute('data-initialized', 'true');
-        });
-        
-        console.log('Table timers initialized');
-    }
-
-    // Функция для очистки таймеров
-    function cleanupTableTimers() {
-        const timerElements = document.querySelectorAll('.table-timer');
-        
-        timerElements.forEach(timerElement => {
-            const intervalId = timerElement.getAttribute('data-interval-id');
-            if (intervalId) {
-                clearInterval(parseInt(intervalId));
-            }
-            timerElement.removeAttribute('data-interval-id');
-            timerElement.removeAttribute('data-initialized');
-        });
-    }
-
     
-
-    // =============== ОЧИСТКА СТАРЫХ ТАЙМЕРОВ ИЗ LOCALSTORAGE ===============
-
-    function cleanupOldTimers() {
-        const now = Date.now();
-        const oneDayMs = 24 * 60 * 60 * 1000;
-        
-        console.log('Cleaning up old timers from localStorage...');
-        
-        // Собираем ключи, которые нужно проверить
-        const keysToRemove = [];
-        
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key.startsWith('hookah_timer_')) {
-                try {
-                    const startTime = parseInt(localStorage.getItem(key));
-                    if (now - startTime > oneDayMs) {
-                        keysToRemove.push(key);
-                    }
-                } catch (error) {
-                    console.error('Error checking timer key:', key, error);
-                }
-            }
-        }
-        
-        // Удаляем старые таймеры
-        keysToRemove.forEach(key => {
-            localStorage.removeItem(key);
-            console.log('Removed old timer:', key);
-        });
-        
-        console.log('Cleaned up', keysToRemove.length, 'old timers');
-    }
-
-    
-     // =============== ИНИЦИАЛИЗАЦИЯ ===============
+    // =============== ИНИЦИАЛИЗАЦИЯ ===============
     
     // Всплывающие подсказки
     const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -2577,26 +2611,61 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     initDiscountLogic();
-    
 
+    // 1. Инициализируем таймер "требуется кальян"
+    setTimeout(() => {
+        if (typeof window.HookahTimerManager !== 'undefined') {
+            console.log('🚀 Initializing HookahTimerManager...');
+            window.HookahTimerManager.init();
+        } else {
+            console.error('❌ HookahTimerManager not found!');
+        }
+    }, 1000); // Даем время на загрузку DOM
+    
+    // =============== ОБРАБОТЧИК ОТПРАВКИ ФОРМЫ ===============
+
+    const closeSaleForm = document.getElementById('closeSaleForm');
+    if (closeSaleForm) {
+        closeSaleForm.addEventListener('submit', function(e) {
+            // 1. Получаем скидку в рублях
+            const discountInRubles = getDiscountInRubles();
+            console.log('✅ Рассчитанная скидка в рублях:', discountInRubles, 'тип скидки:', currentDiscountType);
+            
+            // 2. Устанавливаем значения в скрытые поля
+            const discountInRublesHidden = document.getElementById('discountInRublesHidden');
+            const discountTypeHidden = document.getElementById('discountTypeHidden');
+            
+            if (discountInRublesHidden) {
+                discountInRublesHidden.value = discountInRubles.toFixed(2);
+                console.log('✅ discount_in_rubles отправляется:', discountInRublesHidden.value);
+            }
+            
+            if (discountTypeHidden) {
+                discountTypeHidden.value = currentDiscountType;
+                console.log('✅ discount_type отправляется:', discountTypeHidden.value);
+            }
+            
+            // 3. ДЛЯ СОВМЕСТИМОСТИ: также устанавливаем в основное поле discount
+            // (чтобы не ломать старый контроллер)
+            const closeDiscountInput = document.getElementById('closeDiscount');
+            if (closeDiscountInput) {
+                // Сохраняем оригинальное значение (для отладки)
+                const originalValue = closeDiscountInput.value;
+                
+                // Если это проценты, конвертируем в рубли
+                if (currentDiscountType === 'percent') {
+                    closeDiscountInput.value = discountInRubles.toFixed(2);
+                    console.log('✅ Поле discount изменено с', originalValue, 'на', closeDiscountInput.value);
+                }
+            }
+            
+            // 4. Можно показать информационное сообщение (опционально)
+            // showToast('info', 'Отправка', `Скидка: ${discountInRubles.toFixed(2)} руб.`);
+        });
+    }
     
     console.log('Table Manager initialized');
     
-    // =============== ИНИЦИАЛИЗАЦИЯ ТАЙМЕРОВ ===============
-    // Очищаем старые таймеры из localStorage (старше 24 часов)
-    cleanupOldTimers();
-    
-    // Сначала очищаем старые таймеры (на всякий случай)
-    cleanupTableTimers();
-    
-    // Инициализируем основные таймеры
-    initTableTimers();
-    
-    // Затем инициализируем таймеры "требуется кальян" с задержкой
-    setTimeout(() => {
-        initHookahRequirementTimers();
-        // debugHookahTimers();
-    }, 1500);
 
     // =============== ИНИЦИАЛИЗАЦИЯ ТАЙМЕРА УГЛЕЙ ===============
 
@@ -2639,7 +2708,6 @@ document.addEventListener('DOMContentLoaded', function() {
         loadSaleItems,
         addProduct,
         removeProduct,
-        updateProductQuantity,
         loadSaleHookahs,     
         addHookah,          
         removeHookah,

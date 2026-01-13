@@ -248,11 +248,19 @@ class ProductController extends Controller
             $availableProducts = Product::orderBy('name')
                 ->get(['id', 'name', 'unit', 'price', 'cost']);
         } else {
-            // Для редактирования - исключаем уже добавленные
+            // Для редактирования - исключаем уже добавленные и сам продукт
             $existingIds = $product->recipeComponents()->pluck('component_product_id')->toArray();
+            
+            // Добавляем ID самого продукта
             $existingIds[] = $product->id;
             
-            $availableProducts = Product::whereNotIn('id', $existingIds)
+            // Исключаем также продукты, которые уже содержат текущий продукт
+            $productsThatContainThis = ProductRecipeItem::where('component_product_id', $product->id)
+                ->pluck('parent_product_id')
+                ->toArray();
+            $existingIds = array_merge($existingIds, $productsThatContainThis);
+            
+            $availableProducts = Product::whereNotIn('id', array_unique($existingIds))
                 ->orderBy('name')
                 ->get(['id', 'name', 'unit', 'price', 'cost']);
         }

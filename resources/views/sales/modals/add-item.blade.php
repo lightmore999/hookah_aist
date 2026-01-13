@@ -1,3 +1,4 @@
+<!-- sales/modals/add-item.blade.php -->
 <div class="modal fade" id="addItemModal" tabindex="-1" aria-labelledby="addItemModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -17,16 +18,47 @@
                         <select class="form-select" id="product_id" name="product_id" required onchange="updateProductInfo()">
                             <option value="">Выберите товар</option>
                             @foreach($products as $product)
+                            @php
+                                // Получаем доступное количество с учетом склада
+                                $stock = \App\Models\Stock::where('warehouse_id', $sale->warehouse_id)
+                                    ->where('product_id', $product->id)
+                                    ->first();
+                                $available = $stock ? $stock->quantity : 0;
+                                
+                                // Для составных товаров рассчитываем доступное количество
+                                if ($product->is_composite) {
+                                    $minAvailable = PHP_INT_MAX;
+                                    foreach ($product->recipeComponents as $component) {
+                                        $componentStock = \App\Models\Stock::where('warehouse_id', $sale->warehouse_id)
+                                            ->where('product_id', $component->component_product_id)
+                                            ->first();
+                                        
+                                        if (!$componentStock || $componentStock->quantity <= 0) {
+                                            $available = 0;
+                                            break;
+                                        }
+                                        
+                                        $availableForComponent = floor($componentStock->quantity / $component->quantity);
+                                        $minAvailable = min($minAvailable, $availableForComponent);
+                                    }
+                                    $available = ($minAvailable !== PHP_INT_MAX) ? $minAvailable : 0;
+                                }
+                            @endphp
                             <option value="{{ $product->id }}" 
                                     data-price="{{ $product->price }}"
                                     data-unit="{{ $product->unit ?? 'шт' }}"
                                     data-is-composite="{{ $product->is_composite ? '1' : '0' }}"
-                                    data-cost="{{ $product->cost ?? 0 }}">
-                                {{ $product->name }} ({{ $product->unit ?? 'шт' }})   
+                                    data-cost="{{ $product->cost ?? 0 }}"
+                                    data-available="{{ $available }}">
+                                {{ $product->name }} ({{ $product->unit ?? 'шт' }})
+                                @if($available > 0)
+                                    - доступно: {{ $available }}
+                                @else
+                                    - нет в наличии
+                                @endif
                             </option>
                             @endforeach
                         </select>
-                        <!-- Добавляем эту проверку ПОСЛЕ select: -->
                         @if(isset($products) && $products->isEmpty())
                         <div class="alert alert-warning mt-2">
                             Нет доступных товаров для добавления
@@ -38,20 +70,23 @@
                     <div class="card mb-3 border-0 bg-light" id="productInfoCard" style="display: none;">
                         <div class="card-body p-3">
                             <div class="row">
-                                <div class="col-12">
+                                <div class="col-6">
                                     <small class="text-muted d-block">Цена за единицу:</small>
                                     <strong id="productUnitPrice">0.00 ₽</strong>
+                                </div>
+                                <div class="col-6">
+                                    <small class="text-muted d-block">Доступно на складе:</small>
+                                    <strong id="productAvailable" class="text-success">0</strong>
+                                    <span id="productAvailableUnit"></span>
                                 </div>
                             </div>
                             <div class="row mt-2">
                                 <div class="col-12">
                                     <small class="text-muted d-block">Единица измерения:</small>
                                     <small id="productUnitInfo">—</small>
-                                    @if($product->is_composite ?? false)
-                                        <div class="mt-2 alert alert-warning p-2">
-                                            <i class="bi bi-info-circle"></i> Составной товар
-                                        </div>
-                                    @endif
+                                    <div id="compositeWarning" style="display: none;" class="mt-2 alert alert-warning p-2">
+                                        <i class="bi bi-info-circle"></i> Составной товар
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -68,10 +103,15 @@
                                    id="quantity" 
                                    name="quantity" 
                                    value="1" 
-                                   required>
+                                   required
+                                   oninput="checkQuantity()">
                             <span class="input-group-text" id="quantityUnitLabel">шт</span>
                         </div>
                         <small class="text-muted" id="quantityInfo"></small>
+                        <div id="quantityWarning" class="alert alert-warning mt-2 p-2" style="display: none;">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            <span id="warningMessage"></span>
+                        </div>
                     </div>
                     
                     <!-- Ввод цены -->
@@ -105,7 +145,7 @@
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
                         Отмена
                     </button>
-                    <button type="submit" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary" id="submitBtn">
                         Добавить
                     </button>
                 </div>
@@ -118,20 +158,23 @@
 let currentProduct = {
     unit: 'шт',
     price: 0,
-    isComposite: false
+    isComposite: false,
+    available: 0
 };
 
 function updateProductInfo() {
     const productSelect = document.getElementById('product_id');
     const selectedOption = productSelect.options[productSelect.selectedIndex];
     const productInfoCard = document.getElementById('productInfoCard');
+    const compositeWarning = document.getElementById('compositeWarning');
     
     if (productSelect.value) {
         currentProduct = {
             unit: selectedOption.dataset.unit || 'шт',
             price: parseFloat(selectedOption.dataset.price) || 0,
             cost: parseFloat(selectedOption.dataset.cost) || 0,
-            isComposite: selectedOption.dataset.isComposite === '1'
+            isComposite: selectedOption.dataset.isComposite === '1',
+            available: parseFloat(selectedOption.dataset.available) || 0
         };
         
         // Показываем информацию о товаре
@@ -140,16 +183,29 @@ function updateProductInfo() {
         // Заполняем информацию
         document.getElementById('productUnitPrice').textContent = 
             currentProduct.price.toFixed(2) + ' ₽';
+        document.getElementById('productAvailable').textContent = 
+            currentProduct.available;
+        document.getElementById('productAvailableUnit').textContent = 
+            currentProduct.unit;
         document.getElementById('productUnitInfo').textContent = 
             `Единица измерения: ${currentProduct.unit}`;
+        
+        // Показываем/скрываем предупреждение о составном товаре
+        if (currentProduct.isComposite) {
+            compositeWarning.style.display = 'block';
+        } else {
+            compositeWarning.style.display = 'none';
+        }
         
         // Обновляем поля
         updateQuantityFields();
         updatePriceFields();
+        checkQuantity();
         calculateTotal();
     } else {
         productInfoCard.style.display = 'none';
-        currentProduct = { unit: 'шт', price: 0, isComposite: false };
+        currentProduct = { unit: 'шт', price: 0, isComposite: false, available: 0 };
+        hideWarning();
     }
 }
 
@@ -185,6 +241,63 @@ function updatePriceFields() {
     priceUnitLabel.textContent = `₽/${currentProduct.unit}`;
     
     calculateTotal();
+}
+
+function checkQuantity() {
+    const quantityInput = document.getElementById('quantity');
+    const quantityWarning = document.getElementById('quantityWarning');
+    const warningMessage = document.getElementById('warningMessage');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    const requested = parseFloat(quantityInput.value) || 0;
+    const available = currentProduct.available || 0;
+    
+    if (requested <= 0) {
+        showWarning('Введите корректное количество', 'warning');
+        submitBtn.disabled = true;
+        return;
+    }
+    
+    if (currentProduct.unit === 'шт' && !Number.isInteger(requested)) {
+        showWarning('Для штучных товаров количество должно быть целым числом', 'warning');
+        submitBtn.disabled = true;
+        return;
+    }
+    
+    if (available <= 0) {
+        showWarning('Товар отсутствует на складе', 'danger');
+        submitBtn.disabled = true;
+        return;
+    }
+    
+    if (requested > available) {
+        showWarning(`Запрошено: ${requested}, доступно: ${available}. Можно добавить максимум ${available} ${currentProduct.unit}`, 'danger');
+        submitBtn.disabled = true;
+        return;
+    }
+    
+    // Если все хорошо
+    hideWarning();
+    submitBtn.disabled = false;
+}
+
+function showWarning(message, type = 'warning') {
+    const quantityWarning = document.getElementById('quantityWarning');
+    const warningMessage = document.getElementById('warningMessage');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    quantityWarning.style.display = 'block';
+    quantityWarning.className = `alert alert-${type} mt-2 p-2`;
+    warningMessage.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i> ${message}`;
+    submitBtn.disabled = true;
+}
+
+function hideWarning() {
+    const quantityWarning = document.getElementById('quantityWarning');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    quantityWarning.style.display = 'none';
+    submitBtn.disabled = false;
 }
 
 function calculateTotal() {
@@ -227,10 +340,62 @@ function updateHiddenFields(quantity, pricePerUnit) {
     hiddenPrice.value = pricePerUnit.toFixed(2);
 }
 
+// Добавляем AJAX проверку при отправке формы для двойной проверки
+document.getElementById('addItemForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const productId = document.getElementById('product_id').value;
+    const quantity = document.getElementById('quantity').value;
+    const unitPrice = document.getElementById('unit_price').value;
+    
+    if (!productId || !quantity || !unitPrice) {
+        alert('Заполните все обязательные поля');
+        return;
+    }
+    
+    // Проверяем доступность через AJAX перед отправкой
+    fetch('{{ route("sales.check-stock", $sale->id) }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+        },
+        body: JSON.stringify({
+            product_id: productId,
+            quantity: quantity,
+            unit_price: unitPrice
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Если товар доступен, отправляем форму
+            this.submit();
+        } else {
+            // Показываем ошибку
+            showWarning(data.message || 'Не удалось добавить товар', 'danger');
+            
+            // Предлагаем добавить доступное количество
+            if (data.available > 0 && confirm(`Доступно только ${data.available} ${data.unit}. Добавить это количество?`)) {
+                document.getElementById('quantity').value = data.available;
+                // Повторяем проверку
+                checkQuantity();
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Ошибка проверки товара. Попробуйте еще раз.');
+    });
+});
+
 // Инициализация
 document.addEventListener('DOMContentLoaded', function() {
     // Слушаем изменения в полях
-    document.getElementById('quantity').addEventListener('input', calculateTotal);
+    document.getElementById('quantity').addEventListener('input', function() {
+        checkQuantity();
+        calculateTotal();
+    });
     document.getElementById('unit_price').addEventListener('input', calculateTotal);
     
     // Если уже выбран товар - обновляем информацию
@@ -239,5 +404,4 @@ document.addEventListener('DOMContentLoaded', function() {
         updateProductInfo();
     }
 });
-
 </script>

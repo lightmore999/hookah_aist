@@ -8,7 +8,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Закрыть"></button>
             </div>
             
-            <form method="POST" id="editSaleForm">
+           <form method="POST" action="" id="editSaleForm">
                 @csrf
                 @method('PUT')
                 <input type="hidden" id="edit_sale_id" name="sale_id">

@@ -312,11 +312,46 @@ class SaleController extends Controller
     {
         $validated = $request->validate([
             'product_id' => 'required|exists:products,id',
-            'quantity' => 'required|numeric|min:0.001', // quantity уже в правильной единице
-            'unit_price' => 'required|numeric|min:0.01', // price за единицу
-            'final_quantity' => 'nullable', // можно убрать если не используется
-            'final_unit_price' => 'nullable', // можно убрать если не используется
+            'quantity' => 'required|numeric|min:0.001',
+            'unit_price' => 'required|numeric|min:0.01',
+            'final_quantity' => 'nullable',
+            'final_unit_price' => 'nullable',
         ]);
+
+        $product = Product::find($validated['product_id']);
+        
+        // Для штучных товаров проверяем целое число
+        if ($product->unit === 'шт' && floor($validated['quantity']) != $validated['quantity']) {
+            return back()->with('error', 'Для штучных товаров количество должно быть целым числом');
+        }
+
+        // Проверка наличия на складе
+        $availableQuantity = $this->getAvailableQuantity($sale->warehouse_id, $product);
+        $requestedQuantity = $validated['quantity'];
+        
+        if (!$this->checkStockAvailability($sale->warehouse_id, $product, $requestedQuantity)) {
+            $unitText = $product->unit === 'шт' ? 'штук' : $product->unit;
+            
+            // Формируем детальное сообщение об ошибке
+            $errorMessage = "Недостаточно товара '{$product->name}' на складе.\n";
+            $errorMessage .= "Запрошено: {$requestedQuantity} {$unitText}\n";
+            $errorMessage .= "Доступно: {$availableQuantity} {$unitText}";
+            
+            // Для составных товаров добавляем детали по компонентам
+            if ($product->is_composite) {
+                $componentDetails = $this->getComponentAvailabilityDetails($sale->warehouse_id, $product, $requestedQuantity);
+                $errorMessage .= "\n\nНедостаточно компонентов:\n";
+                
+                foreach ($componentDetails as $detail) {
+                    if (!$detail['is_available']) {
+                        $componentName = $detail['component_name'] ?? 'Компонент #' . $detail['component_id'];
+                        $errorMessage .= "- {$componentName}: нужно {$detail['required_total']} {$detail['unit']}, есть {$detail['available']} {$detail['unit']}\n";
+                    }
+                }
+            }
+            
+            return back()->with('error', $errorMessage);
+        }
 
         // Создаем запись с простыми данными
         SaleItem::create([
@@ -420,4 +455,148 @@ class SaleController extends Controller
         
         $sale->update(['total' => $total]);
     }
+
+private function checkStockAvailability($warehouseId, Product $product, $requestedQuantity)
+{
+    if (!$warehouseId) {
+        return false;
+    }
+    
+    if ($product->is_composite) {
+        // Проверка для составных товаров
+        foreach ($product->recipeComponents as $component) {
+            $stock = Stock::where('warehouse_id', $warehouseId)
+                        ->where('product_id', $component->component_product_id)
+                        ->first();
+            
+            $requiredQuantity = $requestedQuantity * $component->quantity;
+            
+            if (!$stock || $stock->quantity < $requiredQuantity) {
+                return false;
+            }
+        }
+    } else {
+        // Проверка для обычных товаров
+        $stock = Stock::where('warehouse_id', $warehouseId)
+                    ->where('product_id', $product->id)
+                    ->first();
+        
+        if (!$stock || $stock->quantity < $requestedQuantity) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/**
+ * Получает доступное количество товара на складе
+ */
+private function getAvailableQuantity($warehouseId, Product $product)
+{
+    if (!$warehouseId) {
+        return 0;
+    }
+    
+    if ($product->is_composite) {
+        // Для составных товаров находим минимальное количество среди компонентов
+        $minAvailable = PHP_INT_MAX;
+        
+        foreach ($product->recipeComponents as $component) {
+            $stock = Stock::where('warehouse_id', $warehouseId)
+                        ->where('product_id', $component->component_product_id)
+                        ->first();
+            
+            if (!$stock) {
+                return 0;
+            }
+            
+            // Сколько можно сделать из доступных компонентов
+            $availableForComponent = floor($stock->quantity / $component->quantity);
+            $minAvailable = min($minAvailable, $availableForComponent);
+        }
+        
+        return $minAvailable;
+    } else {
+        // Для обычных товаров
+        $stock = Stock::where('warehouse_id', $warehouseId)
+                    ->where('product_id', $product->id)
+                    ->first();
+        
+        return $stock ? $stock->quantity : 0;
+    }
+}
+
+    /**
+     * Получает детальную информацию о доступности компонентов составного товара
+     */
+    private function getComponentAvailabilityDetails($warehouseId, Product $product, $requestedQuantity)
+    {
+        $details = [];
+        
+        foreach ($product->recipeComponents as $component) {
+            $componentStock = Stock::where('warehouse_id', $warehouseId)
+                ->where('product_id', $component->component_product_id)
+                ->first();
+            
+            $availableComponent = $componentStock ? $componentStock->quantity : 0;
+            $requiredComponent = $requestedQuantity * $component->quantity;
+            
+            $details[] = [
+                'component_id' => $component->component_product_id,
+                'component_name' => $component->componentProduct->name ?? 'Компонент #' . $component->component_product_id,
+                'required_per_unit' => $component->quantity,
+                'required_total' => $requiredComponent,
+                'available' => $availableComponent,
+                'unit' => $component->componentProduct->unit ?? 'шт',
+                'is_available' => $requiredComponent <= $availableComponent,
+                'shortage' => max(0, $requiredComponent - $availableComponent),
+                'can_make_units' => floor($availableComponent / $component->quantity)
+            ];
+        }
+        
+        return $details;
+    }
+
+    public function checkStock(Request $request, Sale $sale)
+    {
+        $validated = $request->validate([
+            'product_id' => 'required|exists:products,id',
+            'quantity' => 'required|numeric|min:0.001',
+            'unit_price' => 'required|numeric|min:0.01'
+        ]);
+        
+        $product = Product::find($validated['product_id']);
+        $requestedQuantity = $validated['quantity'];
+        
+        // Для штучных товаров проверяем целое число
+        if ($product->unit === 'шт' && floor($requestedQuantity) != $requestedQuantity) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Для штучных товаров количество должно быть целым числом'
+            ]);
+        }
+        
+        // Проверка наличия на складе
+        $availableQuantity = $this->getAvailableQuantity($sale->warehouse_id, $product);
+        
+        if (!$this->checkStockAvailability($sale->warehouse_id, $product, $requestedQuantity)) {
+            $unitText = $product->unit === 'шт' ? 'штук' : $product->unit;
+            
+            return response()->json([
+                'success' => false,
+                'message' => "Недостаточно товара '{$product->name}' на складе. Запрошено: {$requestedQuantity} {$unitText}, Доступно: {$availableQuantity} {$unitText}",
+                'available' => $availableQuantity,
+                'unit' => $product->unit,
+                'product_name' => $product->name,
+                'requested' => $requestedQuantity
+            ]);
+        }
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Товар доступен для добавления'
+        ]);
+    }
+
 }

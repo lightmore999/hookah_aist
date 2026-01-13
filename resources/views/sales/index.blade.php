@@ -241,15 +241,71 @@ document.addEventListener('DOMContentLoaded', function() {
         editSaleModal.addEventListener('show.bs.modal', function(event) {
             const button = event.relatedTarget;
             if (button && button.classList.contains('edit-sale-btn')) {
-                document.getElementById('edit_sale_id').value = button.dataset.id;
-                document.getElementById('edit_status').value = button.dataset.status;
-                document.getElementById('edit_client_id').value = button.dataset.client;
-                document.getElementById('edit_warehouse_id').value = button.dataset.warehouse;
-                document.getElementById('edit_total').value = button.dataset.total;
-                document.getElementById('edit_discount').value = button.dataset.discount;
-                document.getElementById('edit_payment_method').value = button.dataset.paymentMethod;
-                document.getElementById('edit_comment').value = button.dataset.comment;
-                document.getElementById('editSaleForm').action = `/sales/${button.dataset.id}`;
+                console.log('Opening edit modal for sale:', button.dataset.id);
+                
+                // 1. Устанавливаем action формы
+                const form = document.getElementById('editSaleForm');
+                const saleId = button.dataset.id;
+                form.action = `/sales/${saleId}`;
+                
+                // 2. Заполняем hidden поле
+                document.getElementById('edit_sale_id').value = saleId;
+                
+                // 3. Заполняем статус
+                const statusSelect = document.getElementById('edit_status');
+                if (statusSelect && button.dataset.status) {
+                    statusSelect.value = button.dataset.status;
+                }
+                
+                // 4. Заполняем клиента
+                const clientSelect = document.getElementById('edit_client_id');
+                if (clientSelect && button.dataset.client) {
+                    const clientId = button.dataset.client;
+                    clientSelect.value = clientId;
+                    
+                    // Проверяем, есть ли такой option
+                    const optionExists = Array.from(clientSelect.options).some(opt => opt.value === clientId);
+                    if (!optionExists && clientId) {
+                        console.warn('Client ID', clientId, 'not found in select options');
+                    }
+                }
+                
+                // 5. Заполняем склад
+                const warehouseSelect = document.getElementById('edit_warehouse_id');
+                if (warehouseSelect && button.dataset.warehouse) {
+                    const warehouseId = button.dataset.warehouse;
+                    warehouseSelect.value = warehouseId;
+                    
+                    // Если не нашли option, берем первый
+                    if (!warehouseSelect.value && warehouseSelect.options.length > 0) {
+                        warehouseSelect.value = warehouseSelect.options[0].value;
+                    }
+                }
+                
+                // 6. Заполняем скидку
+                const discountInput = document.getElementById('edit_discount');
+                if (discountInput && button.dataset.discount) {
+                    discountInput.value = parseFloat(button.dataset.discount) || 0;
+                }
+                
+                // 7. Заполняем способ оплаты
+                const paymentSelect = document.getElementById('edit_payment_method');
+                if (paymentSelect && button.dataset.paymentMethod) {
+                    paymentSelect.value = button.dataset.paymentMethod;
+                }
+                
+                // 8. Заполняем комментарий
+                const commentInput = document.getElementById('edit_comment');
+                if (commentInput && button.dataset.comment) {
+                    commentInput.value = button.dataset.comment;
+                }
+                
+                console.log('Form configured:', {
+                    action: form.action,
+                    client: button.dataset.client,
+                    warehouse: button.dataset.warehouse,
+                    status: button.dataset.status
+                });
             }
         });
     }
@@ -268,7 +324,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-@include('sales.modals.edit')
+@include('sales.modals.edit', ['clients' => $clients, 'warehouses' => $warehouses])
 @include('sales.modals.delete')
 
 @endsection
