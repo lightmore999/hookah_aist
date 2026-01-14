@@ -593,32 +593,73 @@ class TableController extends Controller
         
         $validated = $request->validate([
             'discount' => 'required|numeric|min:0',
+            'discount_in_rubles' => 'nullable|numeric|min:0',
+            'discount_type' => 'nullable|string|in:fixed,percent',
             'payment_method' => 'required|string|in:cash,card,online,terminal',
             'comment' => 'nullable|string|max:1000',
-            'use_bonuses' => 'boolean',
+            'use_bonuses' => 'nullable|string',
             'bonus_points_to_use' => 'nullable|integer|min:0'
         ]);
         
         // Обработка бонусов
-        if (isset($validated['use_bonuses']) && $validated['use_bonuses'] && !empty($validated['bonus_points_to_use'])) {
-            if (!$sale->client_id) {
+        $useBonuses = $request->has('use_bonuses') && $request->input('use_bonuses') === '1';
+        $bonusPoints = (int) $request->input('bonus_points_to_use', 0);
+        
+        // Определяем клиента (из таблицы или из продажи)
+        $clientId = $table->client_id ?? $sale->client_id;
+        
+        if ($useBonuses && $bonusPoints > 0) {
+            if (!$clientId) {
                 return back()->with('error', 'Для использования бонусов необходимо указать клиента');
             }
             
-            // Загружаем клиента с бонусной картой
-            $sale->load(['client.bonusCard']);
+            $client = Client::with('bonusCard')->find($clientId);
+            
+            if (!$client) {
+                return back()->with('error', 'Клиент не найден');
+            }
+            
+            // Рассчитываем суммы для проверки бонусов
+            $productsTotal = $sale->items->sum(function($item) {
+                return $item->quantity * $item->unit_price;
+            });
+            
+            $hookahsTotal = $sale->hookahs->sum('price');
+            $subtotal = $productsTotal + $hookahsTotal;
+            
+            // Определяем реальную скидку
+            $discount = $validated['discount'];
+            if (isset($validated['discount_type']) && $validated['discount_type'] === 'percent') {
+                $discount = $validated['discount_in_rubles'] ?? $discount;
+            }
             
             // Проверяем максимальное количество бонусов
-            $maxUsable = $sale->getMaxUsableBonuses();
+            $maxPercent = $client->bonusCard ? $client->bonusCard->MaxSpendPercent : 50;
+            $percentage = $maxPercent / 100;
+            $maxUsable = floor(($subtotal - $discount) * $percentage);
+            $maxUsable = min($client->bonus_points, $maxUsable);
             
-            if ($validated['bonus_points_to_use'] > $maxUsable) {
+            if ($bonusPoints > $maxUsable) {
                 return back()->with('error', "Можно использовать не более {$maxUsable} бонусов");
             }
             
-            $bonusResult = $sale->applyBonuses($validated['bonus_points_to_use']);
-            if (!$bonusResult['success']) {
-                return back()->with('error', $bonusResult['message']);
+            if ($client->bonus_points < $bonusPoints) {
+                return back()->with('error', 'Недостаточно бонусов у клиента');
             }
+            
+            // Списываем бонусы у клиента
+            $client->bonus_points -= $bonusPoints;
+            $client->save();
+            
+            // Сохраняем использованные бонусы в продаже
+            $sale->used_bonus_points = $bonusPoints;
+            $sale->save();
+        }
+        
+        // Определяем реальную скидку для сохранения
+        $discount = $validated['discount'];
+        if (isset($validated['discount_type']) && $validated['discount_type'] === 'percent') {
+            $discount = $validated['discount_in_rubles'] ?? $discount;
         }
         
         // Проверяем наличие товаров на складе
@@ -626,7 +667,6 @@ class TableController extends Controller
             $product = $item->product;
             
             if ($product->is_composite) {
-                // Проверка для составных товаров
                 foreach ($product->recipeComponents as $component) {
                     $stock = Stock::where('warehouse_id', $sale->warehouse_id)
                                 ->where('product_id', $component->component_product_id)
@@ -635,9 +675,15 @@ class TableController extends Controller
                     $requiredQuantity = $item->quantity * $component->quantity;
                     
                     if (!$stock || $stock->quantity < $requiredQuantity) {
-                        // Отменяем бонусы если были применены
-                        if ($sale->used_bonus_points > 0) {
-                            $sale->cancelBonuses();
+                        // Если были использованы бонусы - возвращаем их
+                        if ($sale->used_bonus_points > 0 && $clientId) {
+                            $client = Client::find($clientId);
+                            if ($client) {
+                                $client->bonus_points += $sale->used_bonus_points;
+                                $client->save();
+                            }
+                            $sale->used_bonus_points = 0;
+                            $sale->save();
                         }
                         
                         return back()->with('error', 
@@ -646,15 +692,20 @@ class TableController extends Controller
                     }
                 }
             } else {
-                // Проверка для обычных товаров
                 $stock = Stock::where('warehouse_id', $sale->warehouse_id)
                             ->where('product_id', $item->product_id)
                             ->first();
                 
                 if (!$stock || $stock->quantity < $item->quantity) {
-                    // Отменяем бонусы если были применены
-                    if ($sale->used_bonus_points > 0) {
-                        $sale->cancelBonuses();
+                    // Если были использованы бонусы - возвращаем их
+                    if ($sale->used_bonus_points > 0 && $clientId) {
+                        $client = Client::find($clientId);
+                        if ($client) {
+                            $client->bonus_points += $sale->used_bonus_points;
+                            $client->save();
+                        }
+                        $sale->used_bonus_points = 0;
+                        $sale->save();
                     }
                     
                     return back()->with('error', 
@@ -688,35 +739,40 @@ class TableController extends Controller
             }
         }
         
-        // Сначала обновляем скидку в продаже
+        // Обновляем client_id в продаже если нужно
+        if (!$sale->client_id && $table->client_id) {
+            $sale->client_id = $table->client_id;
+        }
+        
+        // Обновляем продажу
         $sale->update([
-            'discount' => $validated['discount'] ?? 0,
+            'discount' => $discount,
+            'payment_method' => $validated['payment_method'],
+            'comment' => $validated['comment'] ?? $sale->comment,
+            'status' => 'completed',
         ]);
         
-        // Затем пересчитываем сумму с учетом скидки и бонусов
+        // Пересчитываем итоговую сумму
         $this->recalculateSaleTotal($sale);
-        $sale->refresh();
         
-        // Начисляем бонусы клиенту по правилам карты
+        // Начисляем бонусы клиенту (5% от финальной суммы)
         $bonusMessage = '';
-        if ($sale->client_id) {
-            $pointsAwarded = $sale->awardBonusPoints();
+        if ($clientId) {
+            $finalTotal = $sale->total;
+            $pointsAwarded = floor($finalTotal * 0.05); // 5% от суммы
+            
             if ($pointsAwarded > 0) {
-                $bonusMessage = " Начислено {$pointsAwarded} бонусов.";
+                $client = Client::find($clientId);
+                if ($client) {
+                    $client->bonus_points += $pointsAwarded;
+                    $client->save();
+                    $bonusMessage = " Начислено {$pointsAwarded} бонусов.";
+                }
             }
         }
         
-        // Обновляем остальные поля продажи
-        $sale->update([
-            'status' => 'completed',
-            'payment_method' => $validated['payment_method'],
-            'comment' => $validated['comment'] ?? $sale->comment,
-        ]);
-        
         // Закрываем стол
-        $table->update([
-            'status' => 'closed'
-        ]);
+        $table->update(['status' => 'closed']);
         
         $successMessage = 'Стол закрыт и продажа завершена успешно!';
         
@@ -726,13 +782,6 @@ class TableController extends Controller
         
         if ($sale->used_bonus_points > 0) {
             $successMessage .= " Использовано {$sale->used_bonus_points} бонусов.";
-        }
-        
-        if ($request->expectsJson()) {
-            return response()->json([
-                'success' => true,
-                'message' => $successMessage
-            ]);
         }
         
         return redirect()->route('tables.index')
@@ -928,104 +977,104 @@ class TableController extends Controller
 
     public function getSaleData($id) 
     {
-        try {
-            $table = Table::findOrFail($id);
-            $sale = Sale::where('table_id', $id)->first();
-            
-            if (!$sale) {
-                return response()->json([
-                    'success' => true,
-                    'products' => [],
-                    'hookahs' => [],
-                    'productsTotal' => 0,
-                    'hookahsTotal' => 0,
-                    'subtotal' => 0,
-                    'discount' => 0,
-                    'bonusDiscount' => 0,
-                    'finalTotal' => 0,
-                    'paymentMethod' => null,
-                    'comment' => null,
-                    'clientId' => null,
-                    'clientName' => null,
-                    'clientBonusPoints' => 0,
-                    'clientMaxSpendPercent' => 50,
-                    'usedBonusPoints' => 0,
-                    'bonusEarned' => 0
-                ]);
-            }
-            
-            // Загружаем товары, кальяны и клиента с бонусной картой
-            $sale->load(['items.product', 'hookahs', 'client.bonusCard']);
-            
-            $products = $sale->items->map(function($item) {
-                return [
-                    'id' => $item->id,
-                    'name' => $item->product->name,
-                    'quantity' => (float)$item->quantity,
-                    'unit' => $item->product->unit,
-                    'unit_price' => (float)$item->unit_price,
-                    'total' => (float)($item->quantity * $item->unit_price)
-                ];
-            });
-            
-            $hookahs = $sale->hookahs->map(function($hookah) {
-                return [
-                    'id' => $hookah->id,
-                    'name' => $hookah->name,
-                    'price' => (float)$hookah->price
-                ];
-            });
-            
-            $productsTotal = $sale->items->sum(function($item) {
-                return $item->quantity * $item->unit_price;
-            });
-            
-            $hookahsTotal = $sale->hookahs->sum('price');
-            $subtotal = $productsTotal + $hookahsTotal;
-            
-            // Данные клиента для бонусов
-            $clientData = [
-                'id' => $sale->client_id,
-                'name' => $sale->client ? $sale->client->name : null,
-                'bonusPoints' => $sale->client ? $sale->client->bonus_points : 0,
-                'maxSpendPercent' => $sale->client && $sale->client->bonusCard 
-                    ? $sale->client->bonusCard->MaxSpendPercent 
-                    : 50
-            ];
-            
-            // Итоговая сумма с учетом скидки и бонусов
-            $finalTotal = max(0, $subtotal - $sale->discount - $sale->used_bonus_points);
-            
-            // Рассчитываем начисленные бонусы (5% от финальной суммы)
-            $bonusEarned = floor($finalTotal * 0.05);
-            
+        $table = Table::with('client.bonusCard')->findOrFail($id);
+        $sale = Sale::where('table_id', $id)->first();
+        
+        if (!$sale) {
             return response()->json([
                 'success' => true,
-                'products' => $products,
-                'hookahs' => $hookahs,
-                'productsTotal' => (float)$productsTotal,
-                'hookahsTotal' => (float)$hookahsTotal,
-                'subtotal' => (float)$subtotal,
-                'discount' => (float)$sale->discount,
-                'bonusDiscount' => (float)$sale->used_bonus_points,
-                'finalTotal' => (float)$finalTotal,
-                'paymentMethod' => $sale->payment_method,
-                'comment' => $sale->comment,
-                'clientId' => $clientData['id'],
-                'clientName' => $clientData['name'],
-                'clientBonusPoints' => $clientData['bonusPoints'],
-                'clientMaxSpendPercent' => $clientData['maxSpendPercent'],
-                'usedBonusPoints' => $sale->used_bonus_points,
-                'bonusEarned' => $bonusEarned
-            ]);
-            
-        } catch (\Exception $e) {
-            \Log::error('Error in getSaleData: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Ошибка загрузки данных продажи'
+                'products' => [],
+                'hookahs' => [],
+                'productsTotal' => 0,
+                'hookahsTotal' => 0,
+                'subtotal' => 0,
+                'discount' => 0,
+                'bonusDiscount' => 0,
+                'finalTotal' => 0,
+                'paymentMethod' => null,
+                'comment' => null,
+                'clientId' => $table->client_id,
+                'clientName' => $table->client ? $table->client->name : null,
+                'clientBonusPoints' => $table->client ? $table->client->bonus_points : 0,
+                'clientMaxSpendPercent' => $table->client && $table->client->bonusCard 
+                    ? $table->client->bonusCard->MaxSpendPercent 
+                    : 50,
+                'usedBonusPoints' => 0,
+                'bonusEarned' => 0
             ]);
         }
+        
+        // Загружаем товары, кальяны
+        $sale->load(['items.product', 'hookahs']);
+        
+        // Приоритет: клиент из таблицы, если нет - из продажи
+        $clientId = $table->client_id ?? $sale->client_id;
+        $clientName = null;
+        $clientBonusPoints = 0;
+        $clientMaxSpendPercent = 50;
+        
+        if ($clientId) {
+            $client = Client::with('bonusCard')->find($clientId);
+            if ($client) {
+                $clientName = $client->name;
+                $clientBonusPoints = $client->bonus_points;
+                $clientMaxSpendPercent = $client->bonusCard 
+                    ? $client->bonusCard->MaxSpendPercent 
+                    : 50;
+            }
+        }
+        
+        $products = $sale->items->map(function($item) {
+            return [
+                'id' => $item->id,
+                'name' => $item->product->name,
+                'quantity' => (float)$item->quantity,
+                'unit' => $item->product->unit,
+                'unit_price' => (float)$item->unit_price,
+                'total' => (float)($item->quantity * $item->unit_price)
+            ];
+        });
+        
+        $hookahs = $sale->hookahs->map(function($hookah) {
+            return [
+                'id' => $hookah->id,
+                'name' => $hookah->name,
+                'price' => (float)$hookah->price
+            ];
+        });
+        
+        $productsTotal = $sale->items->sum(function($item) {
+            return $item->quantity * $item->unit_price;
+        });
+        
+        $hookahsTotal = $sale->hookahs->sum('price');
+        $subtotal = $productsTotal + $hookahsTotal;
+        
+        // Итоговая сумма с учетом скидки и бонусов
+        $finalTotal = max(0, $subtotal - $sale->discount - $sale->used_bonus_points);
+        
+        // Рассчитываем начисленные бонусы (5% от финальной суммы)
+        $bonusEarned = floor($finalTotal * 0.05);
+        
+        return response()->json([
+            'success' => true,
+            'products' => $products,
+            'hookahs' => $hookahs,
+            'productsTotal' => (float)$productsTotal,
+            'hookahsTotal' => (float)$hookahsTotal,
+            'subtotal' => (float)$subtotal,
+            'discount' => (float)$sale->discount,
+            'bonusDiscount' => (float)$sale->used_bonus_points,
+            'finalTotal' => (float)$finalTotal,
+            'paymentMethod' => $sale->payment_method,
+            'comment' => $sale->comment,
+            'clientId' => $clientId,
+            'clientName' => $clientName,
+            'clientBonusPoints' => $clientBonusPoints,
+            'clientMaxSpendPercent' => $clientMaxSpendPercent,
+            'usedBonusPoints' => $sale->used_bonus_points,
+            'bonusEarned' => $bonusEarned
+        ]);
     }
 
     public function getOpenedAtAttribute()

@@ -152,12 +152,7 @@ class ProductController extends Controller
     }
 
     public function destroy(Product $product)
-    {
-        if ($product->recipeItems()->exists()) {
-            return redirect()->route('products.index')
-                ->with('error', 'Нельзя удалить товар, так как он используется в рецептах блюд!');
-        }
-        
+    {   
         if ($product->usedInRecipes()->exists()) {
             return redirect()->route('products.index')
                 ->with('error', 'Нельзя удалить товар, так как он используется в составе других продуктов!');

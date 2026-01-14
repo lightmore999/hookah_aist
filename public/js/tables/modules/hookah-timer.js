@@ -20,9 +20,7 @@ const HookahTimerManager = {
         this.cleanupOldTimers();
         
         // Ждем отрисовки таблицы
-        setTimeout(() => {
-            this.initAllTimers();
-        }, 1000);
+        this.initAllTimers();
         
         return this;
     },

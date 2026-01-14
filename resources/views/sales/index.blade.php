@@ -105,8 +105,9 @@
                                 <th>ID</th>
                                 <th>Клиент</th>
                                 <th>Склад</th>
-                                <th>Стол</th> <!-- Новый столбец -->
+                                <th>Стол</th>
                                 <th>Сумма</th>
+                                <th>Скидки</th> <!-- Изменяем название столбца -->
                                 <th>Статус</th>
                                 <th>Дата</th>
                                 <th class="text-end">Действия</th>
@@ -143,9 +144,31 @@
                                 </td>
                                 <td>
                                     <strong>{{ number_format($sale->total, 2) }} ₽</strong>
-                                    @if($sale->discount > 0)
-                                        <br>
-                                        <small class="text-success">Скидка: {{ number_format($sale->discount, 2) }} ₽</small>
+                                </td>
+                                <td>
+                                    @php
+                                        $hasDiscount = $sale->discount > 0;
+                                        $hasBonusDiscount = $sale->used_bonus_points > 0;
+                                    @endphp
+                                    
+                                    @if($hasDiscount || $hasBonusDiscount)
+                                        <div class="small">
+                                            @if($hasDiscount)
+                                                <div class="text-success">
+                                                    <i class="bi bi-percent me-1"></i>
+                                                    Скидка: {{ number_format($sale->discount, 2) }} ₽
+                                                </div>
+                                            @endif
+                                            
+                                            @if($hasBonusDiscount)
+                                                <div class="text-warning mt-1">
+                                                    <i class="bi bi-star me-1"></i>
+                                                    Бонусы: {{ number_format($sale->used_bonus_points, 0) }} баллов
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @else
+                                        <span class="text-muted small">—</span>
                                     @endif
                                 </td>
                                 <td>
@@ -172,11 +195,11 @@
                                 </td>
                                 <td class="text-end">
                                     <a href="{{ route('sales.show', $sale->id) }}" 
-                                       class="btn btn-outline-primary btn-sm"
-                                       title="Просмотр">
+                                    class="btn btn-outline-primary btn-sm"
+                                    title="Просмотр">
                                         <i class="bi bi-eye"></i>
                                     </a>
-                                    <button type="button" 
+                                    <!-- <button type="button" 
                                             class="btn btn-outline-warning btn-sm edit-sale-btn"
                                             data-bs-toggle="modal"
                                             data-bs-target="#editSaleModal"
@@ -186,10 +209,11 @@
                                             data-warehouse="{{ $sale->warehouse_id }}"
                                             data-total="{{ $sale->total }}"
                                             data-discount="{{ $sale->discount }}"
+                                            data-used-bonus-points="{{ $sale->used_bonus_points }}"
                                             data-payment-method="{{ $sale->payment_method }}"
                                             data-comment="{{ $sale->comment }}">
                                         <i class="bi bi-pencil"></i>
-                                    </button>
+                                    </button> -->
                                     <button type="button" 
                                             class="btn btn-outline-danger btn-sm delete-sale-btn"
                                             data-bs-toggle="modal"

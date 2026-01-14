@@ -135,10 +135,8 @@ class SaleController extends Controller
         $validated = $request->validate([
             'client_id' => 'nullable|exists:clients,id',
             'warehouse_id' => 'required|exists:warehouses,id',
-            'discount' => 'numeric|min:0',
-            'payment_method' => 'nullable|string|in:cash,card,online,terminal',
             'comment' => 'nullable|string|max:1000',
-            'status' => 'required|string|in:new,in_progress,completed,cancelled',
+            // Удалены: discount, payment_method, status
         ]);
 
         $sale->update($validated);
@@ -171,6 +169,13 @@ class SaleController extends Controller
             if (!$bonusResult['success']) {
                 return back()->with('error', $bonusResult['message']);
             }
+        }
+
+        // ВАЖНО: Пересчитываем total сразу после применения бонусов
+        if ($sale->wasChanged('used_bonus_points')) {
+            $sale->refresh();
+            $sale->recalculateTotal();
+            $sale->refresh(); // Обновляем данные
         }
 
         // Проверяем наличие всех товаров
@@ -447,85 +452,85 @@ class SaleController extends Controller
         
         $total = $productsTotal + $hookahsTotal;
         
-        // Вычитаем скидку
-        $total -= $sale->discount;
+        // Вычитаем скидку и бонусы
+        $finalTotal = $total - $sale->discount - ($sale->used_bonus_points ?? 0);
         
         // Не даем уйти в минус
-        $total = max(0, $total);
+        $finalTotal = max(0, $finalTotal);
         
-        $sale->update(['total' => $total]);
+        $sale->update(['total' => $finalTotal]);
     }
 
-private function checkStockAvailability($warehouseId, Product $product, $requestedQuantity)
-{
-    if (!$warehouseId) {
-        return false;
-    }
-    
-    if ($product->is_composite) {
-        // Проверка для составных товаров
-        foreach ($product->recipeComponents as $component) {
+    private function checkStockAvailability($warehouseId, Product $product, $requestedQuantity)
+    {
+        if (!$warehouseId) {
+            return false;
+        }
+        
+        if ($product->is_composite) {
+            // Проверка для составных товаров
+            foreach ($product->recipeComponents as $component) {
+                $stock = Stock::where('warehouse_id', $warehouseId)
+                            ->where('product_id', $component->component_product_id)
+                            ->first();
+                
+                $requiredQuantity = $requestedQuantity * $component->quantity;
+                
+                if (!$stock || $stock->quantity < $requiredQuantity) {
+                    return false;
+                }
+            }
+        } else {
+            // Проверка для обычных товаров
             $stock = Stock::where('warehouse_id', $warehouseId)
-                        ->where('product_id', $component->component_product_id)
+                        ->where('product_id', $product->id)
                         ->first();
             
-            $requiredQuantity = $requestedQuantity * $component->quantity;
-            
-            if (!$stock || $stock->quantity < $requiredQuantity) {
+            if (!$stock || $stock->quantity < $requestedQuantity) {
                 return false;
             }
         }
-    } else {
-        // Проверка для обычных товаров
-        $stock = Stock::where('warehouse_id', $warehouseId)
-                    ->where('product_id', $product->id)
-                    ->first();
         
-        if (!$stock || $stock->quantity < $requestedQuantity) {
-            return false;
-        }
+        return true;
     }
-    
-    return true;
-}
 
-/**
- * Получает доступное количество товара на складе
- */
-private function getAvailableQuantity($warehouseId, Product $product)
-{
-    if (!$warehouseId) {
-        return 0;
-    }
-    
-    if ($product->is_composite) {
-        // Для составных товаров находим минимальное количество среди компонентов
-        $minAvailable = PHP_INT_MAX;
+    /**
+     * Получает доступное количество товара на складе
+     */
+    private function getAvailableQuantity($warehouseId, Product $product)
+    {
+        if (!$warehouseId) {
+            return 0;
+        }
         
-        foreach ($product->recipeComponents as $component) {
-            $stock = Stock::where('warehouse_id', $warehouseId)
-                        ->where('product_id', $component->component_product_id)
-                        ->first();
+        if ($product->is_composite) {
+            // Для составных товаров находим минимальное количество среди компонентов
+            $minAvailable = PHP_INT_MAX;
             
-            if (!$stock) {
-                return 0;
+            foreach ($product->recipeComponents as $component) {
+                $stock = Stock::where('warehouse_id', $warehouseId)
+                            ->where('product_id', $component->component_product_id)
+                            ->first();
+                
+                if (!$stock) {
+                    return 0;
+                }
+                
+                // Сколько можно сделать из доступных компонентов
+                $availableForComponent = floor($stock->quantity / $component->quantity);
+                $minAvailable = min($minAvailable, $availableForComponent);
             }
             
-            // Сколько можно сделать из доступных компонентов
-            $availableForComponent = floor($stock->quantity / $component->quantity);
-            $minAvailable = min($minAvailable, $availableForComponent);
+            return $minAvailable;
+        } else {
+            // Для обычных товаров
+            $stock = Stock::where('warehouse_id', $warehouseId)
+                        ->where('product_id', $product->id)
+                        ->first();
+            
+            return $stock ? $stock->quantity : 0;
         }
-        
-        return $minAvailable;
-    } else {
-        // Для обычных товаров
-        $stock = Stock::where('warehouse_id', $warehouseId)
-                    ->where('product_id', $product->id)
-                    ->first();
-        
-        return $stock ? $stock->quantity : 0;
     }
-}
 
     /**
      * Получает детальную информацию о доступности компонентов составного товара

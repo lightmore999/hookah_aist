@@ -80,6 +80,47 @@
                                 $unit = $product->unit ?? 'шт';
                                 $quantity = $stock->quantity;
                                 
+                                // Форматирование числа без лишних нулей
+                                $formattedQuantity = number_format($quantity, 0, '.', '');
+                                if (fmod($quantity, 1) !== 0.0) {
+                                    // Если число дробное, показываем до 3 знаков после запятой
+                                    $formattedQuantity = rtrim(number_format($quantity, 3, '.', ''), '0');
+                                    // Удаляем точку в конце, если осталась
+                                    if (substr($formattedQuantity, -1) === '.') {
+                                        $formattedQuantity = substr($formattedQuantity, 0, -1);
+                                    }
+                                }
+                                
+                                // Конвертация в большие единицы
+                                $convertedValue = null;
+                                $convertedUnit = null;
+                                
+                                if ($unit === 'мл' && $quantity >= 1000) {
+                                    $convertedValue = $quantity / 1000;
+                                    $convertedUnit = 'л';
+                                } elseif ($unit === 'г' && $quantity >= 1000) {
+                                    $convertedValue = $quantity / 1000;
+                                    $convertedUnit = 'кг';
+                                } elseif ($unit === 'л' && $quantity < 1) {
+                                    $convertedValue = $quantity * 1000;
+                                    $convertedUnit = 'мл';
+                                } elseif ($unit === 'кг' && $quantity < 1) {
+                                    $convertedValue = $quantity * 1000;
+                                    $convertedUnit = 'г';
+                                }
+                                
+                                // Форматирование конвертированного значения
+                                $formattedConvertedValue = '';
+                                if ($convertedValue !== null) {
+                                    $formattedConvertedValue = number_format($convertedValue, 0, '.', '');
+                                    if (fmod($convertedValue, 1) !== 0.0) {
+                                        $formattedConvertedValue = rtrim(number_format($convertedValue, 3, '.', ''), '0');
+                                        if (substr($formattedConvertedValue, -1) === '.') {
+                                            $formattedConvertedValue = substr($formattedConvertedValue, 0, -1);
+                                        }
+                                    }
+                                }
+                                
                                 // Определяем цвет строки если мало остатков
                                 $rowClass = '';
                                 if ($quantity == 0) {
@@ -101,11 +142,27 @@
                                     @endif
                                 </td>
                                 <td>
-                                    <strong>{{ number_format($quantity, 3) }}</strong>
-                                    @if($product->packaging > 1 && $unit !== 'шт')
+                                    <strong>{{ $formattedQuantity }}</strong>
+                                    @if($convertedValue !== null)
                                         <br>
                                         <small class="text-muted">
-                                            {{ number_format($quantity / $product->packaging, 2) }} уп.
+                                            ≈ {{ $formattedConvertedValue }} {{ $convertedUnit }}
+                                        </small>
+                                    @endif
+                                    @if($product->packaging > 1 && $unit !== 'шт')
+                                        @php
+                                            $packages = $quantity / $product->packaging;
+                                            $formattedPackages = number_format($packages, 0, '.', '');
+                                            if (fmod($packages, 1) !== 0.0) {
+                                                $formattedPackages = rtrim(number_format($packages, 2, '.', ''), '0');
+                                                if (substr($formattedPackages, -1) === '.') {
+                                                    $formattedPackages = substr($formattedPackages, 0, -1);
+                                                }
+                                            }
+                                        @endphp
+                                        <br>
+                                        <small class="text-muted">
+                                            {{ $formattedPackages }} уп.
                                         </small>
                                     @endif
                                 </td>

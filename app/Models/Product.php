@@ -9,9 +9,9 @@ class Product extends Model
     protected $fillable = [
         'name',
         'product_category_id',
-        'price',          // цена за указанную единицу измерения
-        'cost',           // себестоимость за указанную единицу
-        'unit',           // единица измерения (шт, г, мл, кг, л)
+        'price',
+        'cost',
+        'unit',
         'barcode',
         'article_number',
     ];
@@ -26,10 +26,11 @@ class Product extends Model
         return $this->belongsTo(ProductCategory::class, 'product_category_id');
     }
 
-    public function recipeItems()
-    {
-        return $this->hasMany(RecipeItem::class);
-    }
+    // УДАЛИТЕ или ЗАКОММЕНТИРУЙТЕ эту связь, если она не используется
+    // public function recipeItems()
+    // {
+    //     return $this->hasMany(RecipeItem::class);
+    // }
 
     public function stocks()
     {
@@ -70,7 +71,6 @@ class Product extends Model
         $total = 0;
         foreach ($this->recipeComponents as $component) {
             if ($component->component) {
-                // Используем себестоимость компонента как есть
                 $total += $component->component->cost * $component->quantity;
             }
         }
@@ -117,31 +117,18 @@ class Product extends Model
         return $query->whereIn('unit', ['г', 'мл', 'кг', 'л']);
     }
 
-    /**
-     * Статический метод для расчета стоимости
-     */
     public static function calculateCost($quantity, $unit, $cost)
     {
         $totalCost = $cost * $quantity;
-        
-        // Если нужна была какая-то специфическая логика для packaging,
-        // теперь ее нет - просто умножаем стоимость на количество
         return round($totalCost, 2);
     }
 
-    /**
-     * Метод для получения цены за указанную единицу
-     * Просто возвращаем price, так как цена уже указана за единицу измерения
-     */
     public function getPriceForUnit($targetUnit = null)
     {
-        // Если не указана целевая единица или она совпадает с текущей
         if (!$targetUnit || $targetUnit === $this->unit) {
             return $this->price;
         }
         
-        // Здесь можно добавить логику конвертации если потребуется
-        // Но по умолчанию - цена указана за ту единицу, что в поле unit
         return $this->price;
     }
 }

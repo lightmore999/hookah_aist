@@ -78,7 +78,8 @@ class Sale extends Model
     // Обновляем FinalTotal чтобы учитывал бонусы
     public function getFinalTotalAttribute()
     {
-        return $this->total - $this->discount - $this->bonus_discount;
+        $total = $this->total - $this->discount - ($this->used_bonus_points ?? 0);
+        return max(0, $total); // Не даем уйти в минус
     }
 
     public function getHookahsTotalAttribute()
@@ -221,14 +222,17 @@ class Sale extends Model
         $hookahsTotal = $this->hookahs->sum('price');
         
         $total = $productsTotal + $hookahsTotal;
+        
+        // Вычитаем скидку и бонусы
+        $finalTotal = $total - $this->discount - ($this->used_bonus_points ?? 0);
+        $finalTotal = max(0, $finalTotal); // Не даем уйти в минус
 
-        if ($this->total != $total) {
-            $this->update(['total' => $total]);
+        if ($this->total != $finalTotal) {
+            $this->update(['total' => $finalTotal]);
         }
 
-        return $total;
+        return $finalTotal;
     }
-
     public function completeSale()
     {
         // Проверяем наличие всех товаров

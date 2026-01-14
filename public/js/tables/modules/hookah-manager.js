@@ -138,7 +138,7 @@ class HookahManager {
         }
         
         if (totalElement) {
-            totalElement.textContent = parseFloat(total).toFixed(0);
+            totalElement.textContent = parseFloat(total).toFixed(0) + ' ₽';
         }
     }
     
@@ -163,7 +163,6 @@ class HookahManager {
         };
         
         console.log('Adding hookah to table:', this.currentTableId, 'Data:', requestData);
-        console.log('CSRF token:', this.getCsrfToken()); // Для отладки
         
         try {
             const data = await this.makeRequest(`/tables/${this.currentTableId}/add-hookah`, {
@@ -176,39 +175,38 @@ class HookahManager {
             if (data.success) {
                 this.showToast('success', 'Успех', 'Кальян добавлен');
                 
-                // Останавливаем таймер "требуется кальян"
+                // 1. Останавливаем таймер "требуется кальян"
                 if (window.HookahTimerManager && window.HookahTimerManager.stopTimer) {
                     window.HookahTimerManager.stopTimer(this.currentTableId);
                 }
                 
                 console.log('Updating table status to: opened_with_hookah');
                 
-                // Обновляем интерфейс стола
+                // 2. Обновляем интерфейс стола
                 this.updateTableInterface(this.currentTableId, {
                     status: 'opened_with_hookah',
                     hasHookah: true
                 });
                 
-                // Обновляем сумму в ячейке стола
+                // 3. Перезагружаем список кальянов в модалке
+                this.loadSaleHookahs();
+                
+                // 4. Обновляем сумму в ячейке стола
                 if (data.newTotal !== undefined) {
-                    setTimeout(() => {
-                        this.updateTableTotal(this.currentTableId, data.newTotal);
-                    }, 300);
+                    this.updateTableTotal(this.currentTableId, data.newTotal);
                 }
                 
-                // Закрываем модальное окно
-                const modalElement = document.getElementById('saleHookahsModal');
-                if (modalElement) {
-                    const modal = bootstrap.Modal.getInstance(modalElement);
-                    if (modal) {
-                        setTimeout(() => {
-                            modal.hide();
-                        }, 1000);
-                    }
+                // 5. Обновляем суммарную стоимость кальянов в модалке
+                const hookahsTotalElement = document.getElementById('hookahsTotalAmount');
+                if (hookahsTotalElement && data.hookahsTotal !== undefined) {
+                    hookahsTotalElement.textContent = parseFloat(data.hookahsTotal).toFixed(0) + ' ₽';
                 }
                 
-                // Сбрасываем форму
+                // 6. Сбрасываем выбор в селекте
                 this.resetForm();
+                
+                // 7. Оставляем модальное окно открытым
+                // Ничего не делаем - модалка остается открытой
                 
             } else {
                 this.showToast('danger', 'Ошибка', data.message || 'Не удалось добавить кальян');
@@ -220,13 +218,6 @@ class HookahManager {
             if (error.status === 419) {
                 this.showToast('danger', 'Ошибка безопасности', 
                     'Сессия истекла. Пожалуйста, обновите страницу и попробуйте снова.');
-                
-                // Показываем детали для отладки
-                console.error('CSRF Error Details:', {
-                    token: this.getCsrfToken(),
-                    url: error.url,
-                    status: error.status
-                });
             } else {
                 this.showToast('danger', 'Ошибка', 'Не удалось добавить кальян. Статус: ' + error.status);
             }
@@ -246,24 +237,24 @@ class HookahManager {
             if (data.success) {
                 this.showToast('success', 'Успех', 'Кальян удален');
                 
-                // Удаляем строку из таблицы
+                // 1. Удаляем строку из таблицы
                 const row = document.getElementById(`hookahRow${hookahId}`);
                 if (row) {
                     row.remove();
                 }
                 
-                // Обновляем итоговую сумму в модалке
+                // 2. Обновляем итоговую сумму в модалке
                 const totalElement = document.getElementById('hookahsTotalAmount');
                 if (totalElement && data.total !== undefined) {
-                    totalElement.textContent = parseFloat(data.total).toFixed(0);
+                    totalElement.textContent = parseFloat(data.total).toFixed(0) + ' ₽';
                 }
                 
-                // Обновляем сумму в ячейке стола
+                // 3. Обновляем сумму в ячейке стола
                 if (data.newTotal !== undefined) {
                     this.updateTableTotal(this.currentTableId, data.newTotal);
                 }
                 
-                // Если кальянов не осталось, показываем сообщение
+                // 4. Если кальянов не осталось, показываем сообщение
                 const tbody = document.getElementById('hookahsTableBody');
                 if (tbody && tbody.children.length === 0) {
                     const emptyRow = document.createElement('tr');
@@ -275,6 +266,24 @@ class HookahManager {
                     `;
                     tbody.appendChild(emptyRow);
                 }
+                
+                // 5. Обновляем сумму в модалке закрытия, если она открыта
+                const closeSaleModal = document.getElementById('closeSaleModal');
+                if (closeSaleModal && closeSaleModal.classList.contains('show')) {
+                    // Перезагружаем данные для закрытия
+                    if (window.TableManager && window.TableManager.loadSaleDataForClosing) {
+                        window.TableManager.loadSaleDataForClosing(this.currentTableId);
+                    }
+                }
+                
+                // 6. Проверяем статус стола (если удалили последний кальян)
+                if (data.hasHookahs === false) {
+                    this.updateTableInterface(this.currentTableId, {
+                        status: 'opened_without_hookah',
+                        hasHookah: false
+                    });
+                }
+                
             } else {
                 this.showToast('danger', 'Ошибка', data.message || 'Не удалось удалить кальян');
             }
@@ -474,7 +483,10 @@ class HookahManager {
     
     resetForm() {
         const hookahSelect = document.getElementById('hookahSelect');
-        if (hookahSelect) hookahSelect.value = '';
+        if (hookahSelect) {
+            hookahSelect.value = '';
+            hookahSelect.focus(); // Фокус на селект для быстрого добавления следующего кальяна
+        }
     }
     
     // Вспомогательные методы
@@ -526,7 +538,6 @@ class HookahManager {
         return await response.json();
     }
 
-    // Новый метод для получения CSRF токена
     getCsrfToken() {
         // Пробуем получить из мета-тега
         const metaToken = document.querySelector('meta[name="csrf-token"]');

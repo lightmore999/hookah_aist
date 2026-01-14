@@ -51,7 +51,7 @@
         </div>
     </div>
 
-    @if(session('success'))
+    <!-- @if(session('success'))
         <div class="alert alert-success alert-dismissible fade show" role="alert">
             <i class="bi bi-check-circle me-2"></i>
             {{ session('success') }}
@@ -65,7 +65,7 @@
             {{ session('error') }}
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
-    @endif
+    @endif -->
 
     <!-- Основная таблица столов -->
     <div class="card border-0 shadow-sm">
@@ -610,14 +610,12 @@ document.addEventListener('DOMContentLoaded', function() {
     window.hookahManager = hookahManager;
 
     // Инициализация таймеров (ОСТАВЛЯЕМ ОДИН РАЗ!)
-    setTimeout(() => {
-        if (typeof window.HookahTimerManager !== 'undefined') {
-            console.log('🚀 Initializing HookahTimerManager...');
-            window.HookahTimerManager.init();
-        } else {
-            console.error('❌ HookahTimerManager not found!');
-        }
-    }, 1000);
+    if (typeof window.HookahTimerManager !== 'undefined') {
+        console.log('🚀 Immediate initialization of HookahTimerManager...');
+        window.HookahTimerManager.init();
+    } else {
+        console.error('❌ HookahTimerManager not found!');
+    }
 
     if (typeof window.CoalTimerSystem !== 'undefined') {
         console.log('CoalTimerSystem found, initializing...');
@@ -1048,10 +1046,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Функция загрузки данных для закрытия стола
     function loadSaleDataForClosing(tableId) {
+        console.log('🔄 Загрузка данных для закрытия стола:', tableId);
+        
         if (!tableId) return;
         
         makeRequest(`/tables/${tableId}/get-sale-data`)
             .then(data => {
+                console.log('📊 Получены данные продажи:', data);
+                
                 if (data.success) {
                     updateCloseModalData(data);
                 } else {
@@ -1059,7 +1061,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(error => {
-                console.error('Error loading sale data:', error);
+                console.error('❌ Ошибка загрузки данных продажи:', error);
                 showToast('danger', 'Ошибка', 'Не удалось загрузить данные продажи');
             });
     }
@@ -1397,6 +1399,8 @@ document.addEventListener('DOMContentLoaded', function() {
             maxSpendPercentElem.textContent = data.clientMaxSpendPercent || '50';
         }
     }
+
+
     // =============== ПЕРЕМЕННЫЕ ДЛЯ БОНУСОВ ===============
 
     // Элементы бонусов
@@ -1416,6 +1420,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const closeBonusDiscountDisplay = document.getElementById('closeBonusDiscountDisplay');
     const finalTotalBreakdown = document.getElementById('finalTotalBreakdown');
 
+    // Проверка элементов
+    console.log('🔍 Проверка элементов бонусной системы:');
+    console.log('clientBonusInfo:', clientBonusInfo);
+    console.log('clientNameElem:', clientNameElem);
+    console.log('clientBonusPointsElem:', clientBonusPointsElem);
+    console.log('maxUsableBonusesElem:', maxUsableBonusesElem);
+    console.log('maxSpendPercentText:', maxSpendPercentText);
+    console.log('bonusSection:', bonusSection);
+
     let maxUsableBonuses = 0;
     let currentBonusDiscount = 0;
     let clientMaxSpendPercent = 50;
@@ -1424,14 +1437,27 @@ document.addEventListener('DOMContentLoaded', function() {
     // =============== ФУНКЦИЯ ОБНОВЛЕНИЯ ИНФОРМАЦИИ О БОНУСАХ ===============
 
     function updateClientBonusInfo(data) {
+        console.log('📊 updateClientBonusInfo вызвана с данными:', data);
+        
+        // Проверяем наличие элементов
+        if (!clientBonusInfo || !clientNameElem) {
+            console.error('❌ Не найдены элементы бонусной системы');
+            return;
+        }
+        
+        // Проверяем, есть ли данные клиента
         if (!data.clientId || data.clientBonusPoints === undefined) {
-            // Нет клиента - скрываем секцию бонусов
+            console.log('📊 Нет данных клиента или бонусов');
+            
+            // Нет клиента - скрываем секцию
             clientBonusInfo.style.display = 'none';
-            bonusSection.style.display = 'none';
-            bonusDiscountRow.style.display = 'none';
+            if (bonusSection) bonusSection.style.display = 'none';
+            if (bonusDiscountRow) bonusDiscountRow.style.display = 'none';
             currentBonusDiscount = 0;
             return;
         }
+        
+        console.log('✅ Обновляем информацию о клиенте:', data.clientName, 'бонусы:', data.clientBonusPoints);
         
         // Показываем информацию о клиенте
         clientBonusInfo.style.display = 'block';
@@ -1441,8 +1467,15 @@ document.addEventListener('DOMContentLoaded', function() {
         maxSpendPercentText.textContent = clientMaxSpendPercent;
         
         // Рассчитываем максимальное количество бонусов
-        const totalAmount = parseFloat(data.subtotal);
-        const discount = parseFloat(document.getElementById('closeDiscount').value) || 0;
+        const totalAmount = parseFloat(data.subtotal) || 0;
+        const discountInput = document.getElementById('closeDiscount');
+        const discount = parseFloat(discountInput ? discountInput.value : 0) || 0;
+        
+        console.log('📊 Данные для расчета бонусов:', {
+            totalAmount,
+            discount,
+            clientMaxSpendPercent
+        });
         
         // Максимум бонусов = X% от (сумма товаров - скидка)
         const percentage = clientMaxSpendPercent / 100;
@@ -1452,6 +1485,8 @@ document.addEventListener('DOMContentLoaded', function() {
         maxUsableBonuses = Math.min(data.clientBonusPoints, maxUsableBonuses);
         maxUsableBonuses = Math.max(0, maxUsableBonuses);
         
+        console.log('📊 Максимально можно использовать бонусов:', maxUsableBonuses);
+        
         maxUsableBonusesElem.textContent = maxUsableBonuses.toLocaleString() + ' бонусов';
         
         // Показываем секцию бонусов
@@ -1459,6 +1494,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Если уже были использованы бонусы
         if (data.usedBonusPoints > 0) {
+            console.log('✅ Уже использованы бонусы:', data.usedBonusPoints);
             useBonusesCheckbox.checked = true;
             bonusPointsToUseInput.value = data.usedBonusPoints;
             currentBonusDiscount = data.usedBonusPoints;
@@ -1468,6 +1504,7 @@ document.addEventListener('DOMContentLoaded', function() {
             closeBonusDiscountDisplay.textContent = formatPrice(data.usedBonusPoints);
         } else {
             // Сбрасываем состояние бонусов
+            console.log('📊 Бонусы не использовались ранее');
             useBonusesCheckbox.checked = false;
             bonusPointsToUseInput.value = 0;
             bonusPointsToUseInput.disabled = true;
@@ -1491,6 +1528,75 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
         } else {
             bonusWarningText.textContent = 'У клиента нет бонусов';
+        }
+        
+        // Инициализируем обработчики для бонусов
+        initBonusHandlers();
+    }
+
+    function initBonusHandlers() {
+        console.log('🔄 Инициализация обработчиков бонусов');
+        
+        // Обработчик для чекбокса "Использовать бонусы"
+        if (useBonusesCheckbox) {
+            useBonusesCheckbox.addEventListener('change', function() {
+                console.log('✅ Чекбокс бонусов изменен:', this.checked);
+                
+                if (this.checked && maxUsableBonuses > 0) {
+                    bonusPointsToUseInput.disabled = false;
+                    bonusInputRow.style.display = 'flex';
+                    bonusPointsToUseInput.max = maxUsableBonuses;
+                    bonusPointsToUseInput.placeholder = `До ${maxUsableBonuses}`;
+                    
+                    // Автоматически ставим максимальное значение
+                    if (parseInt(bonusPointsToUseInput.value) === 0) {
+                        const suggestedValue = Math.min(100, maxUsableBonuses);
+                        bonusPointsToUseInput.value = suggestedValue;
+                        currentBonusDiscount = suggestedValue;
+                        console.log('✅ Установлено значение бонусов:', suggestedValue);
+                    }
+                    
+                    calculateCloseTotal();
+                } else {
+                    bonusPointsToUseInput.disabled = true;
+                    bonusInputRow.style.display = 'none';
+                    currentBonusDiscount = 0;
+                    calculateCloseTotal();
+                }
+            });
+        }
+        
+        // Обработчик для ввода количества бонусов
+        if (bonusPointsToUseInput) {
+            bonusPointsToUseInput.addEventListener('input', function() {
+                const value = parseInt(this.value) || 0;
+                console.log('✅ Ввод бонусов:', value, 'максимум:', maxUsableBonuses);
+                
+                if (value > maxUsableBonuses) {
+                    this.value = maxUsableBonuses;
+                    currentBonusDiscount = maxUsableBonuses;
+                    console.log('⚠️ Значение скорректировано до максимума:', maxUsableBonuses);
+                } else if (value < 0) {
+                    this.value = 0;
+                    currentBonusDiscount = 0;
+                } else {
+                    currentBonusDiscount = value;
+                }
+                
+                calculateCloseTotal();
+            });
+        }
+        
+        // Обработчик для кнопки "Максимум"
+        if (useMaxBonusesBtn) {
+            useMaxBonusesBtn.addEventListener('click', function() {
+                if (maxUsableBonuses > 0) {
+                    console.log('✅ Использовать максимум бонусов:', maxUsableBonuses);
+                    bonusPointsToUseInput.value = maxUsableBonuses;
+                    currentBonusDiscount = maxUsableBonuses;
+                    calculateCloseTotal();
+                }
+            });
         }
     }
 
@@ -1519,21 +1625,40 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function calculateCloseTotal() {
+        console.log('🔄 calculateCloseTotal вызвана');
+        
         // Получаем элементы
         const subtotalElement = document.getElementById('closeSubtotal');
         const finalTotalElement = document.getElementById('closeFinalTotal');
         
-        if (!subtotalElement || !finalTotalElement) return;
+        if (!subtotalElement || !finalTotalElement) {
+            console.error('❌ Не найдены элементы для расчета итога');
+            return;
+        }
         
         // Получаем промежуточную сумму
         const subtotalText = subtotalElement.textContent;
         const subtotal = parseFloat(subtotalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
         
-        // Рассчитываем скидку в рублях (используем новую функцию)
+        // Рассчитываем скидку в рублях
         const discountInRubles = getDiscountInRubles();
         
-        // Рассчитываем итог с учетом бонусов
-        const finalTotal = Math.max(0, subtotal - discountInRubles - currentBonusDiscount);
+        // Получаем бонусы (учитываем disabled состояние)
+        const bonusPointsInput = document.getElementById('bonusPointsToUse');
+        let bonusDiscount = 0;
+        
+        if (bonusPointsInput && !bonusPointsInput.disabled) {
+            bonusDiscount = parseInt(bonusPointsInput.value) || 0;
+        }
+        
+        console.log('📊 Данные для расчета:', {
+            subtotal,
+            discountInRubles,
+            bonusDiscount
+        });
+        
+        // Рассчитываем итог
+        const finalTotal = Math.max(0, subtotal - discountInRubles - bonusDiscount);
         
         // Обновляем отображение
         finalTotalElement.textContent = formatPrice(finalTotal);
@@ -1551,9 +1676,10 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Обновляем отображение бонусной скидки
         if (bonusDiscountRow && closeBonusDiscountDisplay) {
-            if (currentBonusDiscount > 0) {
+            if (bonusDiscount > 0) {
                 bonusDiscountRow.style.display = 'flex';
-                closeBonusDiscountDisplay.textContent = formatPrice(currentBonusDiscount);
+                closeBonusDiscountDisplay.textContent = formatPrice(bonusDiscount);
+                console.log('✅ Бонусная скидка отображена:', bonusDiscount);
             } else {
                 bonusDiscountRow.style.display = 'none';
             }
@@ -1568,15 +1694,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     breakdown += ` (${closeDiscountInput.value}%)`;
                 }
             }
-            if (currentBonusDiscount > 0) breakdown += ' - Бонусы';
+            if (bonusDiscount > 0) breakdown += ' - Бонусы';
             
             finalTotalBreakdown.textContent = breakdown;
         }
         
         // Обновляем расчет доступных бонусов
-        if (typeof updateBonusCalculation === 'function') {
-            updateBonusCalculation();
-        }
+        updateBonusCalculation();
     }
 
     // =============== ФУНКЦИЯ ОБНОВЛЕНИЯ РАСЧЕТА БОНУСОВ ===============
@@ -1823,6 +1947,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // =============== ОБНОВЛЕНИЕ ФУНКЦИИ updateCloseModalData ===============
 
     function updateCloseModalData(data) {
+        console.log('📊 updateCloseModalData вызвана с данными:', data);
+        
         // Обновляем промежуточную сумму
         let subtotal = 0;
         
@@ -1838,6 +1964,8 @@ document.addEventListener('DOMContentLoaded', function() {
             subtotal = 0;
             console.warn('Unexpected subtotal format:', data.subtotal);
         }
+        
+        console.log('📊 Промежуточная сумма:', subtotal);
         
         // Устанавливаем текущую промежуточную сумму
         setCurrentSubtotal(subtotal);
@@ -1860,7 +1988,10 @@ document.addEventListener('DOMContentLoaded', function() {
         fillHookahsList(data.hookahs || []);
         
         // Пересчитываем итоговую сумму
-        recalculateDiscount();
+        setTimeout(() => {
+            recalculateDiscount();
+            calculateCloseTotal();
+        }, 100);
     }
 
 
@@ -1926,15 +2057,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     initDiscountLogic();
 
-    // 1. Инициализируем таймер "требуется кальян"
-    setTimeout(() => {
-        if (typeof window.HookahTimerManager !== 'undefined') {
-            console.log('🚀 Initializing HookahTimerManager...');
-            window.HookahTimerManager.init();
-        } else {
-            console.error('❌ HookahTimerManager not found!');
-        }
-    }, 1000); // Даем время на загрузку DOM
     
     // =============== ОБРАБОТЧИК ОТПРАВКИ ФОРМЫ ===============
 
@@ -1943,7 +2065,6 @@ document.addEventListener('DOMContentLoaded', function() {
         closeSaleForm.addEventListener('submit', function(e) {
             // 1. Получаем скидку в рублях
             const discountInRubles = getDiscountInRubles();
-            console.log('✅ Рассчитанная скидка в рублях:', discountInRubles, 'тип скидки:', currentDiscountType);
             
             // 2. Устанавливаем значения в скрытые поля
             const discountInRublesHidden = document.getElementById('discountInRublesHidden');
@@ -1959,11 +2080,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('✅ discount_type отправляется:', discountTypeHidden.value);
             }
             
-            // 3. ДЛЯ СОВМЕСТИМОСТИ: также устанавливаем в основное поле discount
-            // (чтобы не ломать старый контроллер)
+            // 3. Обрабатываем поле скидки
             const closeDiscountInput = document.getElementById('closeDiscount');
             if (closeDiscountInput) {
-                // Сохраняем оригинальное значение (для отладки)
+                // Сохраняем оригинальное значение
                 const originalValue = closeDiscountInput.value;
                 
                 // Если это проценты, конвертируем в рубли
@@ -1973,9 +2093,76 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             
-            // 4. Можно показать информационное сообщение (опционально)
-            // showToast('info', 'Отправка', `Скидка: ${discountInRubles.toFixed(2)} руб.`);
+            // 4. Обрабатываем чекбокс бонусов - ВАЖНО!
+            const useBonusesCheckbox = document.getElementById('useBonuses');
+            const bonusPointsInput = document.getElementById('bonusPointsToUse');
+            
+            // Если чекбокс отмечен, убеждаемся что value = '1'
+            if (useBonusesCheckbox.checked) {
+                useBonusesCheckbox.value = '1';
+            }
+            
+            // Если чекбокс НЕ отмечен, добавляем скрытое поле с value = '0'
+            if (!useBonusesCheckbox.checked) {
+                // Удаляем старое скрытое поле если есть
+                const existingHidden = document.getElementById('useBonusesHidden');
+                if (existingHidden) {
+                    existingHidden.remove();
+                }
+                
+                // Создаем новое скрытое поле с value = '0'
+                const hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.id = 'useBonusesHidden';
+                hiddenInput.name = 'use_bonuses';
+                hiddenInput.value = '0';
+                this.appendChild(hiddenInput);
+                
+                // Также обнуляем бонусы если чекбокс не отмечен
+                if (bonusPointsInput) {
+                    bonusPointsInput.value = 0;
+                }
+            }
+            
+            // 5. Убеждаемся что поле bonus_points_to_use всегда отправляется
+            if (bonusPointsInput && !bonusPointsInput.hasAttribute('name')) {
+                bonusPointsInput.setAttribute('name', 'bonus_points_to_use');
+            }
+            
+            // 6. Логируем данные для отладки
+            console.log('📤 Отправляемые данные:', {
+                discount: document.getElementById('closeDiscount').value,
+                discount_in_rubles: discountInRublesHidden?.value,
+                discount_type: discountTypeHidden?.value,
+                use_bonuses: useBonusesCheckbox.checked ? '1' : '0',
+                bonus_points_to_use: bonusPointsInput?.value,
+                payment_method: document.getElementById('closePaymentMethod').value
+            });
         });
+    }
+
+    // =============== ФУНКЦИЯ ПРЕДВАРИТЕЛЬНОЙ ПРОВЕРКИ ФОРМЫ ===============
+
+    function validateCloseForm() {
+        const paymentMethod = document.getElementById('closePaymentMethod');
+        if (!paymentMethod || !paymentMethod.value) {
+            showToast('warning', 'Внимание', 'Выберите способ оплаты');
+            return false;
+        }
+        
+        // Проверка бонусов
+        const useBonusesCheckbox = document.getElementById('useBonuses');
+        const bonusPointsInput = document.getElementById('bonusPointsToUse');
+        
+        if (useBonusesCheckbox && useBonusesCheckbox.checked) {
+            const bonusValue = parseInt(bonusPointsInput.value) || 0;
+            if (bonusValue <= 0) {
+                showToast('warning', 'Внимание', 'Введите количество бонусов для использования');
+                return false;
+            }
+        }
+        
+        return true;
     }
     
     console.log('Table Manager initialized');
@@ -1991,6 +2178,34 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
         console.error('CoalTimerSystem NOT FOUND! Check file path.');
     }
+
+    // =============== ИНИЦИАЛИЗАЦИЯ ВСЕГО ===============
+
+    // Инициализация скидки
+    initDiscountLogic();
+
+    // Инициализация обработчиков бонусов
+    document.addEventListener('DOMContentLoaded', function() {
+        // Инициализация обработчиков для чекбокса бонусов
+        const useBonusesCheckbox = document.getElementById('useBonuses');
+        if (useBonusesCheckbox) {
+            useBonusesCheckbox.addEventListener('change', function() {
+                console.log('Чекбокс бонусов изменился:', this.checked);
+                calculateCloseTotal();
+            });
+        }
+        
+        // Инициализация обработчиков для поля бонусов
+        const bonusPointsInput = document.getElementById('bonusPointsToUse');
+        if (bonusPointsInput) {
+            bonusPointsInput.addEventListener('input', function() {
+                console.log('Поле бонусов изменилось:', this.value);
+                calculateCloseTotal();
+            });
+        }
+    });
+
+    console.log('Table Manager initialized successfully');
 
 });
 </script>

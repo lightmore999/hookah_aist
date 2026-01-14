@@ -8,7 +8,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Закрыть"></button>
             </div>
             
-           <form method="POST" action="" id="editSaleForm">
+            <form method="POST" action="" id="editSaleForm">
                 @csrf
                 @method('PUT')
                 <input type="hidden" id="edit_sale_id" name="sale_id">
@@ -37,43 +37,6 @@
                                         {{ $warehouse->name }}
                                     </option>
                                 @endforeach
-                            </select>
-                        </div>
-                        
-                        <!-- Статус -->
-                        <div class="col-md-6">
-                            <label for="edit_status" class="form-label fw-bold">Статус</label>
-                            <select class="form-select" id="edit_status" name="status">
-                                <option value="new">Новый</option>
-                                <option value="in_progress">В работе</option>
-                                <option value="completed">Завершен</option>
-                                <option value="cancelled">Отменен</option>
-                            </select>
-                        </div>
-                        
-                        <!-- Скидка -->
-                        <div class="col-md-6">
-                            <label for="edit_discount" class="form-label fw-bold">Скидка</label>
-                            <div class="input-group">
-                                <input type="number" 
-                                       min="0" 
-                                       step="0.01"
-                                       class="form-control" 
-                                       id="edit_discount" 
-                                       name="discount">
-                                <span class="input-group-text">₽</span>
-                            </div>
-                        </div>
-                        
-                        <!-- Способ оплаты -->
-                        <div class="col-md-12">
-                            <label for="edit_payment_method" class="form-label fw-bold">Способ оплаты</label>
-                            <select class="form-select" id="edit_payment_method" name="payment_method">
-                                <option value="">Не выбран</option>
-                                <option value="cash">Наличные</option>
-                                <option value="card">Карта</option>
-                                <option value="online">Онлайн</option>
-                                <option value="terminal">Терминал</option>
                             </select>
                         </div>
                         

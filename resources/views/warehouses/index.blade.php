@@ -49,14 +49,14 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach($warehouses as $warehouse)
+                            @foreach($warehouses as $warehouseItem)
                             <tr>
                                 <td>
-                                    <strong>{{ $warehouse->name }}</strong>
+                                    <strong>{{ $warehouseItem->name }}</strong>
                                 </td>
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm">
-                                        <a href="{{ route('warehouses.show', $warehouse) }}" 
+                                        <a href="{{ route('warehouses.show', $warehouseItem) }}" 
                                            class="btn btn-outline-primary">
                                             <i class="bi bi-eye"></i>
                                         </a>
@@ -64,16 +64,16 @@
                                                 class="btn btn-outline-warning edit-warehouse-btn"
                                                 data-bs-toggle="modal"
                                                 data-bs-target="#editWarehouseModal"
-                                                data-id="{{ $warehouse->id }}"
-                                                data-name="{{ $warehouse->name }}">
+                                                data-id="{{ $warehouseItem->id }}"
+                                                data-name="{{ $warehouseItem->name }}">
                                             <i class="bi bi-pencil"></i>
                                         </button>
                                         <button type="button" 
                                                 class="btn btn-outline-danger delete-warehouse-btn"
                                                 data-bs-toggle="modal"
                                                 data-bs-target="#deleteWarehouseModal"
-                                                data-id="{{ $warehouse->id }}"
-                                                data-name="{{ $warehouse->name }}">
+                                                data-id="{{ $warehouseItem->id }}"
+                                                data-name="{{ $warehouseItem->name }}">
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     </div>
@@ -123,24 +123,80 @@
                         </thead>
                         <tbody>
                             @foreach($purchases as $purchase)
+                            @php
+                                $product = $purchase->product;
+                                $unit = $product->unit ?? 'шт';
+                                $quantity = $purchase->quantity;
+                                
+                                // Форматирование числа без лишних нулей
+                                $formattedQuantity = number_format($quantity, 0, '.', '');
+                                if (fmod($quantity, 1) !== 0.0) {
+                                    $formattedQuantity = rtrim(number_format($quantity, 3, '.', ''), '0');
+                                    if (substr($formattedQuantity, -1) === '.') {
+                                        $formattedQuantity = substr($formattedQuantity, 0, -1);
+                                    }
+                                }
+                                
+                                // Конвертация в большие единицы
+                                $convertedValue = null;
+                                $convertedUnit = null;
+                                
+                                if ($unit === 'мл' && $quantity >= 1000) {
+                                    $convertedValue = $quantity / 1000;
+                                    $convertedUnit = 'л';
+                                } elseif ($unit === 'г' && $quantity >= 1000) {
+                                    $convertedValue = $quantity / 1000;
+                                    $convertedUnit = 'кг';
+                                } elseif ($unit === 'л' && $quantity < 1) {
+                                    $convertedValue = $quantity * 1000;
+                                    $convertedUnit = 'мл';
+                                } elseif ($unit === 'кг' && $quantity < 1) {
+                                    $convertedValue = $quantity * 1000;
+                                    $convertedUnit = 'г';
+                                }
+                                
+                                // Форматирование конвертированного значения
+                                $formattedConvertedValue = '';
+                                if ($convertedValue !== null) {
+                                    $formattedConvertedValue = number_format($convertedValue, 0, '.', '');
+                                    if (fmod($convertedValue, 1) !== 0.0) {
+                                        $formattedConvertedValue = rtrim(number_format($convertedValue, 3, '.', ''), '0');
+                                        if (substr($formattedConvertedValue, -1) === '.') {
+                                            $formattedConvertedValue = substr($formattedConvertedValue, 0, -1);
+                                        }
+                                    }
+                                }
+                                
+                                // Расчет количества в упаковках
+                                $packagesFormatted = '';
+                                if ($product->packaging > 1 && $unit !== 'шт') {
+                                    $packages = $quantity / $product->packaging;
+                                    $packagesFormatted = number_format($packages, 0, '.', '');
+                                    if (fmod($packages, 1) !== 0.0) {
+                                        $packagesFormatted = rtrim(number_format($packages, 2, '.', ''), '0');
+                                        if (substr($packagesFormatted, -1) === '.') {
+                                            $packagesFormatted = substr($packagesFormatted, 0, -1);
+                                        }
+                                    }
+                                }
+                            @endphp
                             <tr>
                                 <td>
-                                    <strong>{{ $purchase->product->name }}</strong>
-                                    <br>
-                                    <small class="text-muted">
-                                        {{ $purchase->product->unit }}
-                                        @if($purchase->product->packaging > 1)
-                                            ({{ $purchase->product->packaging }} {{ $purchase->product->unit }}/уп.)
-                                        @endif
-                                    </small>
+                                    <strong>{{ $product->name }}</strong>
                                 </td>
                                 <td>{{ $purchase->warehouse->name }}</td>
                                 <td>
-                                    {{ $purchase->formatted_quantity }}
-                                    @if($purchase->product->packaging > 1 && $purchase->product->unit !== 'шт')
+                                    <strong>{{ $formattedQuantity }} {{ $unit }}</strong>
+                                    @if($convertedValue !== null)
                                         <br>
                                         <small class="text-muted">
-                                            {{ number_format($purchase->quantity_in_packages, 2) }} уп.
+                                            ≈ {{ $formattedConvertedValue }} {{ $convertedUnit }}
+                                        </small>
+                                    @endif
+                                    @if($product->packaging > 1 && $unit !== 'шт')
+                                        <br>
+                                        <small class="text-muted">
+                                            {{ $packagesFormatted }} уп.
                                         </small>
                                     @endif
                                 </td>
