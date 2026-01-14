@@ -86,6 +86,7 @@
                     use Carbon\Carbon;
 
                     $currentShift = null;
+                    $specificDate = Carbon::parse('2024-12-25');
                     $today = Carbon::today();
                     
                     if (Auth::check()) {

@@ -489,9 +489,18 @@ class TableController extends Controller
         ]);
     }
 
-    public function removeHookahFromSale(Table $table, Hookah $hookah)
+    // TableController.php - МИНИМАЛЬНАЯ ВЕРСИЯ
+    public function removeHookahFromSale(Table $table, $hookahId)
     {
-        $sale = Sale::where('table_id', $table->id)->firstOrFail();
+        // Находим продажу для этого стола
+        $sale = Sale::where('table_id', $table->id)->first();
+        
+        if (!$sale) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Продажа не найдена для этого стола'
+            ], 404);
+        }
         
         if ($sale->status === 'completed') {
             return response()->json([
@@ -500,10 +509,32 @@ class TableController extends Controller
             ], 400);
         }
         
-        $sale->hookahs()->detach($hookah->id);
+        // Проверяем, есть ли кальян в продаже
+        $pivotRecord = \DB::table('sale_hookahs')
+            ->where('sale_id', $sale->id)
+            ->where('hookah_id', $hookahId)
+            ->first();
         
-        // Считаем сколько кальянов осталось
-        $remainingHookahs = $sale->hookahs()->count();
+        if (!$pivotRecord) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Кальян не был найден в этой продаже'
+            ], 404);
+        }
+        
+        // Удаляем одну запись из pivot таблицы
+        $deleted = \DB::table('sale_hookahs')
+            ->where('sale_id', $sale->id)
+            ->where('hookah_id', $hookahId)
+            ->limit(1)
+            ->delete();
+        
+        if ($deleted === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Не удалось удалить кальян'
+            ], 500);
+        }
         
         // Пересчитываем сумму
         $this->recalculateSaleTotal($sale);
@@ -511,12 +542,12 @@ class TableController extends Controller
         
         return response()->json([
             'success' => true,
-            'message' => 'Кальян удален успешно',
+            'message' => 'Один кальян удален успешно',
             'total' => $sale->total,
-            'newTotal' => $sale->total, // ✅ Добавляем это!
+            'newTotal' => $sale->total,
             'saleId' => $sale->id,
-            'status' => 'opened_with_hookah',
-            'remainingHookahs' => $remainingHookahs
+            'remainingHookahs' => $sale->hookahs()->count(),
+            'removedHookahId' => $hookahId
         ]);
     }
     

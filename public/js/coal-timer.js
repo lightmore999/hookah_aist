@@ -389,22 +389,79 @@ class CoalTimerSystem {
 
     // Найти ячейку стола по ID
     findTableCell(tableId) {
-        const cells = document.querySelectorAll('td[style*="border: 2px solid #2196f3"]');
+        console.log(`🔍 [CoalTimer] Ищем ячейку для стола ${tableId}`);
         
-        for (const cell of cells) {
-            const buttons = cell.querySelectorAll('button[data-table-id]');
-            for (const button of buttons) {
-                if (button.dataset.tableId == tableId) {
+        // СНАЧАЛА: ищем через placeholder
+        const placeholder = document.getElementById(`coal-timer-placeholder-${tableId}`);
+        if (placeholder) {
+            const cell = placeholder.closest('td');
+            if (cell) {
+                console.log(`✅ [CoalTimer] Найдена ячейка через placeholder`);
+                return cell;
+            }
+        }
+        
+        // ВТОРОЕ: ищем через кнопку с data-table-id
+        const buttons = document.querySelectorAll(`button[data-table-id="${tableId}"]`);
+        console.log(`🔍 [CoalTimer] Найдено кнопок с tableId=${tableId}: ${buttons.length}`);
+        
+        for (const button of buttons) {
+            const cell = button.closest('td');
+            if (cell) {
+                console.log(`✅ [CoalTimer] Найдена ячейка через кнопку`);
+                return cell;
+            }
+        }
+        
+        // ТРЕТЬЕ: ищем по стилю border (с учетом возможных пробелов)
+        const borderStyles = [
+            'border: 2px solid #2196f3',
+            'border:2px solid #2196f3',
+            'border: 2px solid rgb(33, 150, 243)',
+            'border:2px solid rgb(33, 150, 243)'
+        ];
+        
+        for (const borderStyle of borderStyles) {
+            const cells = document.querySelectorAll(`td[style*="${borderStyle}"]`);
+            for (const cell of cells) {
+                // Проверяем, что в ячейке есть кнопка с нужным tableId
+                const button = cell.querySelector(`button[data-table-id="${tableId}"]`);
+                if (button) {
+                    console.log(`✅ [CoalTimer] Найдена ячейка через стиль border`);
                     return cell;
                 }
             }
         }
+        
+        // ЧЕТВЕРТОЕ: ищем просто все td и проверяем кнопки внутри
+        const allCells = document.querySelectorAll('td');
+        for (const cell of allCells) {
+            const button = cell.querySelector(`button[data-table-id="${tableId}"]`);
+            if (button) {
+                console.log(`✅ [CoalTimer] Найдена ячейка через полный поиск`);
+                return cell;
+            }
+        }
+        
+        console.error(`❌ [CoalTimer] Ячейка не найдена для tableId: ${tableId}`);
+        console.log(`🔍 [CoalTimer] Доступные кнопки на странице:`);
+        const allButtons = document.querySelectorAll('button[data-table-id]');
+        allButtons.forEach(btn => console.log(`  tableId: ${btn.dataset.tableId}, текст: "${btn.textContent.substring(0, 30)}..."`));
+        
         return null;
     }
 
-    // Вызывается при добавлении кальяна
+    // Вызывается при добавлении кальяна - ИСПРАВЛЕННАЯ ВЕРСИЯ
     onHookahAdded(tableId) {
-        console.log(`➕ Hookah added to table ${tableId}, adding coal timer`);
+        console.log(`🔥 HOOKAH ADDED: Adding coal timer for table ${tableId}`);
+        
+        // Инициализируем таймер углей с нулевым счетчиком
+        this.initializeCoalTimer(tableId);
+    }
+    
+    // Инициализировать таймер углей для стола
+    initializeCoalTimer(tableId) {
+        console.log(`⚡ INITIALIZE COAL TIMER for table ${tableId}`);
         
         // Сбрасываем все данные таймера для этого стола
         localStorage.setItem(`coal_timer_count_${tableId}`, '0');
@@ -417,6 +474,11 @@ class CoalTimerSystem {
             if (cell) {
                 console.log(`✅ Ячейка найдена для таймера углей, tableId: ${tableId}`);
                 this.showCoalTimer(tableId, cell, 15 * 60, 0);
+                
+                // Показываем уведомление
+                if (typeof showToast === 'function') {
+                    showToast('success', 'Таймер углей запущен', 'Таймер углей запущен на 15 минут');
+                }
             } else {
                 console.error(`❌ Ячейка не найдена для tableId: ${tableId}`);
                 
@@ -429,8 +491,8 @@ class CoalTimerSystem {
                     }
                 }, 500);
             }
-        }, 500);
-}
+        }, 300);
+    }
 
     // Очистить все данные таймера
     clearCoalTimer(tableId) {
@@ -510,12 +572,35 @@ class CoalTimerSystem {
             if (isVisible) {
                 this.checkAndRestoreTimer(tableId, cell);
             } else {
-                this.showCoalTimer(tableId, cell, 15 * 60, 0);
+                // Если таймер не видим, но стол с кальяном - создаем новый
+                this.initializeCoalTimer(tableId);
             }
         } else if (newStatus === 'opened_without_hookah') {
             // Стол без кальяна - скрываем таймер углей
             this.closeCoalTimer(tableId);
         }
+    }
+    
+    // Восстановить таймеры для всех столов с кальянами
+    restoreTimersForAllTablesWithHookah() {
+        console.log('🔍 Searching for all tables with hookah...');
+        
+        const tableCells = document.querySelectorAll('td[style*="border: 2px solid #2196f3"]');
+        
+        tableCells.forEach(cell => {
+            const statusBadge = cell.querySelector('.badge');
+            if (!statusBadge) return;
+            
+            const statusText = statusBadge.textContent.trim();
+            if (statusText.includes('с кальяном')) {
+                const tableIdBtn = cell.querySelector('button[data-table-id]');
+                if (tableIdBtn) {
+                    const tableId = tableIdBtn.dataset.tableId;
+                    console.log(`Found table with hookah: ${tableId}`);
+                    this.checkAndRestoreTimer(tableId, cell);
+                }
+            }
+        });
     }
 }
 
@@ -538,14 +623,37 @@ window.CoalTimerSystem = {
         if (coalTimerSystem) {
             coalTimerSystem.forceRestoreAllTimers();
         }
+    },
+    // Добавляем метод для вызова из других скриптов
+    onHookahAdded: (tableId) => {
+        if (coalTimerSystem) {
+            coalTimerSystem.onHookahAdded(tableId);
+        } else {
+            console.error('CoalTimerSystem not initialized');
+        }
+    },
+    // Метод для ручной инициализации таймера
+    initializeCoalTimer: (tableId) => {
+        if (coalTimerSystem) {
+            coalTimerSystem.initializeCoalTimer(tableId);
+        } else {
+            console.error('CoalTimerSystem not initialized');
+        }
     }
 };
 
 // Автоматическая инициализация при загрузке
-document.addEventListener('DOMContentLoaded', function() {
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(() => {
+            initCoalTimerSystem();
+        }, 1000);
+    });
+} else {
+    // DOM уже загружен
     setTimeout(() => {
         initCoalTimerSystem();
     }, 1000);
-});
+}
 
 console.log('✅ Coal Timer System ready');

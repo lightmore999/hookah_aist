@@ -541,9 +541,97 @@
 
 <script src="{{ asset('js/coal-timer.js') }}"></script>
 <script src="{{ asset('js/tables/modules/hookah-timer.js') }}"></script>
+<script src="{{ asset('js/tables/modules/product-manager.js') }}"></script>
+<script src="{{ asset('js/tables/modules/hookah-manager.js') }}"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+
+    // =============== ИНИЦИАЛИЗАЦИЯ  ===============
+    
+        // Экспорт функций
+    window.TableManager = {
+        showToast,
+        makeRequest,
+        formatPrice,
+        createToastContainer,
+        calculateCloseTotal,
+        getDiscountInRubles,
+        initDiscountLogic,
+        recalculateDiscount,
+        setCurrentSubtotal,
+        updateDiscountUI,
+        updateTableTotal,
+        numberFormat,
+        updateClientBonusInfo,
+        updateBonusCalculation,
+        loadSaleDataForClosing,
+        updateCloseModalData,
+        fillProductsList,
+        fillHookahsList,
+        loadOrderData,
+        updateOrderView,
+        updateViewClientBonusInfo,
+        calculateRemainingTime,
+        formatTimeUnit,
+        updateTimer,
+        initTableTimers
+    };
+    
+    console.log('Table Manager initialized');
+
+    let productManager = null;
+    let hookahManager = null;
+
+    try {
+        if (typeof ProductManager !== 'undefined') {
+            productManager = new ProductManager();
+            console.log('✅ ProductManager успешно инициализирован');
+        } else {
+            console.error('❌ ProductManager не загружен!');
+        }
+    } catch (error) {
+        console.error('❌ Ошибка инициализации ProductManager:', error);
+    }
+
+    try {
+        if (typeof HookahManager !== 'undefined') {
+            hookahManager = new HookahManager(); // ЭТО ЕДИНСТВЕННЫЙ ВЫЗОВ!
+            console.log('✅ HookahManager успешно инициализирован');
+        } else {
+            console.error('❌ HookahManager не загружен!');
+        }
+    } catch (error) {
+        console.error('❌ Ошибка инициализации HookahManager:', error);
+    }
+
+    // Экспортируем в глобальную область
+    window.productManager = productManager;
+    window.hookahManager = hookahManager;
+
+    // Инициализация таймеров (ОСТАВЛЯЕМ ОДИН РАЗ!)
+    setTimeout(() => {
+        if (typeof window.HookahTimerManager !== 'undefined') {
+            console.log('🚀 Initializing HookahTimerManager...');
+            window.HookahTimerManager.init();
+        } else {
+            console.error('❌ HookahTimerManager not found!');
+        }
+    }, 1000);
+
+    if (typeof window.CoalTimerSystem !== 'undefined') {
+        console.log('CoalTimerSystem found, initializing...');
+        const system = window.CoalTimerSystem.init();
+        
+        if (system && system.restoreTimersForAllTablesWithHookah) {
+            system.restoreTimersForAllTablesWithHookah();
+        }
+    } else {
+        console.error('CoalTimerSystem NOT FOUND! Check file path.');
+    }
+
+    console.log('Table Manager initialized');
+
     // =============== ОБЩИЕ ФУНКЦИИ ===============
     
     function showToast(type, title, message) {
@@ -646,6 +734,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+
     // =============== ТАЙМЕР ДЛЯ СТОЛОВ ===============
 
     // Функция для расчета оставшегося времени
@@ -759,508 +849,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initTableTimers();
 
     
-    // =============== ПЕРЕМЕННЫЕ ДЛЯ МОДАЛКИ ТОВАРОВ ===============
-    
-    let currentTableId = null;
-    let currentSaleId = null;
-    
-    // =============== МОДАЛКА ТОВАРОВ ===============
-    
-    const saleProductsModal = document.getElementById('saleProductsModal');
-    
-    if (saleProductsModal) {
-        // Событие открытия модалки
-        saleProductsModal.addEventListener('show.bs.modal', function(event) {
-            const button = event.relatedTarget;
-            if (!button) return;
-            
-            currentTableId = button.getAttribute('data-table-id');
-            currentSaleId = button.getAttribute('data-sale-id');
-            
-            if (!currentTableId) {
-                console.error('Table ID not found');
-                showToast('warning', 'Внимание', 'ID стола не найден');
-                return;
-            }
-            
-            // Загружаем данные через AJAX
-            loadSaleItems();
-        });
-        
-        // Событие закрытия модалки
-        saleProductsModal.addEventListener('hidden.bs.modal', function() {
-            currentTableId = null;
-            currentSaleId = null;
-            resetProductForm();
-        });
-    }
-    
-    // Функция загрузки товаров
-    function loadSaleItems() {
-        if (!currentTableId) return;
-        
-        makeRequest(`/tables/${currentTableId}/get-sale-items`)
-            .then(data => {
-                if (data.success) {
-                    updateSaleItemsTable(data.items, data.total);
-                    
-                    // Обновляем заголовок и информацию
-                    updateModalInfo(data);
-                } else {
-                    showToast('danger', 'Ошибка', data.message || 'Не удалось загрузить товары');
-                }
-            })
-            .catch(error => {
-                console.error('Error loading sale items:', error);
-                showToast('danger', 'Ошибка', 'Не удалось загрузить данные');
-            });
-    }
-    
-    function updateModalInfo(data) {
-        const titleElement = document.getElementById('saleProductsModalLabel');
-        const infoElement = document.getElementById('saleProductsInfo');
-        
-        if (titleElement && data.tableInfo) {
-            titleElement.textContent = `Товары для стола #${data.tableInfo.tableNumber} - ${data.tableInfo.guestName}`;
-        }
-        
-        if (infoElement) {
-            infoElement.innerHTML = `
-                <i class="bi bi-info-circle me-2"></i>
-                <strong>Продажа #${currentSaleId || data.saleId || 'Новая'}</strong> - ${data.tableInfo?.guestName || 'Клиент'}
-            `;
-        }
-    }
-    
-    function updateSaleItemsTable(items, total) {
-        const tbody = document.getElementById('productsTableBody');
-        const totalElement = document.getElementById('totalAmount');
-        
-        if (!tbody) return;
-        
-        tbody.innerHTML = '';
-        
-        if (items.length === 0) {
-            const emptyRow = document.createElement('tr');
-            emptyRow.innerHTML = `
-                <td colspan="5" class="text-center text-muted py-4">
-                    <i class="bi bi-cart-x me-2"></i>
-                    Товары не добавлены
-                </td>
-            `;
-            tbody.appendChild(emptyRow);
-        } else {
-            items.forEach(item => {
-                const row = document.createElement('tr');
-                row.id = `productRow${item.id}`;
-                // ✅ ИСПРАВЛЕНО: Убрали input для изменения количества
-                row.innerHTML = `
-                    <td>${item.product_name}</td>
-                    <td>
-                        <span class="fw-bold">${parseFloat(item.quantity).toLocaleString('ru-RU')}</span>
-                        <small class="text-muted ms-1">${item.unit}</small>
-                    </td>
-                    <td>${parseFloat(item.unit_price).toFixed(2)} ₽</td>
-                    <td>${parseFloat(item.total).toFixed(2)} ₽</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-danger remove-product-btn" 
-                                data-item-id="${item.id}"
-                                title="Удалить">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(row);
-            });
-        }
-        
-        if (totalElement) {
-            totalElement.textContent = parseFloat(total).toFixed(2);
-        }
-    }
-    
-    // =============== ЛОГИКА ДОБАВЛЕНИЯ ТОВАРА ===============
-    
-    // Обработчик выбора товара
-    const productSelect = document.getElementById('productSelect');
-    if (productSelect) {
-        productSelect.addEventListener('change', function() {
-            const selectedOption = this.options[this.selectedIndex];
-            const unit = selectedOption.dataset.unit;
-            const price = selectedOption.dataset.price;
-            
-            // Устанавливаем цену по умолчанию
-            const priceInput = document.getElementById('productPrice');
-            if (priceInput && price) {
-                priceInput.value = price;
-            }
-            
-            // Обновляем подсказку
-            const hint = document.getElementById('quantityHint');
-            if (hint) {
-                if (unit === 'шт') {
-                    hint.textContent = 'Количество должно быть целым числом';
-                    hint.className = 'text-info';
-                } else {
-                    hint.textContent = `Единица измерения: ${unit}`;
-                    hint.className = 'text-muted';
-                }
-            }
-            
-            // Устанавливаем правильный step для input
-            const quantityInput = document.getElementById('productQuantity');
-            if (quantityInput) {
-                quantityInput.step = unit === 'шт' ? '1' : '0.001';
-                quantityInput.min = unit === 'шт' ? '1' : '0.001';
-            }
-        });
-    }
-    
-    // Обработчик добавления товара
-    document.addEventListener('click', function(e) {
-        if (e.target && e.target.id === 'addProductBtn') {
-            e.preventDefault();
-            addProduct();
-        }
-    });
-    
-    function addProduct() {
-        const productSelect = document.getElementById('productSelect');
-        const quantityInput = document.getElementById('productQuantity');
-        const priceInput = document.getElementById('productPrice');
-        
-        if (!currentTableId) {
-            showToast('warning', 'Внимание', 'Стол не выбран');
-            return;
-        }
-        
-        const productId = productSelect.value;
-        const quantity = parseFloat(quantityInput.value);
-        const price = parseFloat(priceInput.value);
-        
-        // Валидация
-        if (!productId) {
-            showToast('warning', 'Внимание', 'Выберите товар');
-            productSelect.focus();
-            return;
-        }
-        
-        if (!quantity || quantity <= 0) {
-            showToast('warning', 'Внимание', 'Введите корректное количество');
-            quantityInput.focus();
-            return;
-        }
-        
-        if (!price || price <= 0) {
-            showToast('warning', 'Внимание', 'Введите корректную цену');
-            priceInput.focus();
-            return;
-        }
-        
-        // Проверка для штучных товаров
-        const selectedOption = productSelect.options[productSelect.selectedIndex];
-        const unit = selectedOption.dataset.unit;
-        
-        if (unit === 'шт' && !Number.isInteger(quantity)) {
-            showToast('warning', 'Внимание', 'Для штучных товаров количество должно быть целым числом');
-            quantityInput.value = Math.round(quantity);
-            return;
-        }
-        
-        const requestData = {
-            product_id: productId,
-            quantity: quantity,
-            unit_price: price
-        };
-        
-        console.log('Adding product:', requestData);
-        
-        // Используем fetch напрямую с обработкой текста
-        fetch(`/tables/${currentTableId}/add-product`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-            },
-            body: JSON.stringify(requestData)
-        })
-        .then(response => {
-            return response.text().then(text => {
-                // Пробуем парсить JSON
-                try {
-                    const data = JSON.parse(text);
-                    return { response, data };
-                } catch {
-                    // Если не JSON, возвращаем текст
-                    return { response, text };
-                }
-            });
-        })
-        .then(({ response, data, text }) => {
-            console.log('Response:', response.status, data || text);
-            
-            if (response.ok) {
-                if (data && data.success) {
-                    showToast('success', 'Успех', 'Товар добавлен');
-                    loadSaleItems();
-                    if (data.newTotal !== undefined) {
-                        updateTableTotal(currentTableId, data.newTotal);
-                    }
-                    resetProductForm();
-                } else {
-                    showToast('danger', 'Ошибка', 'Некорректный ответ от сервера');
-                }
-            } else {
-                // Обработка ошибки
-                if (data) {
-                    // Есть JSON данные
-                    if (data.message && data.message.includes('Недостаточно товара')) {
-                        const productName = selectedOption.text.split(' - ')[0];
-                        const unit = selectedOption.dataset.unit;
-                        
-                        let errorMessage = `Недостаточно товара на складе:<br>`;
-                        errorMessage += `<strong>${productName}</strong><br>`;
-                        
-                        if (data.details && data.details.requested) {
-                            errorMessage += `Запрошено: <span class="text-danger">${data.details.requested} ${data.details.unit || unit}</span><br>`;
-                            errorMessage += `Доступно: <span class="text-success">${data.details.available} ${data.details.unit || unit}</span>`;
-                        } else if (data.requested !== undefined) {
-                            errorMessage += `Запрошено: <span class="text-danger">${data.requested} ${unit}</span><br>`;
-                            errorMessage += `Доступно: <span class="text-success">${data.available} ${unit}</span>`;
-                        } else {
-                            errorMessage += data.message;
-                        }
-                        
-                        showCustomToast('danger', 'Недостаточно товара', errorMessage, true);
-                    } else {
-                        showToast('danger', 'Ошибка', data.message || 'Не удалось добавить товар');
-                    }
-                } else if (text) {
-                    // Только текст
-                    showToast('danger', 'Ошибка ' + response.status, text.substring(0, 200));
-                } else {
-                    showToast('danger', 'Ошибка', 'Не удалось добавить товар');
-                }
-            }
-        })
-        .catch(error => {
-            console.error('Error adding product:', error);
-            showToast('danger', 'Ошибка', 'Не удалось добавить товар');
-        });
-    }
-    
-    function resetProductForm() {
-        const productSelect = document.getElementById('productSelect');
-        const quantityInput = document.getElementById('productQuantity');
-        const priceInput = document.getElementById('productPrice');
-        const hint = document.getElementById('quantityHint');
-        
-        if (productSelect) productSelect.value = '';
-        if (quantityInput) quantityInput.value = '1';
-        if (priceInput) priceInput.value = '';
-        if (hint) {
-            hint.textContent = '';
-            hint.className = 'text-muted';
-        }
-    }
 
-    function showCustomToast(type, title, message, isHtml = false) {
-        const toastContainer = document.getElementById('toastContainer') || createToastContainer();
-        
-        const toastId = 'toast-' + Date.now();
-        const toastHtml = `
-            <div id="${toastId}" class="toast" role="alert">
-                <div class="toast-header bg-${type} text-white">
-                    <strong class="me-auto">${title}</strong>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-                </div>
-                <div class="toast-body ${isHtml ? '' : 'text-bg-' + type}">
-                    ${isHtml ? message : `<strong>${title}:</strong> ${message}`}
-                </div>
-            </div>
-        `;
-        
-        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
-        
-        const toastElement = document.getElementById(toastId);
-        const toast = new bootstrap.Toast(toastElement, {
-            autohide: isHtml ? false : true, // Для HTML сообщений не скрываем автоматически
-            delay: isHtml ? 8000 : 3000 // Для HTML даем больше времени на чтение
-        });
-        toast.show();
-        
-        toastElement.addEventListener('hidden.bs.toast', function() {
-            this.remove();
-        });
-    }
-
-    // Добавьте эту функцию для модального окна с предупреждением
-    function showStockWarningModal(productName, available, unit, requested) {
-        // Создаем модальное окно
-        const modalId = 'stockWarningModal';
-        let modalElement = document.getElementById(modalId);
-        
-        if (!modalElement) {
-            // Создаем модальное окно
-            modalElement = document.createElement('div');
-            modalElement.className = 'modal fade';
-            modalElement.id = modalId;
-            modalElement.innerHTML = `
-                <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
-                        <div class="modal-header bg-warning text-dark">
-                            <h5 class="modal-title">
-                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                                Недостаточно товара
-                            </h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div class="alert alert-warning">
-                                <i class="bi bi-info-circle me-2"></i>
-                                На складе недостаточно товара для добавления в полном объеме.
-                            </div>
-                            
-                            <div class="row mb-3">
-                                <div class="col-6">
-                                    <div class="card border-danger">
-                                        <div class="card-body text-center">
-                                            <h6 class="card-subtitle mb-2 text-muted">Запрошено</h6>
-                                            <h4 class="text-danger">${requested} ${unit}</h4>
-                                            <p class="small text-muted">${productName}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-6">
-                                    <div class="card border-success">
-                                        <div class="card-body text-center">
-                                            <h6 class="card-subtitle mb-2 text-muted">Доступно</h6>
-                                            <h4 class="text-success">${available} ${unit}</h4>
-                                            <p class="small text-muted">${productName}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <p class="mb-0">Хотите добавить максимально доступное количество?</p>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                                <i class="bi bi-x-circle me-1"></i> Отмена
-                            </button>
-                            <button type="button" class="btn btn-primary" id="confirmAddMaxBtn">
-                                <i class="bi bi-check-circle me-1"></i> Добавить ${available} ${unit}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modalElement);
-            
-            // Инициализируем модальное окно
-            const modal = new bootstrap.Modal(modalElement);
-            
-            // Обработчик подтверждения
-            modalElement.addEventListener('shown.bs.modal', function() {
-                const confirmBtn = document.getElementById('confirmAddMaxBtn');
-                if (confirmBtn) {
-                    confirmBtn.addEventListener('click', function() {
-                        // Устанавливаем максимальное доступное количество
-                        const quantityInput = document.getElementById('productQuantity');
-                        if (quantityInput) {
-                            quantityInput.value = available;
-                        }
-                        
-                        // Закрываем модальное окно
-                        modal.hide();
-                        
-                        // Показываем сообщение
-                        showToast('info', 'Количество обновлено', `Установлено максимальное доступное количество: ${available} ${unit}`);
-                    });
-                }
-            });
-            
-            // Удаляем обработчик при закрытии
-            modalElement.addEventListener('hidden.bs.modal', function() {
-                this.remove();
-            });
-        }
-        
-        // Показываем модальное окно
-        const modal = new bootstrap.Modal(modalElement);
-        modal.show();
-    }
-    
-    // =============== ЛОГИКА УДАЛЕНИЯ ТОВАРА ===============
-    
-    document.addEventListener('click', function(e) {
-        if (e.target.closest('.remove-product-btn')) {
-            const button = e.target.closest('.remove-product-btn');
-            const itemId = button.dataset.itemId;
-            
-            if (!itemId || !currentTableId) return;
-            
-            removeProduct(itemId);
-        }
-    });
-    
-    function removeProduct(itemId) {
-        if (!confirm('Вы уверены, что хотите удалить этот товар?')) {
-            return;
-        }
-        
-        makeRequest(`/tables/${currentTableId}/remove-product/${itemId}`, {
-            method: 'DELETE'
-        })
-        .then(data => {
-            if (data.success) {
-                showToast('success', 'Успех', 'Товар удален');
-                
-                // Удаляем строку из таблицы
-                const row = document.getElementById(`productRow${itemId}`);
-                if (row) {
-                    row.remove();
-                }
-                
-                // Обновляем итоговую сумму в модалке
-                const totalElement = document.getElementById('totalAmount');
-                if (totalElement && data.total !== undefined) {
-                    totalElement.textContent = parseFloat(data.total).toFixed(2);
-                }
-                
-                // ✅ ОБНОВЛЯЕМ СУММУ В ЯЧЕЙКЕ СТОЛА
-                if (data.newTotal !== undefined) {
-                    updateTableTotal(currentTableId, data.newTotal);
-                }
-                
-                // Если товаров не осталось, показываем сообщение
-                const tbody = document.getElementById('productsTableBody');
-                if (tbody && tbody.children.length === 0) {
-                    const emptyRow = document.createElement('tr');
-                    emptyRow.innerHTML = `
-                        <td colspan="5" class="text-center text-muted py-4">
-                            <i class="bi bi-cart-x me-2"></i>
-                            Товары не добавлены
-                        </td>
-                    `;
-                    tbody.appendChild(emptyRow);
-                }
-            } else {
-                showToast('danger', 'Ошибка', data.message || 'Не удалось удалить товар');
-            }
-        })
-        .catch(error => {
-            console.error('Error removing product:', error);
-            showToast('danger', 'Ошибка', 'Не удалось удалить товар');
-        });
-    }
-    
-
-    // =============== ПЕРЕМЕННЫЕ ДЛЯ МОДАЛКИ КАЛЬЯНОВ ===============
-
-    let currentHookahsTableId = null;
-    let currentHookahsSaleId = null;
 
     // =============== МОДАЛКА КАЛЬЯНОВ ===============
 
@@ -1269,387 +858,112 @@ document.addEventListener('DOMContentLoaded', function() {
     if (saleHookahsModal) {
         // Событие открытия модалки
         saleHookahsModal.addEventListener('show.bs.modal', function(event) {
-            const button = event.relatedTarget;
-            if (!button) return;
-            
-            currentHookahsTableId = button.getAttribute('data-table-id');
-            const tableNumber = button.getAttribute('data-table-number');
-            const guestName = button.getAttribute('data-guest-name');
-            currentHookahsSaleId = button.getAttribute('data-sale-id');
-            
-            if (!currentHookahsTableId) {
-                console.error('Table ID not found');
-                showToast('warning', 'Внимание', 'ID стола не найден');
-                return;
+            // Делегируем обработку HookahManager
+            if (window.hookahManager && window.hookahManager.handleModalShow) {
+                window.hookahManager.handleModalShow(event);
             }
-            
-            // Показываем заголовок
-            const titleElement = this.querySelector('#saleHookahsModalLabel');
-            if (titleElement) {
-                titleElement.textContent = `Кальяны для стола #${tableNumber} - ${guestName}`;
-            }
-            
-            // Обновляем информацию
-            const infoElement = this.querySelector('#saleHookahsInfo');
-            if (infoElement) {
-                infoElement.innerHTML = `
-                    <i class="bi bi-info-circle me-2"></i>
-                    <strong>Продажа #${currentHookahsSaleId || 'Новая'}</strong> - ${guestName}
-                `;
-            }
-            
-            // Загружаем кальяны через AJAX
-            loadSaleHookahs();
         });
         
         // Событие закрытия модалки
         saleHookahsModal.addEventListener('hidden.bs.modal', function() {
-            currentHookahsTableId = null;
-            currentHookahsSaleId = null;
-            resetHookahForm();
-        });
-    }
-
-    // Функция загрузки кальянов
-    function loadSaleHookahs() {
-        if (!currentHookahsTableId) return;
-        
-        makeRequest(`/tables/${currentHookahsTableId}/get-sale-hookahs`)
-            .then(data => {
-                if (data.success) {
-                    updateHookahsTable(data.hookahs, data.total);
-                } else {
-                    showToast('danger', 'Ошибка', data.message || 'Не удалось загрузить кальяны');
-                }
-            })
-            .catch(error => {
-                console.error('Error loading hookahs:', error);
-                showToast('danger', 'Ошибка', 'Не удалось загрузить данные');
-            });
-    }
-
-    function updateHookahsTable(hookahs, total) {
-        const tbody = document.getElementById('hookahsTableBody');
-        const totalElement = document.getElementById('hookahsTotalAmount');
-        
-        if (!tbody) return;
-        
-        tbody.innerHTML = '';
-        
-        if (hookahs.length === 0) {
-            const emptyRow = document.createElement('tr');
-            emptyRow.innerHTML = `
-                <td colspan="3" class="text-center text-muted py-4">
-                    <i class="bi bi-cup-straw me-2"></i>
-                    Кальяны не добавлены
-                </td>
-            `;
-            tbody.appendChild(emptyRow);
-        } else {
-            hookahs.forEach(hookah => {
-                const row = document.createElement('tr');
-                row.id = `hookahRow${hookah.id}`;
-                row.innerHTML = `
-                    <td>${hookah.name}</td>
-                    <td>${parseFloat(hookah.price).toFixed(0)} ₽</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-danger remove-hookah-btn" 
-                                data-hookah-id="${hookah.id}"
-                                title="Удалить">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(row);
-            });
-        }
-        
-        if (totalElement) {
-            totalElement.textContent = parseFloat(total).toFixed(0);
-        }
-    }
-
-    // =============== ЛОГИКА ДОБАВЛЕНИЯ КАЛЬЯНА ===============
-
-    // Обработчик выбора кальяна
-    const hookahSelect = document.getElementById('hookahSelect');
-    if (hookahSelect) {
-        hookahSelect.addEventListener('change', function() {
-            const selectedOption = this.options[this.selectedIndex];
-            const price = selectedOption.dataset.price;
-            // Для кальянов нет подсказок о единицах измерения
-        });
-    }
-
-    // Обработчик добавления кальяна
-    document.addEventListener('click', function(e) {
-        if (e.target && e.target.id === 'addHookahBtn') {
-            e.preventDefault();
-            addHookah();
-        }
-    });
-
-    function addHookah() {
-        const hookahSelect = document.getElementById('hookahSelect');
-        
-        if (!currentHookahsTableId) {
-            showToast('warning', 'Внимание', 'Стол не выбран');
-            return;
-        }
-        
-        const hookahId = hookahSelect.value;
-        
-        if (!hookahId) {
-            showToast('warning', 'Внимание', 'Выберите кальян');
-            hookahSelect.focus();
-            return;
-        }
-        
-        const requestData = {
-            hookah_id: hookahId
-        };
-        
-        console.log('Adding hookah to table:', currentHookahsTableId);
-        
-        makeRequest(`/tables/${currentHookahsTableId}/add-hookah`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-            },
-            body: JSON.stringify(requestData)
-        })
-        .then(data => {
-            console.log('Hookah add response:', data);
-            
-            if (data.success) {
-                showToast('success', 'Успех', 'Кальян добавлен');
-                
-                // ❌ УДАЛИТЕ ЭТУ СТРОКУ (она вызывает старую несуществующую функцию):
-                // stopHookahRequirementTimer(currentHookahsTableId);
-                
-                // ✅ ВМЕСТО НЕЕ ИСПОЛЬЗУЙТЕ НОВЫЙ МОДУЛЬ:
-                if (window.HookahTimerManager && window.HookahTimerManager.stopTimer) {
-                    window.HookahTimerManager.stopTimer(currentHookahsTableId);
-                }
-                
-                console.log('Updating table status to: opened_with_hookah');
-                
-                // Обновляем интерфейс
-                updateTableInterface(currentHookahsTableId, {
-                    status: 'opened_with_hookah',
-                    hasHookah: true
-                });
-                
-                // ✅ ОБНОВЛЯЕМ СУММУ В ЯЧЕЙКЕ СТОЛА
-                if (data.newTotal !== undefined) {
-                    updateTableTotal(currentHookahsTableId, data.newTotal);
-                }
-                
-                // Закрываем модальное окно
-                const modalElement = document.getElementById('saleHookahsModal');
-                if (modalElement) {
-                    const modal = bootstrap.Modal.getInstance(modalElement);
-                    if (modal) {
-                        modal.hide();
-                    }
-                }
-                
-                // Сбрасываем форму
-                resetHookahForm();
-                
-                // Показываем подтверждение
-                setTimeout(() => {
-                    showToast('info', 'Статус обновлен', 'Стол теперь с кальяном');
-                }, 500);
-            } else {
-                showToast('danger', 'Ошибка', data.message || 'Не удалось добавить кальян');
+            // Делегируем обработку HookahManager
+            if (window.hookahManager && window.hookahManager.resetForm) {
+                window.hookahManager.resetForm();
             }
-        })
-        .catch(error => {
-            console.error('Error adding hookah:', error);
-            showToast('danger', 'Ошибка', 'Не удалось добавить кальян');
-        });
-    }
-    
-    function resetHookahForm() {
-        const hookahSelect = document.getElementById('hookahSelect');
-        if (hookahSelect) hookahSelect.value = '';
-    }
-
-    // =============== ЛОГИКА УДАЛЕНИЯ КАЛЬЯНА ===============
-
-    document.addEventListener('click', function(e) {
-        if (e.target.closest('.remove-hookah-btn')) {
-            const button = e.target.closest('.remove-hookah-btn');
-            const hookahId = button.dataset.hookahId;
-            
-            if (!hookahId || !currentHookahsTableId) return;
-            
-            removeHookah(hookahId);
-        }
-    });
-
-    function removeHookah(hookahId) {
-        if (!confirm('Вы уверены, что хотите удалить этот кальян?')) {
-            return;
-        }
-        
-        makeRequest(`/tables/${currentHookahsTableId}/remove-hookah/${hookahId}`, {
-            method: 'DELETE'
-        })
-        .then(data => {
-            if (data.success) {
-                showToast('success', 'Успех', 'Кальян удален');
-                
-                // Удаляем строку из таблицы
-                const row = document.getElementById(`hookahRow${hookahId}`);
-                if (row) {
-                    row.remove();
-                }
-                
-                // Обновляем итоговую сумму в модалке
-                const totalElement = document.getElementById('hookahsTotalAmount');
-                if (totalElement && data.total !== undefined) {
-                    totalElement.textContent = parseFloat(data.total).toFixed(0);
-                }
-                
-                // ✅ ОБНОВЛЯЕМ СУММУ В ЯЧЕЙКЕ СТОЛА
-                if (data.newTotal !== undefined) {
-                    updateTableTotal(currentHookahsTableId, data.newTotal);
-                }
-                
-                // Если кальянов не осталось, показываем сообщение
-                const tbody = document.getElementById('hookahsTableBody');
-                if (tbody && tbody.children.length === 0) {
-                    const emptyRow = document.createElement('tr');
-                    emptyRow.innerHTML = `
-                        <td colspan="3" class="text-center text-muted py-4">
-                            <i class="bi bi-cup-straw me-2"></i>
-                            Кальяны не добавлены
-                        </td>
-                    `;
-                    tbody.appendChild(emptyRow);
-                }
-            } else {
-                showToast('danger', 'Ошибка', data.message || 'Не удалось удалить кальян');
-            }
-        })
-        .catch(error => {
-            console.error('Error removing hookah:', error);
-            showToast('danger', 'Ошибка', 'Не удалось удалить кальян');
         });
     }
 
-    
-    // ДИНАМИЧЕСКОЕ ОБНОВЛЕНИЕ ИНТЕРФЕЙСА СТОЛА
-    function updateTableInterface(tableId, data) {
-        console.log('🔄 Обновляем стол', tableId, 'статус:', data.status);
-        
-        // 1. Находим ячейку стола
-        const button = document.querySelector(`button[data-table-id="${tableId}"]`);
-        if (!button) {
-            console.error('❌ Кнопка стола не найдена');
-            return;
-        }
-        
-        const cell = button.closest('td');
-        if (!cell) {
-            console.error('❌ Ячейка td не найдена');
-            return;
-        }
-        
-        console.log('✅ Ячейка найдена');
-        
-        // 2. МЕНЯЕМ ЦВЕТ ФОНА ЯЧЕЙКИ
-        if (data.status === 'opened_with_hookah') {
-            // Стол С кальяном - светло-голубой
-            cell.style.backgroundColor = '#e0f7fa';
-            console.log('🎨 Цвет ячейки изменен на #e0f7fa (стол с кальяном)');
-            
-        } else if (data.status === 'opened_without_hookah') {
-            // Стол БЕЗ кальяна - светло-зеленый (как в PHP getStatusColor())
-            cell.style.backgroundColor = '#e8f5e9';
-            console.log('🎨 Цвет ячейки изменен на #e8f5e9 (стол без кальяна)');
-        }
-        
-        // 3. МЕНЯЕМ БЕЙДЖ СТАТУСА
-        const headerDiv = cell.querySelector('.d-flex.justify-content-between.align-items-start.mb-1');
-        const badge = headerDiv ? headerDiv.querySelector('.badge') : null;
-        
-        if (badge) {
-            console.log('✅ Бейдж найден');
-            
-            if (data.status === 'opened_with_hookah') {
-                badge.textContent = 'Открытый стол (с кальяном)';
-                badge.className = 'badge bg-info';
-                console.log('📝 Бейдж: Открытый стол (с кальяном) + bg-info');
-                
-            } else if (data.status === 'opened_without_hookah') {
-                badge.textContent = 'Открытый стол (без кальяна)';
-                badge.className = 'badge bg-success';
-                console.log('📝 Бейдж: Открытый стол (без кальяна) + bg-success');
-            }
-        }
-        
-        // 4. УДАЛЯЕМ таймер "требуется кальян" если есть
-        // ❌ УДАЛИТЕ ЭТОТ БЛОК:
-        // const timerContainer = cell.querySelector('.timer-container');
-        // if (timerContainer) {
-        //     console.log('🗑 Удаляем timer-container (таймер "требуется кальян")');
-        //     timerContainer.remove();
-        // }
-        
-        // ✅ ВМЕСТО НЕГО ИСПОЛЬЗУЙТЕ НОВЫЙ МОДУЛЬ:
-        if (window.HookahTimerManager && window.HookahTimerManager.stopTimer) {
-            window.HookahTimerManager.stopTimer(tableId);
-        }
-        
-        // 5. ТАЙМЕР УГЛЕЙ - ИСПРАВЛЕННАЯ ВЕРСИЯ
-        if (data.status === 'opened_with_hookah') {
-            console.log('🔥 Добавляем таймер углей для стола', tableId);
-            
-            // ... остальной код без изменений ...
-        }
-        
-        console.log('✅ Стол успешно обновлен!');
-    }
+
 
     function updateTableTotal(tableId, newTotal) {
         console.log('🔄 Обновляем сумму для стола', tableId, 'новая сумма:', newTotal);
         
-        // Находим ВСЕ кнопки с данным tableId
-        const buttons = document.querySelectorAll(`button[data-table-id="${tableId}"]`);
-        if (buttons.length === 0) {
-            console.error('❌ Кнопки стола не найдены для обновления суммы');
-            return;
-        }
+        // Находим ВСЕ ячейки стола с данным tableId
+        const cells = document.querySelectorAll(`td`);
         
-        // Обрабатываем каждую кнопку
-        buttons.forEach(button => {
-            const cell = button.closest('td');
-            if (!cell) return;
+        cells.forEach(cell => {
+            // Проверяем, есть ли в ячейке кнопка с нужным table-id
+            const button = cell.querySelector(`button[data-table-id="${tableId}"]`);
+            if (!button) return;
             
-            // 1. Находим сумму в открытом столе (зеленый бейдж)
-            const totalBadge = cell.querySelector('.badge.bg-success.fs-6');
-            if (totalBadge) {
-                totalBadge.textContent = numberFormat(newTotal) + ' ₽';
-                console.log('✅ Сумма обновлена в ячейке (открытый стол):', totalBadge.textContent);
+            console.log('✅ Найден стол в ячейке');
+            
+            // ВАЖНО: Находим КОНТЕЙНЕР с таймером и суммой
+            // Ищем внутри ячейки блок с таймером и суммой
+            const timerSumContainer = cell.querySelector('.d-flex.justify-content-between.align-items-center.mb-2.bg-light.rounded.p-2');
+            
+            if (timerSumContainer) {
+                console.log('✅ Найден контейнер с таймером и суммой');
+                
+                // Находим элемент суммы ВНУТРИ контейнера
+                const sumElement = timerSumContainer.querySelector('.text-end .badge.bg-success.fs-6');
+                
+                if (sumElement) {
+                    sumElement.textContent = numberFormat(newTotal) + ' ₽';
+                    console.log('✅ Сумма обновлена внутри контейнера:', sumElement.textContent);
+                } else {
+                    // Если элемента суммы нет, создаем его
+                    console.log('⚠️ Элемент суммы не найден, создаем новый');
+                    
+                    // Находим блок с таймером внутри контейнера
+                    const timerContainer = timerSumContainer.querySelector('.text-end');
+                    if (timerContainer) {
+                        // Добавляем сумму рядом с таймером
+                        const newSumElement = document.createElement('div');
+                        newSumElement.className = 'text-end';
+                        newSumElement.innerHTML = `
+                            <small class="text-muted d-block">Сумма заказа:</small>
+                            <span class="badge bg-success fs-6">
+                                ${numberFormat(newTotal)} ₽
+                            </span>
+                        `;
+                        
+                        // Вставляем перед кнопкой закрытия (если есть)
+                        const closeButton = cell.querySelector('button[data-bs-target="#closeSaleModal"]');
+                        if (closeButton && closeButton.parentElement) {
+                            closeButton.parentElement.insertBefore(newSumElement, closeButton);
+                        }
+                    }
+                }
+            } else {
+                // Если контейнера нет, ищем другие места для суммы
+                console.log('⚠️ Контейнер с таймером не найден, ищем другие места');
+                
+                // 1. Ищем существующий бейдж с суммой
+                let existingSum = cell.querySelector('.badge.bg-success.fs-6');
+                if (existingSum) {
+                    existingSum.textContent = numberFormat(newTotal) + ' ₽';
+                    console.log('✅ Сумма обновлена в существующем бейдже');
+                }
+                
+                // 2. Ищем сумму в статусе "закрытый стол"
+                const closedTotalElement = cell.querySelector('.small.mt-1 strong');
+                if (closedTotalElement) {
+                    closedTotalElement.textContent = numberFormat(newTotal) + ' ₽';
+                    console.log('✅ Сумма обновлена для закрытого стола');
+                }
+                
+                // 3. Создаем новый элемент для суммы если нет
+                if (!existingSum && !closedTotalElement) {
+                    // Находим место для вставки - перед кнопкой закрытия
+                    const closeButton = cell.querySelector('button[data-bs-target="#closeSaleModal"]');
+                    if (closeButton && closeButton.parentElement) {
+                        const sumContainer = document.createElement('div');
+                        sumContainer.className = 'text-end mb-2';
+                        sumContainer.innerHTML = `
+                            <small class="text-muted d-block">Сумма заказа:</small>
+                            <span class="badge bg-success fs-6">
+                                ${numberFormat(newTotal)} ₽
+                            </span>
+                        `;
+                        
+                        closeButton.parentElement.insertBefore(sumContainer, closeButton);
+                        console.log('✅ Создан новый элемент суммы');
+                    }
+                }
             }
             
-            // 2. Находим сумму в заголовке таблицы товаров (если есть)
-            const productsBadge = cell.querySelector('.badge.bg-primary');
-            if (productsBadge && productsBadge.textContent.includes('₽')) {
-                productsBadge.textContent = numberFormat(newTotal) + ' ₽';
-            }
-            
-            // 3. Обновляем сумму в статусе "закрытый стол"
-            const closedTotalElement = cell.querySelector('.small.mt-1 strong');
-            if (closedTotalElement) {
-                closedTotalElement.textContent = numberFormat(newTotal) + ' ₽';
-            }
-            
-            // 4. Обновляем данные в кнопке "Закрыть стол"
+            // Обновляем данные в кнопке "Закрыть стол"
             const closeButton = cell.querySelector('button[data-bs-target="#closeSaleModal"]');
             if (closeButton) {
                 closeButton.setAttribute('data-total', newTotal);
@@ -1657,7 +971,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Функция для форматирования числа
+    // Вспомогательная функция для форматирования числа
     function numberFormat(number) {
         return parseFloat(number).toLocaleString('ru-RU', {
             minimumFractionDigits: 0,
@@ -2665,27 +1979,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     console.log('Table Manager initialized');
-    
-
-    // =============== ИНИЦИАЛИЗАЦИЯ ТАЙМЕРА УГЛЕЙ ===============
-
-    // setTimeout(() => {
-    //     // Проверяем, загрузился ли файл coal-timer.js
-    //     if (typeof window.CoalTimerSystem !== 'undefined') {
-    //         console.log('CoalTimerSystem found, initializing...');
-    //         const system = window.CoalTimerSystem.init();
-            
-    //         // ДОПОЛНИТЕЛЬНО: Проверяем все столы с кальянами при загрузке
-    //         setTimeout(() => {
-    //             if (system && system.restoreTimersForAllTablesWithHookah) {
-    //                 system.restoreTimersForAllTablesWithHookah();
-    //             }
-    //         }, 1500);
-    //     } else {
-    //         console.error('CoalTimerSystem NOT FOUND! Check file path.');
-    //     }
-    // }, 1000); // Уменьшаем задержку
-
 
     if (typeof window.CoalTimerSystem !== 'undefined') {
         console.log('CoalTimerSystem found, initializing...');
@@ -2699,33 +1992,6 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('CoalTimerSystem NOT FOUND! Check file path.');
     }
 
-
-    // Экспорт функций
-    window.TableManager = {
-        showToast,
-        makeRequest,
-        formatPrice,
-        loadSaleItems,
-        addProduct,
-        removeProduct,
-        loadSaleHookahs,     
-        addHookah,          
-        removeHookah,
-        loadSaleDataForClosing,  
-        updateCloseModalData,    
-        fillProductsList,         
-        fillHookahsList,         
-        calculateCloseTotal,
-        updateClientBonusInfo,
-        calculateCloseTotal,
-        updateBonusCalculation,
-        initDiscountLogic,
-        recalculateDiscount,
-        setCurrentSubtotal,
-        updateDiscountUI,      
-    };
-    
-    console.log('Table Manager initialized');
 });
 </script>
 @endsection
