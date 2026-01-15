@@ -15,6 +15,9 @@ class ShiftController extends Controller
      */
     public function index(Request $request)
     {
+        // Запускаем автоматическое закрытие просроченных смен
+        $this->autoCloseExpiredShifts();
+        
         // Определяем месяц для отображения
         $month = $request->get('month', now()->format('Y-m'));
         $focusDate = $request->get('focus'); // Новый параметр
@@ -61,6 +64,11 @@ class ShiftController extends Controller
             ->get()
             ->keyBy(function($shift) {
                 return $shift->date->format('Y-m-d');
+            })
+            ->map(function($shift) {
+                // Добавляем отформатированные заметки
+                $shift->formatted_notes = $shift->formatted_notes;
+                return $shift;
             });
         
         // Создаем календарь на месяц
@@ -93,6 +101,52 @@ class ShiftController extends Controller
             'focusDate',
             'weeks'
         ));
+    }
+
+    /**
+     * Автоматическое закрытие просроченных смен
+     * Смены автоматически закрываются в 12:00 следующего дня
+     */
+    private function autoCloseExpiredShifts()
+    {
+        $now = now();
+        
+        // Проверяем, что сейчас уже после 12:00
+        if ($now->format('H:i') < '12:13') {
+            return 0; // Еще рано, до 12:00
+        }
+        
+        // Дата вчера
+        $yesterday = $now->copy()->subDay()->toDateString();
+        
+        // Находим все открытые смены на ВЧЕРА
+        $expiredShifts = Shift::where('status', 'open')
+            ->whereDate('date', $yesterday)
+            ->get();
+        
+        $closedCount = 0;
+        
+        foreach ($expiredShifts as $shift) {
+            // Закрываем смену
+            $shift->status = 'closed';
+            $shift->closed_at = $now;
+            
+            // Добавляем автоматический комментарий
+            $comment = "Смена автоматически закрыта системой " . 
+                    $now->format('d.m.Y H:i:s') . 
+                    " (смена не была закрыта вручную до 12:00 следующего дня)";
+            
+            $shift->addAutoCloseNote();
+            $shift->save();
+            
+            $closedCount++;
+        }
+        
+        if ($closedCount > 0) {
+            \Log::info("Автоматически закрыто $closedCount просроченных смен (вчерашние смены)");
+        }
+        
+        return $closedCount;
     }
 
     /**
@@ -290,6 +344,17 @@ class ShiftController extends Controller
         return Shift::with(['employees'])
             ->whereDate('date', $today)
             ->first();
+    }
+
+    public function updateNote(Request $request, Shift $shift)
+    {
+        $request->validate([
+            'note' => 'nullable|string|max:500',
+        ]);
+
+        $shift->setNote($request->note);
+
+        return back()->with('success', 'Комментарий обновлен.');
     }
 
 }

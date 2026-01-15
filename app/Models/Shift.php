@@ -12,6 +12,7 @@ class Shift extends Model
     protected $fillable = [
         'date',
         'status',
+        'notes', // Теперь это будет один комментарий
         'opened_at',
         'closed_at',
     ];
@@ -29,14 +30,6 @@ class Shift extends Model
     {
         return $this->belongsToMany(Employee::class, 'shift_user', 'shift_id', 'user_id')
                     ->withTimestamps();
-    }
-
-    /**
-     * Связи через промежуточную таблицу
-     */
-    public function shiftUsers()
-    {
-        return $this->hasMany(ShiftUser::class);
     }
 
     /**
@@ -61,14 +54,6 @@ class Shift extends Model
     public function isClosed()
     {
         return $this->status === 'closed';
-    }
-
-    /**
-     * Проверить, сегодняшняя ли смена
-     */
-    public function isToday()
-    {
-        return $this->date->isToday();
     }
 
     /**
@@ -118,52 +103,26 @@ class Shift extends Model
     }
 
     /**
-     * Scope для получения текущей открытой смены
+     * Установить комментарий (один на смену)
      */
-    public function scopeOpen($query)
+    public function setNote($note)
     {
-        return $query->where('status', 'open');
+        $this->update([
+            'notes' => $note
+        ]);
     }
 
     /**
-     * Scope для получения запланированных смен
+     * Добавить автоматический комментарий при закрытии
      */
-    public function scopePlanned($query)
+    public function addAutoCloseNote()
     {
-        return $query->where('status', 'planned');
-    }
-
-    /**
-     * Scope для получения закрытых смен
-     */
-    public function scopeClosed($query)
-    {
-        return $query->where('status', 'closed');
-    }
-
-    /**
-     * Scope для получения будущих смен
-     */
-    public function scopeFuture($query)
-    {
-        return $query->where('date', '>=', now()->toDateString())
-                    ->orderBy('date');
-    }
-
-    /**
-     * Scope для получения прошедших смен
-     */
-    public function scopePast($query)
-    {
-        return $query->where('date', '<', now()->toDateString())
-                    ->orderByDesc('date');
-    }
-
-    /**
-     * Scope для получения смен на сегодня
-     */
-    public function scopeToday($query)
-    {
-        return $query->whereDate('date', now()->toDateString());
+        $note = "Смена автоматически закрыта системой" . 
+                now()->format('d.m.Y H:i:s') . 
+                " (смена не была закрыта вручную до 12:00 следующего дня)";
+        
+        $this->update([
+            'notes' => $note
+        ]);
     }
 }

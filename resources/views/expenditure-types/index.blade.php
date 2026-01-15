@@ -13,7 +13,13 @@
             <p class="text-muted mb-0 small">Управление категориями расходов</p>
         </div>
         
-        <div>
+        <div class="d-flex gap-2">
+            <!-- Кнопка "Назад" -->
+            <a href="{{ route('expenditures.index') }}" class="btn btn-outline-secondary mt-2">
+                <i class="bi bi-arrow-left me-1"></i> Назад
+            </a>
+            
+            <!-- Кнопка "Добавить тип" -->
             <button type="button" 
                     class="btn btn-primary mt-2"
                     data-bs-toggle="modal"
@@ -53,9 +59,7 @@
                     <table class="table table-hover mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th>ID</th>
                                 <th>Название типа</th>
-                                <th>Кол-во расходов</th>
                                 <th>Дата создания</th>
                                 <th class="text-end">Действия</th>
                             </tr>
@@ -63,12 +67,8 @@
                         <tbody>
                             @foreach($expenditureTypes as $type)
                             <tr>
-                                <td>{{ $type->id }}</td>
                                 <td>
                                     <strong>{{ $type->name }}</strong>
-                                </td>
-                                <td>
-                                    <span class="badge bg-info">{{ $type->expenditures()->count() }}</span>
                                 </td>
                                 <td>{{ $type->created_at->format('d.m.Y') }}</td>
                                 <td class="text-end">

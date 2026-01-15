@@ -146,7 +146,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/current-shift', [ShiftController::class, 'getCurrentShift'])->name('shifts.current');
     });
     Route::get('/shifts/{shift}/json-data', [ShiftController::class, 'jsonData'])->name('shifts.json-data');
-
+    Route::post('/shifts/{shift}/note', [ShiftController::class, 'updateNote'])->name('shifts.update-note');
 
     Route::resource('bonus-cards', BonusCardController::class);
     Route::resource('fines', FineController::class);

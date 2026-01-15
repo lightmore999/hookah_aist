@@ -66,16 +66,33 @@
         </div>
         
         <!-- Дни месяца -->
-       @foreach($weeks as $weekIndex => $week)
+        @php
+            $dayCounter = 0; // Счетчик для шахматного порядка
+        @endphp
+        
+        @foreach($weeks as $weekIndex => $week)
         <div class="row g-0 border-bottom" style="min-height: 160px;">
             @foreach($week as $dayIndex => $date)
-            <div class="col border-end p-2 position-relative d-flex flex-column
-                @if(!$date || !$date->month == $currentMonth->month) bg-light bg-opacity-25 @endif" style="min-height: 160px;">
+            @php
+                // Увеличиваем счетчик для КАЖДОГО дня (даже пустых)
+                $dayCounter++;
+                
+                // Четные дни - один цвет, нечетные - другой
+                if ($dayCounter % 2 == 0) {
+                    $cellBgClass = 'bg-light bg-opacity-25'; // Для четных дней
+                } else {
+                    $cellBgClass = 'bg-white'; // Для нечетных дней
+                }
+                
+
+            @endphp
+            
+            <div class="col border-end p-2 position-relative d-flex flex-column {{ $cellBgClass }}" style="min-height: 160px;">
                 
                 @if($date)
                 <!-- Заголовок дня -->
                 <div class="d-flex justify-content-between align-items-center mb-1">
-                    <div class="fw-bold {{ $date->isToday() ? 'text-primary' : '' }} fs-6">
+                    <div class="{{ $date->month == $currentMonth->month ? 'fw-bold' : 'text-muted' }} {{ $date->isToday() ? 'text-primary' : '' }} fs-6">
                         {{ $date->day }}
                         @if($date->isToday())
                         <span class="badge bg-primary ms-1">Сегодня</span>
@@ -154,7 +171,8 @@
                                     data-employees="{{ $shift->employees->pluck('name')->implode(', ') }}"
                                     data-employees-count="{{ $shift->employees->count() }}"
                                     data-opened-at="{{ $shift->opened_at ? $shift->opened_at->format('d.m.Y H:i') : '' }}"
-                                    data-closed-at="{{ $shift->closed_at ? $shift->closed_at->format('d.m.Y H:i') : '' }}">
+                                    data-closed-at="{{ $shift->closed_at ? $shift->closed_at->format('d.m.Y H:i') : '' }}"
+                                    data-notes="{{ $shift->notes }}">
                                 <i class="bi bi-gear me-1"></i> Управление
                             </button>
                         </div>
@@ -165,6 +183,7 @@
                     <div class="no-shift text-center py-4 d-flex flex-column justify-content-center flex-grow-1">
                         <i class="bi bi-calendar-x text-muted fs-1"></i>
                         <p class="small text-muted mb-3 mt-2">Смены нет</p>
+                        @if($date->month == $currentMonth->month)
                         <form action="{{ route('shifts.store') }}" method="POST" class="d-inline">
                             @csrf
                             <input type="hidden" name="date" value="{{ $date->format('Y-m-d') }}">
@@ -173,6 +192,7 @@
                                 <i class="bi bi-plus me-1"></i> Создать смену
                             </button>
                         </form>
+                        @endif
                     </div>
                     @endif
                 </div>
