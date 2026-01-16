@@ -23,10 +23,8 @@ class BonusCardController extends Controller
         $validated = $request->validate([
             'Name' => 'required|string|max:100',
             'RequiredSpendAmount' => 'required|integer|min:0',
-            'EarntRantTable' => 'required|integer|min:0|max:100',
-            'EarntRantTakeaway' => 'required|integer|min:0|max:100',
             'MaxSpendPercent' => 'required|integer|min:0|max:100',
-            'TableCloseDiscountPercent' => 'required|integer|min:0|max:100',
+            'BonusPercent' => 'required|integer|min:0|max:100',
         ]);
 
         BonusCard::create($validated);
@@ -35,30 +33,28 @@ class BonusCardController extends Controller
             ->with('success', 'Бонусная карта успешно создана!');
     }
 
-    public function show($id) // Изменено: принимаем ID
+    public function show($id)
     {
         $bonusCard = BonusCard::findOrFail($id);
         $bonusCard->load('clients');
         return view('bonus_cards.show', compact('bonusCard'));
     }
 
-    public function edit($id) // Изменено: принимаем ID
+    public function edit($id)
     {
         $bonusCard = BonusCard::findOrFail($id);
         return view('bonus_cards.edit', compact('bonusCard'));
     }
 
-    public function update(Request $request, $id) // Изменено: принимаем ID
+    public function update(Request $request, $id)
     {
         $bonusCard = BonusCard::findOrFail($id);
         
         $validated = $request->validate([
             'Name' => 'required|string|max:100',
             'RequiredSpendAmount' => 'required|integer|min:0',
-            'EarntRantTable' => 'required|integer|min:0|max:100',
-            'EarntRantTakeaway' => 'required|integer|min:0|max:100',
             'MaxSpendPercent' => 'required|integer|min:0|max:100',
-            'TableCloseDiscountPercent' => 'required|integer|min:0|max:100',
+            'BonusPercent' => 'required|integer|min:0|max:100',
         ]);
 
         $bonusCard->update($validated);
@@ -67,7 +63,7 @@ class BonusCardController extends Controller
             ->with('success', 'Бонусная карта успешно обновлена!');
     }
 
-    public function destroy($id) // Изменено: принимаем ID
+    public function destroy($id)
     {
         $bonusCard = BonusCard::findOrFail($id);
         

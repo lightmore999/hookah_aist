@@ -26,10 +26,8 @@ class Employee extends Authenticatable
         'social_network',
         'phone',
         'notes',
-        'hookah_percentage',
-        'hookah_rate',
-        'shift_rate',
-        'hourly_rate',
+        'shift_salary', // ставка за смену (бывший shift_rate)
+        'revenue_percentage', // процент со всей выручки
         'inn',
         'tips_link',
     ];
@@ -51,10 +49,8 @@ class Employee extends Authenticatable
      */
     protected $casts = [
         'email_verified_at' => 'datetime',
-        'hookah_percentage' => 'decimal:2',
-        'hookah_rate' => 'decimal:2',
-        'shift_rate' => 'decimal:2',
-        'hourly_rate' => 'decimal:2',
+        'shift_salary' => 'decimal:2',
+        'revenue_percentage' => 'decimal:2',
     ];
 
     /**
@@ -71,7 +67,7 @@ class Employee extends Authenticatable
     public function shifts()
     {
         return $this->belongsToMany(Shift::class, 'shift_user', 'user_id', 'shift_id')
-                    ->withPivot(['start_time', 'end_time']) // ТОЛЬКО start_time и end_time
+                    ->withPivot(['start_time', 'end_time'])
                     ->withTimestamps()
                     ->orderBy('date', 'desc');
     }

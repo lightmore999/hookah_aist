@@ -13,15 +13,11 @@ class Hookah extends Model
         'name',
         'price',
         'cost',
-        'hookah_maker_rate',
-        'administrator_rate',
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
         'cost' => 'decimal:2',
-        'hookah_maker_rate' => 'decimal:2',
-        'administrator_rate' => 'decimal:2',
     ];
 
     public function orderItems()

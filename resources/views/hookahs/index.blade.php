@@ -23,7 +23,6 @@
         </div>
     </div>
 
-
     @if($errors->any())
         <div class="alert alert-danger">
             <ul class="mb-0">
@@ -34,16 +33,12 @@
         </div>
     @endif
     
-    
     <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
             @if($hookahs->isEmpty())
                 <div class="text-center py-5">
                     <i class="bi bi-inbox display-1 text-muted"></i>
                     <p class="mt-3 text-muted">Нет кальянов. Добавьте первый!</p>
-                    <!-- <a href="{{ route('hookahs.create') }}" class="btn btn-primary mt-2">
-                        Добавить кальян
-                    </a> -->
                     <button type="button" 
                             class="btn btn-primary mt-2"
                             data-bs-toggle="modal"
@@ -59,8 +54,6 @@
                                 <th>Название</th>
                                 <th>Цена (₽)</th>
                                 <th>Себестоимость (₽)</th>
-                                <th>Ставка кальянщика</th>
-                                <th>Ставка администратора</th>
                                 <th class="text-end">Действия</th>
                             </tr>
                         </thead>
@@ -72,8 +65,6 @@
                                 </td>
                                 <td>{{ number_format($hookah->price, 2) }}</td>
                                 <td>{{ number_format($hookah->cost, 2) }}</td>
-                                <td>{{ number_format($hookah->hookah_maker_rate, 2) }}</td>
-                                <td>{{ number_format($hookah->administrator_rate, 2) }}</td>
                                 <td class="text-end">
                                     <button type="button" 
                                             class="btn btn-warning btn-sm edit-hookah-btn"
@@ -82,9 +73,7 @@
                                             data-id="{{ $hookah->id }}"
                                             data-name="{{ $hookah->name }}"
                                             data-price="{{ $hookah->price }}"
-                                            data-cost="{{ $hookah->cost }}"
-                                            data-maker-rate="{{ $hookah->hookah_maker_rate }}"
-                                            data-admin-rate="{{ $hookah->administrator_rate }}">
+                                            data-cost="{{ $hookah->cost }}">
                                         <i class="bi bi-pencil"></i>
                                     </button>
                                     <button type="button" 
@@ -106,13 +95,8 @@
     </div>
 </div>
 
-
 <script>
-
 document.addEventListener('DOMContentLoaded', function() {
-
-
- 
     const editHookahModal = document.getElementById('editHookahModal');
     if (editHookahModal) {
         editHookahModal.addEventListener('show.bs.modal', function(event) {
@@ -121,14 +105,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('edit_name').value = button.dataset.name;
                 document.getElementById('edit_price').value = button.dataset.price;
                 document.getElementById('edit_cost').value = button.dataset.cost;
-                document.getElementById('edit_hookah_maker_rate').value = button.dataset.makerRate;
-                document.getElementById('edit_administrator_rate').value = button.dataset.adminRate;
                 document.getElementById('editHookahForm').action = `/hookahs/${button.dataset.id}`;
             }
         });
     }
 
-   const deleteHookahModal = document.getElementById('deleteHookahModal');
+    const deleteHookahModal = document.getElementById('deleteHookahModal');
     if (deleteHookahModal) {
         deleteHookahModal.addEventListener('show.bs.modal', function(event) {
             const button = event.relatedTarget;
@@ -138,9 +120,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
-    
 });
-
 </script>
 
 @include('hookahs.modals.create')

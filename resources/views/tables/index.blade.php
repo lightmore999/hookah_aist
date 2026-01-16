@@ -41,6 +41,12 @@
         </div>
         
         <div>
+            <form action="{{ route('sales.store') }}" method="POST" class="d-inline">
+                @csrf
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-plus-circle me-1"></i> Создать продажу
+                </button>
+            </form>
             <button type="button" 
                     class="btn btn-primary"
                     data-bs-toggle="modal"
@@ -545,6 +551,76 @@
 <script src="{{ asset('js/tables/modules/hookah-manager.js') }}"></script>
 
 <script>
+
+window.tableProducts = window.tableProducts || {
+    currentTableId: null,
+    currentSaleId: null,
+    currentWarehouseId: {{ \App\Models\Warehouse::first()->id ?? 1 }}
+};
+
+// Обновленный обработчик модального окна товаров:
+const saleProductsModal = document.getElementById('saleProductsModal');
+if (saleProductsModal) {
+    saleProductsModal.addEventListener('show.bs.modal', function(event) {
+        const button = event.relatedTarget;
+        if (button) {
+            const tableId = button.getAttribute('data-table-id');
+            const saleId = button.getAttribute('data-sale-id');
+            const tableNumber = button.getAttribute('data-table-number');
+            const guestName = button.getAttribute('data-guest-name');
+            
+            // ✅ ИСПРАВЛЕНО: Используем window.tableProducts
+            window.tableProducts.currentTableId = tableId;
+            window.tableProducts.currentSaleId = saleId;
+            
+            // Обновляем информацию в заголовке
+            const infoElement = document.getElementById('currentTableInfo');
+            if (infoElement) {
+                infoElement.innerHTML = `<strong>Стол ${tableNumber}</strong> - ${guestName}`;
+            }
+            
+            // Загружаем товары для этого стола
+            if (window.TableProductManager && window.TableProductManager.loadTableProducts) {
+                window.TableProductManager.loadTableProducts(tableId);
+            }
+            
+            // Сбрасываем фильтры
+            const categoryFilter = document.getElementById('categoryFilterProducts');
+            const searchInput = document.getElementById('searchTableProduct');
+            if (categoryFilter) categoryFilter.value = 'all';
+            if (searchInput) searchInput.value = '';
+            
+            // Фильтруем товары
+            setTimeout(() => {
+                if (window.TableProductManager && window.TableProductManager.filterTableProducts) {
+                    window.TableProductManager.filterTableProducts();
+                }
+            }, 100);
+        }
+    });
+    
+    saleProductsModal.addEventListener('hidden.bs.modal', function() {
+        // Сбрасываем состояние
+        if (window.tableProducts) {
+            window.tableProducts.currentTableId = null;
+            window.tableProducts.currentSaleId = null;
+        }
+        
+        // Сбрасываем форму
+        const productSelect = document.getElementById('productSelect');
+        const productQuantity = document.getElementById('productQuantity');
+        const productPrice = document.getElementById('productPrice');
+        
+        if (productSelect) productSelect.selectedIndex = 0;
+        if (productQuantity) productQuantity.value = '1';
+        if (productPrice) productPrice.value = '';
+        
+        // Скрываем предупреждения
+        const availabilityInfo = document.getElementById('productAvailabilityInfo');
+        if (availabilityInfo) availabilityInfo.style.display = 'none';
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
 
     // =============== ИНИЦИАЛИЗАЦИЯ  ===============
@@ -1011,6 +1087,20 @@ document.addEventListener('DOMContentLoaded', function() {
    // =============== МОДАЛКА ЗАКРЫТИЯ СТОЛА ===============
 
     const closeSaleModal = document.getElementById('closeSaleModal');
+    if (closeSaleModal) {
+        closeSaleModal.addEventListener('show.bs.modal', function() {
+            // Через 200мс после открытия модалки рассчитываем бонусы
+            setTimeout(calculateBonusAward, 200);
+        });
+        
+        // При изменении скидки или бонусов тоже пересчитываем
+        closeSaleModal.addEventListener('input', function(e) {
+            if (e.target.id === 'closeDiscount' || e.target.id === 'bonusPointsToUse') {
+                // Через небольшой таймаут, чтобы другие расчеты успели завершиться
+                setTimeout(calculateBonusAward, 100);
+            }
+        });
+    }
 
     if (closeSaleModal) {
         closeSaleModal.addEventListener('show.bs.modal', function(event) {
@@ -1242,7 +1332,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Обновляем информацию о клиенте и бонусах
         updateViewClientBonusInfo(data);
         
-        // Товары
+        // Товары (остается без изменений)
         const productsBody = document.getElementById('viewOrderProductsBody');
         if (productsBody) {
             productsBody.innerHTML = '';
@@ -1269,7 +1359,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
-        // Кальяны
+        // Кальяны (остается без изменений)
         const hookahsBody = document.getElementById('viewOrderHookahsBody');
         if (hookahsBody) {
             hookahsBody.innerHTML = '';
@@ -1323,18 +1413,23 @@ document.addEventListener('DOMContentLoaded', function() {
             bonusDiscountContainer.style.display = 'none';
         }
         
-        // Начисленные бонусы (рассчитываем - обычно 5% от финальной суммы)
+        // === ВАЖНОЕ ИЗМЕНЕНИЕ: Начисленные бонусы ===
         const bonusEarnedContainer = document.getElementById('viewBonusEarnedContainer');
         const bonusEarnedElement = document.getElementById('viewBonusEarned');
+        
         if (bonusEarnedContainer && bonusEarnedElement) {
-            // Рассчитываем начисленные бонусы (5% от финальной суммы)
-            const finalTotal = parseFloat(data.finalTotal || 0);
-            const bonusEarned = Math.floor(finalTotal * 0.05);
-            if (bonusEarned > 0 && data.clientId) {
-                bonusEarnedElement.textContent = bonusEarned + ' бонусов';
+            // Используем данные, которые пришли с сервера
+            if (data.bonusEarned > 0 && data.hasBonusCard) {
+                // === ИСПРАВЛЕНИЕ: Создаем HTML один раз ===
+                bonusEarnedContainer.innerHTML = `
+                    <small class="text-muted">Начислено бонусов:</small>
+                    <div class="fw-bold text-success">${data.bonusEarned} бонусов</div>
+                    <div class="small text-muted mt-1">(${data.clientBonusPercent || 5}% от суммы)</div>
+                `;
                 bonusEarnedContainer.style.display = 'block';
             } else {
                 bonusEarnedContainer.style.display = 'none';
+                bonusEarnedContainer.innerHTML = ''; // Очищаем содержимое
             }
         }
         
@@ -1396,7 +1491,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         if (maxSpendPercentElem) {
-            maxSpendPercentElem.textContent = data.clientMaxSpendPercent || '50';
+            // Показываем процент и название карты если есть
+            let percentText = data.clientMaxSpendPercent || '50';
+            if (data.clientBonusCardName) {
+                percentText += `% (${data.clientBonusCardName})`;
+            } else if (data.hasBonusCard) {
+                percentText += '%';
+            }
+            maxSpendPercentElem.textContent = percentText;
         }
     }
 
@@ -1459,76 +1561,106 @@ document.addEventListener('DOMContentLoaded', function() {
         
         console.log('✅ Обновляем информацию о клиенте:', data.clientName, 'бонусы:', data.clientBonusPoints);
         
+        // Сохраняем данные для расчета бонусов
+        window.currentClientRequiredSpend = data.clientRequiredSpend || 0;
+        window.currentClientBonusPercent = data.clientBonusPercent || 0;
+        window.currentClientBonusCardName = data.clientBonusCardName || null;
+        window.currentClientHasBonusCard = data.hasBonusCard || false;
+        
         // Показываем информацию о клиенте
         clientBonusInfo.style.display = 'block';
         clientNameElem.textContent = data.clientName || 'Клиент';
         clientBonusPointsElem.textContent = data.clientBonusPoints.toLocaleString();
-        clientMaxSpendPercent = data.clientMaxSpendPercent || 50;
-        maxSpendPercentText.textContent = clientMaxSpendPercent;
         
-        // Рассчитываем максимальное количество бонусов
-        const totalAmount = parseFloat(data.subtotal) || 0;
-        const discountInput = document.getElementById('closeDiscount');
-        const discount = parseFloat(discountInput ? discountInput.value : 0) || 0;
-        
-        console.log('📊 Данные для расчета бонусов:', {
-            totalAmount,
-            discount,
-            clientMaxSpendPercent
-        });
-        
-        // Максимум бонусов = X% от (сумма товаров - скидка)
-        const percentage = clientMaxSpendPercent / 100;
-        maxUsableBonuses = Math.floor((totalAmount - discount) * percentage);
-        
-        // Нельзя использовать больше, чем есть у клиента
-        maxUsableBonuses = Math.min(data.clientBonusPoints, maxUsableBonuses);
-        maxUsableBonuses = Math.max(0, maxUsableBonuses);
-        
-        console.log('📊 Максимально можно использовать бонусов:', maxUsableBonuses);
-        
-        maxUsableBonusesElem.textContent = maxUsableBonuses.toLocaleString() + ' бонусов';
-        
-        // Показываем секцию бонусов
-        bonusSection.style.display = 'block';
-        
-        // Если уже были использованы бонусы
-        if (data.usedBonusPoints > 0) {
-            console.log('✅ Уже использованы бонусы:', data.usedBonusPoints);
-            useBonusesCheckbox.checked = true;
-            bonusPointsToUseInput.value = data.usedBonusPoints;
-            currentBonusDiscount = data.usedBonusPoints;
-            bonusPointsToUseInput.disabled = false;
-            bonusInputRow.style.display = 'flex';
-            bonusDiscountRow.style.display = 'flex';
-            closeBonusDiscountDisplay.textContent = formatPrice(data.usedBonusPoints);
+        if (data.hasBonusCard) {
+            // У клиента есть карта
+            const cardInfo = data.clientBonusCardName ? ` (${data.clientBonusCardName})` : '';
+            maxSpendPercentText.textContent = `${data.clientMaxSpendPercent}%${cardInfo}`;
+            
+            // Рассчитываем максимальное количество бонусов
+            const totalAmount = parseFloat(data.subtotal) || 0;
+            const discountInput = document.getElementById('closeDiscount');
+            const discount = parseFloat(discountInput ? discountInput.value : 0) || 0;
+            
+            console.log('📊 Данные для расчета бонусов:', {
+                totalAmount,
+                discount,
+                clientMaxSpendPercent: data.clientMaxSpendPercent
+            });
+            
+            // Максимум бонусов = X% от (сумма товаров - скидка)
+            const percentage = (data.clientMaxSpendPercent || 50) / 100;
+            maxUsableBonuses = Math.floor((totalAmount - discount) * percentage);
+            
+            // Нельзя использовать больше, чем есть у клиента
+            maxUsableBonuses = Math.min(data.clientBonusPoints, maxUsableBonuses);
+            maxUsableBonuses = Math.max(0, maxUsableBonuses);
+            
+            console.log('📊 Максимально можно использовать бонусов:', maxUsableBonuses);
+            
+            maxUsableBonusesElem.textContent = maxUsableBonuses.toLocaleString() + ' бонусов';
+            
+            // Показываем секцию бонусов
+            bonusSection.style.display = 'block';
+            
+            // Если уже были использованы бонусы
+            if (data.usedBonusPoints > 0) {
+                console.log('✅ Уже использованы бонусы:', data.usedBonusPoints);
+                useBonusesCheckbox.checked = true;
+                bonusPointsToUseInput.value = data.usedBonusPoints;
+                currentBonusDiscount = data.usedBonusPoints;
+                bonusPointsToUseInput.disabled = false;
+                bonusInputRow.style.display = 'flex';
+                bonusDiscountRow.style.display = 'flex';
+                closeBonusDiscountDisplay.textContent = formatPrice(data.usedBonusPoints);
+            } else {
+                // Сбрасываем состояние бонусов
+                console.log('📊 Бонусы не использовались ранее');
+                useBonusesCheckbox.checked = false;
+                bonusPointsToUseInput.value = 0;
+                bonusPointsToUseInput.disabled = true;
+                bonusInputRow.style.display = 'none';
+                currentBonusDiscount = 0;
+                bonusDiscountRow.style.display = 'none';
+            }
+            
+            // Предупреждение если можно использовать бонусы
+            bonusWarning.style.display = 'block';
+            
+            if (maxUsableBonuses > 0) {
+                bonusWarningText.innerHTML = `
+                    <div>Клиент может использовать до <strong>${maxUsableBonuses.toLocaleString()}</strong> бонусов</div>
+                    <div class="small mt-1">Лимит из бонусной карты: <strong>${data.clientMaxSpendPercent || 50}%</strong> от суммы заказа</div>
+                `;
+            } else if (data.clientBonusPoints > 0) {
+                bonusWarningText.innerHTML = `
+                    <div>У клиента недостаточно бонусов для использования</div>
+                    <div class="small mt-1">Лимит из бонусной карты: <strong>${data.clientMaxSpendPercent || 50}%</strong> от суммы заказа</div>
+                `;
+            } else {
+                bonusWarningText.textContent = 'У клиента нет бонусов';
+            }
         } else {
-            // Сбрасываем состояние бонусов
-            console.log('📊 Бонусы не использовались ранее');
+             // У клиента нет карты
+            maxSpendPercentText.textContent = 'Нет карты';
+            maxUsableBonusesElem.textContent = '0 бонусов';
+            
+            // Скрываем секцию использования бонусов
+            bonusSection.style.display = 'none';
             useBonusesCheckbox.checked = false;
-            bonusPointsToUseInput.value = 0;
             bonusPointsToUseInput.disabled = true;
             bonusInputRow.style.display = 'none';
             currentBonusDiscount = 0;
             bonusDiscountRow.style.display = 'none';
+            
+            // Упрощаем сообщение - убираем прогресс к карте
+            bonusWarning.style.display = 'block';
+            bonusWarningText.innerHTML = `
+                <div><i class="bi bi-info-circle text-warning me-1"></i> У клиента нет бонусной карты</div>
+            `;
         }
         
-        // Предупреждение если можно использовать бонусы
-        bonusWarning.style.display = 'block';
-        
-        if (maxUsableBonuses > 0) {
-            bonusWarningText.innerHTML = `
-                <div>Клиент может использовать до <strong>${maxUsableBonuses.toLocaleString()}</strong> бонусов</div>
-                <div class="small mt-1">Лимит из бонусной карты: <strong>${clientMaxSpendPercent}%</strong> от суммы заказа</div>
-            `;
-        } else if (data.clientBonusPoints > 0) {
-            bonusWarningText.innerHTML = `
-                <div>У клиента недостаточно бонусов для использования</div>
-                <div class="small mt-1">Лимит из бонусной карты: <strong>${clientMaxSpendPercent}%</strong> от суммы заказа</div>
-            `;
-        } else {
-            bonusWarningText.textContent = 'У клиента нет бонусов';
-        }
+        setTimeout(calculateBonusAward, 100);
         
         // Инициализируем обработчики для бонусов
         initBonusHandlers();
@@ -1700,7 +1832,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Обновляем расчет доступных бонусов
+        setTimeout(calculateBonusAward, 50);
         updateBonusCalculation();
+        if (document.getElementById('closePaymentMethod').value === 'cash') {
+            setTimeout(() => {
+                updateCalculatorTotal();
+                calculateChange();
+            }, 50);
+        }
     }
 
     // =============== ФУНКЦИЯ ОБНОВЛЕНИЯ РАСЧЕТА БОНУСОВ ===============
@@ -1949,58 +2088,44 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateCloseModalData(data) {
         console.log('📊 updateCloseModalData вызвана с данными:', data);
         
-        // Обновляем промежуточную сумму
-        let subtotal = 0;
-        
-        // Проверяем формат данных
-        if (typeof data.subtotal === 'string') {
-            // Старый формат: строка с "₽"
-            subtotal = parseFloat(data.subtotal.replace(' ₽', '').replace(/\s/g, '')) || 0;
-        } else if (typeof data.subtotal === 'number') {
-            // Новый формат: число
-            subtotal = data.subtotal;
-        } else {
-            // Если непонятный формат
-            subtotal = 0;
-            console.warn('Unexpected subtotal format:', data.subtotal);
-        }
-        
-        console.log('📊 Промежуточная сумма:', subtotal);
-        
-        // Устанавливаем текущую промежуточную сумму
-        setCurrentSubtotal(subtotal);
-        
-        // Обновляем суммы в формате для отображения
-        document.getElementById('closeItemsTotal').textContent = formatPrice(data.productsTotal || 0);
-        document.getElementById('closeHookahsTotal').textContent = formatPrice(data.hookahsTotal || 0);
-        document.getElementById('closeSubtotal').textContent = formatPrice(subtotal);
-        
-        // Устанавливаем скидку (если она есть в данных)
-        if (closeDiscountInput) {
-            closeDiscountInput.value = data.discount || 0;
-        }
-        
+        // === ВАЖНО: ДОБАВЬТЕ ЭТУ СТРОКУ ===
         // Обновляем информацию о клиенте и бонусах
         updateClientBonusInfo(data);
         
+        // Обновляем суммы
+        document.getElementById('closeItemsTotal').textContent = formatPrice(data.productsTotal);
+        document.getElementById('closeHookahsTotal').textContent = formatPrice(data.hookahsTotal);
+        document.getElementById('closeSubtotal').textContent = formatPrice(data.subtotal);
+        document.getElementById('closeFinalTotal').textContent = formatPrice(data.finalTotal);
+        
+        // Устанавливаем скидку и отображаем ее
+        const discountInput = document.getElementById('closeDiscount');
+        const discountDisplay = document.getElementById('closeDiscountDisplay');
+        
+        if (discountInput) {
+            discountInput.value = data.discount || 0;
+        }
+
+        if (discountDisplay) {
+            discountDisplay.textContent = formatPrice(data.discount || 0);
+        }
+        setTimeout(() => {
+            calculateCloseTotal();
+        }, 100);
+
         // Заполняем списки товаров и кальянов
         fillProductsList(data.products || []);
         fillHookahsList(data.hookahs || []);
-        
-        // Пересчитываем итоговую сумму
-        setTimeout(() => {
-            recalculateDiscount();
-            calculateCloseTotal();
-        }, 100);
+        if (document.getElementById('cashCalculator').style.display !== 'none') {
+            updateCalculatorTotal();
+            calculateChange();
+        }
     }
 
 
     // =============== ОБНОВЛЕНИЕ ФУНКЦИИ updateBonusCalculation ===============
 
     function updateBonusCalculation() {
-        // Проверяем, есть ли элементы
-        if (!clientBonusPointsElem || !maxUsableBonusesElem || !closeDiscountInput) return;
-        
         // Проверяем, есть ли данные клиента
         const clientBonusPoints = parseInt(clientBonusPointsElem.textContent.replace(/\D/g, '')) || 0;
         if (clientBonusPoints === 0) return;
@@ -2021,11 +2146,37 @@ document.addEventListener('DOMContentLoaded', function() {
             discountForBonusCalc = parseFloat(closeDiscountInput.value) || 0;
         }
         
-        // Пересчитываем максимальные бонусы
-        const percentage = clientMaxSpendPercent / 100;
-        maxUsableBonuses = Math.floor((subtotal - discountForBonusCalc) * percentage);
-        maxUsableBonuses = Math.min(clientBonusPoints, maxUsableBonuses);
+        // === ИСПРАВЛЕНИЕ: Используем правильный процент из карты ===
+        // Получаем процент из элемента или из window переменной
+        const maxPercentElement = document.getElementById('maxSpendPercentText');
+        let actualPercent = clientMaxSpendPercent; // По умолчанию 50
+        
+        if (maxPercentElement) {
+            // Извлекаем число из текста "30% (Платиновая)"
+            const text = maxPercentElement.textContent;
+            const percentMatch = text.match(/(\d+)%/);
+            if (percentMatch) {
+                actualPercent = parseInt(percentMatch[1]);
+            }
+        }
+        
+        console.log('📊 Используем процент:', actualPercent, '% вместо', clientMaxSpendPercent, '%');
+        
+        // Пересчитываем максимальные бонусы с правильным процентом
+        const maxByPercent = Math.floor((subtotal - discountForBonusCalc) * (actualPercent / 100));
+        
+        // Берем МЕНЬШЕЕ из двух значений
+        maxUsableBonuses = Math.min(maxByPercent, clientBonusPoints);
         maxUsableBonuses = Math.max(0, maxUsableBonuses);
+        
+        console.log('📊 Пересчет бонусов:', {
+            subtotal,
+            discountForBonusCalc,
+            actualPercent,
+            maxByPercent,
+            clientBonusPoints,
+            finalMax: maxUsableBonuses
+        });
         
         if (maxUsableBonusesElem) {
             maxUsableBonusesElem.textContent = maxUsableBonuses.toLocaleString() + ' бонусов';
@@ -2141,6 +2292,70 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // =============== ФУНКЦИЯ РАСЧЕТА НАЧИСЛЯЕМЫХ БОНУСОВ ===============
+
+    function calculateBonusAward() {
+        const bonusAwardInfo = document.getElementById('bonusAwardInfo');
+        const bonusAwardAmount = document.getElementById('bonusAwardAmount');
+        const bonusAwardPercent = document.getElementById('bonusAwardPercent');
+        const bonusAwardDetails = document.getElementById('bonusAwardDetails');
+        
+        if (!bonusAwardInfo || !clientBonusInfo) return;
+        
+        // Если нет информации о клиенте, скрываем блок
+        if (clientBonusInfo.style.display === 'none') {
+            bonusAwardInfo.style.display = 'none';
+            return;
+        }
+        
+        // Получаем данные клиента
+        const hasBonusCard = window.currentClientHasBonusCard || false;
+        const bonusPercent = window.currentClientBonusPercent || 0;
+        
+        // Получаем финальную сумму для расчета
+        const finalTotalElement = document.getElementById('closeFinalTotal');
+        const finalTotalText = finalTotalElement.textContent;
+        const finalTotal = parseFloat(finalTotalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
+        
+        if (hasBonusCard && bonusPercent > 0) {
+            // Если у клиента ЕСТЬ карта, рассчитываем бонусы
+            const awardAmount = Math.floor(finalTotal * (bonusPercent / 100));
+            
+            // Показываем блок
+            bonusAwardInfo.style.display = 'block';
+            bonusAwardAmount.textContent = awardAmount;
+            bonusAwardPercent.textContent = `${bonusPercent}% от суммы`;
+            
+            // === ИСПРАВЛЕНИЕ: Полностью перезаписываем содержимое ===
+            bonusAwardDetails.innerHTML = `
+                <div class="row small mt-2">
+                    <div class="col-6">Процент бонусов:</div>
+                    <div class="col-6 text-end">${bonusPercent}%</div>
+                </div>
+                <div class="row small">
+                    <div class="col-6">Сумма чека:</div>
+                    <div class="col-6 text-end">${formatPrice(finalTotal)}</div>
+                </div>
+                <div class="row small fw-bold mt-1">
+                    <div class="col-6">Будет начислено:</div>
+                    <div class="col-6 text-end text-success">${awardAmount} бонусов</div>
+                </div>
+                <div class="small text-success mt-1">
+                    <i class="bi bi-check-circle"></i> Бонусы будут начислены автоматически
+                </div>
+            `;
+            
+            console.log('✅ Начисляемые бонусы:', awardAmount);
+        } else {
+            // У клиента нет карты - скрываем блок
+            bonusAwardInfo.style.display = 'none';
+            // Очищаем содержимое чтобы не накапливалось
+            if (bonusAwardDetails) {
+                bonusAwardDetails.innerHTML = '';
+            }
+        }
+    }
+
     // =============== ФУНКЦИЯ ПРЕДВАРИТЕЛЬНОЙ ПРОВЕРКИ ФОРМЫ ===============
 
     function validateCloseForm() {
@@ -2179,11 +2394,159 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('CoalTimerSystem NOT FOUND! Check file path.');
     }
 
+    // =============== ПРОСТОЙ КАЛЬКУЛЯТОР СДАЧИ ===============
+
+    // Инициализация калькулятора при загрузке
+    function initCashCalculator() {
+        console.log('🔄 Инициализация калькулятора сдачи');
+        
+        const paymentSelect = document.getElementById('closePaymentMethod');
+        const cashCalculator = document.getElementById('cashCalculator');
+        const cashReceivedInput = document.getElementById('cashReceived');
+        const calcTotalElement = document.getElementById('calcTotalAmount');
+        const calcResult = document.getElementById('calcResult');
+        const changeAmount = document.getElementById('changeAmount');
+        const insufficientCash = document.getElementById('insufficientCash');
+        const missingAmount = document.getElementById('missingAmount');
+        
+        if (!paymentSelect || !cashCalculator) {
+            console.log('⚠️ Калькулятор сдачи не найден на странице');
+            return;
+        }
+        
+        // Функция для получения текущей итоговой суммы
+        function getCurrentTotal() {
+            try {
+                const finalTotalElement = document.getElementById('closeFinalTotal');
+                if (!finalTotalElement) return 0;
+                
+                const totalText = finalTotalElement.textContent || '0.00 ₽';
+                const number = parseFloat(totalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
+                return number;
+            } catch (err) {
+                console.log('❌ Ошибка получения суммы:', err);
+                return 0;
+            }
+        }
+        
+        // Функция обновления суммы в калькуляторе
+        function updateCalculatorTotal() {
+            if (!calcTotalElement) return;
+            
+            const total = getCurrentTotal();
+            calcTotalElement.textContent = total.toFixed(2) + ' ₽';
+            
+            // Если способ оплаты "наличные", обновляем расчет
+            if (paymentSelect.value === 'cash') {
+                calculateChange();
+            }
+        }
+        
+        // Функция расчета сдачи
+        function calculateChange() {
+            if (!cashReceivedInput || !calcResult || !insufficientCash) return;
+            
+            const total = getCurrentTotal();
+            const received = parseFloat(cashReceivedInput.value) || 0;
+            
+            // Очищаем предыдущие результаты
+            calcResult.style.display = 'none';
+            insufficientCash.style.display = 'none';
+            
+            if (received === 0) return;
+            
+            if (received >= total) {
+                // Хватает денег
+                const change = received - total;
+                changeAmount.textContent = change.toFixed(2) + ' ₽';
+                calcResult.style.display = 'block';
+            } else {
+                // Не хватает денег
+                const missing = total - received;
+                missingAmount.textContent = missing.toFixed(2) + ' ₽';
+                insufficientCash.style.display = 'block';
+            }
+        }
+        
+        // 1. Обработчик изменения способа оплаты
+        paymentSelect.addEventListener('change', function() {
+            const isCash = this.value === 'cash';
+            
+            if (cashCalculator) {
+                cashCalculator.style.display = isCash ? 'block' : 'none';
+            }
+            
+            if (calcResult) calcResult.style.display = 'none';
+            if (insufficientCash) insufficientCash.style.display = 'none';
+            
+            if (isCash) {
+                // Автоматически заполняем поле суммой к оплате
+                const total = getCurrentTotal();
+                if (cashReceivedInput) {
+                    cashReceivedInput.value = Math.ceil(total); // Округляем вверх для удобства
+                }
+                
+                // Обновляем отображение и рассчитываем сдачу
+                updateCalculatorTotal();
+                setTimeout(calculateChange, 100);
+            }
+        });
+        
+        // 2. Обработчик ввода суммы в поле "Получено"
+        if (cashReceivedInput) {
+            cashReceivedInput.addEventListener('input', calculateChange);
+            cashReceivedInput.addEventListener('change', calculateChange);
+            
+            // Кнопки быстрого ввода (опционально, но удобно)
+            cashReceivedInput.addEventListener('focus', function() {
+                // При фокусе выделяем всё содержимое для удобного редактирования
+                this.select();
+            });
+        }
+        
+        // 3. Вызываем обновление при любом изменении итоговой суммы
+        // Используем MutationObserver для отслеживания изменений
+        const totalObserver = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (paymentSelect.value === 'cash') {
+                    updateCalculatorTotal();
+                    calculateChange();
+                }
+            });
+        });
+        
+        const finalTotalElement = document.getElementById('closeFinalTotal');
+        if (finalTotalElement) {
+            totalObserver.observe(finalTotalElement, {
+                characterData: true,
+                childList: true,
+                subtree: true
+            });
+        }
+        
+        // 4. Инициализация при открытии модалки
+        const closeSaleModal = document.getElementById('closeSaleModal');
+        if (closeSaleModal) {
+            closeSaleModal.addEventListener('shown.bs.modal', function() {
+                // Через небольшой таймаут, чтобы данные успели загрузиться
+                setTimeout(function() {
+                    if (paymentSelect.value === 'cash') {
+                        updateCalculatorTotal();
+                        calculateChange();
+                    }
+                }, 300);
+            });
+        }
+        
+        console.log('✅ Калькулятор сдачи инициализирован');
+    }
+
+
     // =============== ИНИЦИАЛИЗАЦИЯ ВСЕГО ===============
 
     // Инициализация скидки
     initDiscountLogic();
-
+    setTimeout(initCashCalculator, 500);
     // Инициализация обработчиков бонусов
     document.addEventListener('DOMContentLoaded', function() {
         // Инициализация обработчиков для чекбокса бонусов
@@ -2205,8 +2568,69 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    const saleProductsModal = document.getElementById('saleProductsModal');
+    if (saleProductsModal) {
+        saleProductsModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            if (button) {
+                const tableId = button.getAttribute('data-table-id');
+                const saleId = button.getAttribute('data-sale-id');
+                const tableNumber = button.getAttribute('data-table-number');
+                const guestName = button.getAttribute('data-guest-name');
+                
+                // Сохраняем ID стола и продажи
+                window.tableProducts.currentTableId = tableId;
+                window.tableProducts.currentSaleId = saleId;
+                
+                // Обновляем информацию в заголовке
+                const infoElement = document.getElementById('currentTableInfo');
+                if (infoElement) {
+                    infoElement.innerHTML = `<strong>Стол ${tableNumber}</strong> - ${guestName}`;
+                }
+                
+                // Загружаем товары для этого стола
+                if (typeof window.TableProductManager !== 'undefined') {
+                    window.TableProductManager.loadTableProducts(tableId);
+                }
+                
+                // Сбрасываем фильтры
+                const categoryFilter = document.getElementById('categoryFilterProducts');
+                const searchInput = document.getElementById('searchTableProduct');
+                if (categoryFilter) categoryFilter.value = 'all';
+                if (searchInput) searchInput.value = '';
+                
+                // Фильтруем товары
+                setTimeout(() => {
+                    if (typeof window.TableProductManager !== 'undefined') {
+                        window.TableProductManager.filterTableProducts();
+                    }
+                }, 100);
+            }
+        });
+        
+        saleProductsModal.addEventListener('hidden.bs.modal', function() {
+            // Сбрасываем состояние
+            window.tableProducts.currentTableId = null;
+            window.tableProducts.currentSaleId = null;
+            
+            // Сбрасываем форму
+            const productSelect = document.getElementById('productSelect');
+            const productQuantity = document.getElementById('productQuantity');
+            const productPrice = document.getElementById('productPrice');
+            
+            if (productSelect) productSelect.selectedIndex = 0;
+            if (productQuantity) productQuantity.value = '1';
+            if (productPrice) productPrice.value = '';
+            
+            // Скрываем предупреждения
+            const availabilityInfo = document.getElementById('productAvailabilityInfo');
+            if (availabilityInfo) availabilityInfo.style.display = 'none';
+        });
+    }
+
     console.log('Table Manager initialized successfully');
 
 });
+
 </script>
 @endsection

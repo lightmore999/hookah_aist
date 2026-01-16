@@ -1,5 +1,5 @@
 <div class="modal fade" id="closeSaleModal" tabindex="-1" aria-labelledby="closeSaleModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title" id="closeSaleModalLabel">
@@ -12,160 +12,215 @@
                 @csrf
                 
                 <div class="modal-body">
-                    <!-- Информация о клиенте и бонусах -->
-                    <div class="alert alert-info mb-3" id="clientBonusInfo" style="display: none;">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <i class="bi bi-person-circle me-2"></i>
-                                <strong id="clientName"></strong>
-                                <div class="small mt-1">Доступно бонусов: <span id="clientBonusPoints" class="badge bg-primary"></span></div>
+                    <div class="row">
+                        <!-- Левая колонка - Информация и суммы -->
+                        <div class="col-md-6">
+                            <!-- Информация о клиенте и бонусах -->
+                            <div class="alert alert-info mb-3" id="clientBonusInfo" style="display: none;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <i class="bi bi-person-circle me-2"></i>
+                                        <strong id="clientName"></strong>
+                                        <div class="small mt-1">Доступно бонусов: <span id="clientBonusPoints" class="badge bg-primary"></span></div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="small text-muted">Можно использовать:</div>
+                                        <div><strong id="maxUsableBonuses" class="text-success"></strong> бонусов</div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="text-end">
-                                <div class="small text-muted">Можно использовать:</div>
-                                <div><strong id="maxUsableBonuses" class="text-success"></strong> бонусов</div>
+                            
+                            <!-- Детализация сумм -->
+                            <div class="card mb-3 border-0 shadow-sm">
+                                <div class="card-header bg-light py-2">
+                                    <h6 class="mb-0"><i class="bi bi-cash-stack me-1"></i>Расчет</h6>
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="row mb-2">
+                                        <div class="col-7 small">Товары:</div>
+                                        <div class="col-5 text-end small" id="closeItemsTotal">0.00 ₽</div>
+                                    </div>
+                                    <div class="row mb-2" id="hookahRow" style="display: none;">
+                                        <div class="col-7 small">Кальяны:</div>
+                                        <div class="col-5 text-end small" id="closeHookahsTotal">0.00 ₽</div>
+                                    </div>
+                                    <div class="row mb-2">
+                                        <div class="col-7"><small>Промежуточный итог:</small></div>
+                                        <div class="col-5 text-end" id="closeSubtotal"><small>0.00 ₽</small></div>
+                                    </div>
+                                    <div class="row mb-2" id="regularDiscountRow" style="display: none;">
+                                        <div class="col-7 small text-success">Скидка:</div>
+                                        <div class="col-5 text-end small text-success" id="closeRegularDiscount">-0.00 ₽</div>
+                                    </div>
+                                    <div class="row mb-2" id="bonusDiscountRow" style="display: none;">
+                                        <div class="col-7 small text-danger">Скидка бонусами:</div>
+                                        <div class="col-5 text-end small text-danger" id="closeBonusDiscount">-0.00 ₽</div>
+                                    </div>
+                                    <hr class="my-2">
+                                    <div class="row mt-2">
+                                        <div class="col-7"><strong>Итого к оплате:</strong></div>
+                                        <div class="col-5 text-end">
+                                            <strong id="closeFinalTotal" class="h5 text-primary mb-0">0.00 ₽</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Калькулятор сдачи -->
+                            <div class="card mb-3 border-info shadow-sm" id="cashCalculator" style="display: none;">
+                                <div class="card-header bg-info bg-opacity-10 border-info py-2">
+                                    <h6 class="mb-0"><i class="bi bi-calculator me-1"></i>Калькулятор сдачи</h6>
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="mb-2">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span class="small">К оплате:</span>
+                                            <strong id="calcTotalAmount" class="text-info">0.00 ₽</strong>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="cashReceived" class="form-label small mb-1">
+                                                <i class="bi bi-cash-stack me-1"></i>Получено от клиента:
+                                            </label>
+                                            <div class="input-group input-group-sm">
+                                                <input type="number" 
+                                                       min="0" 
+                                                       step="0.01"
+                                                       class="form-control" 
+                                                       id="cashReceived" 
+                                                       placeholder="0.00">
+                                                <span class="input-group-text">₽</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="alert alert-success py-2 mb-2" id="calcResult" style="display: none;">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <span><i class="bi bi-cash-coin me-1"></i>Сдача:</span>
+                                                <strong id="changeAmount" class="h5 mb-0">0.00 ₽</strong>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="alert alert-danger py-2 small" id="insufficientCash" style="display: none;">
+                                            <i class="bi bi-exclamation-triangle me-1"></i>
+                                            <span>Нужно еще: <strong id="missingAmount">0.00 ₽</strong></span>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    
-                    <!-- Детализация сумм -->
-                    <div class="card mb-3 border-0 bg-light">
-                        <div class="card-body p-3">
-                            <div class="row mb-2">
-                                <div class="col-6">Товары:</div>
-                                <div class="col-6 text-end" id="closeItemsTotal">0.00 ₽</div>
-                            </div>
-                            <div class="row mb-2" id="hookahRow" style="display: none;">
-                                <div class="col-6">Кальяны:</div>
-                                <div class="col-6 text-end" id="closeHookahsTotal">0.00 ₽</div>
-                            </div>
-                            <div class="row mb-2">
-                                <div class="col-6">Промежуточный итог:</div>
-                                <div class="col-6 text-end" id="closeSubtotal">0.00 ₽</div>
-                            </div>
-                            <div class="row mb-2" id="regularDiscountRow" style="display: none;">
-                                <div class="col-6 text-success">Скидка (руб./%):</div>
-                                <div class="col-6 text-end text-success" id="closeRegularDiscount">-0.00 ₽</div>
-                            </div>
-                            <div class="row mb-2" id="bonusDiscountRow" style="display: none;">
-                                <div class="col-6 text-danger">Скидка бонусами:</div>
-                                <div class="col-6 text-end text-danger" id="closeBonusDiscount">-0.00 ₽</div>
-                            </div>
-                            <hr class="my-2">
-                            <div class="row mt-2">
-                                <div class="col-6"><strong>Итого к оплате:</strong></div>
-                                <div class="col-6 text-end" id="closeFinalTotal">0.00 ₽</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Скидка -->
-                    <div class="mb-3">
-                        <label for="closeDiscount" class="form-label fw-bold">Скидка</label>
                         
-                        <div class="row mb-2">
-                            <div class="col-4">
-                                <select class="form-select form-select-sm" id="discountTypeSelect">
-                                    <option value="fixed">₽ Сумма</option>
-                                    <option value="percent">% Процент</option>
+                        <!-- Правая колонка - Настройки -->
+                        <div class="col-md-6">
+                            <!-- Скидка -->
+                            <div class="mb-4">
+                                <label for="closeDiscount" class="form-label fw-bold">Скидка</label>
+                                
+                                <div class="row mb-2">
+                                    <div class="col-5">
+                                        <select class="form-select form-select-sm" id="discountTypeSelect">
+                                            <option value="fixed">₽ Сумма</option>
+                                            <option value="percent">% Процент</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-7">
+                                        <div class="input-group input-group-sm">
+                                            <input type="number" 
+                                                min="0" 
+                                                step="0.01"
+                                                class="form-control" 
+                                                id="closeDiscount" 
+                                                name="discount" 
+                                                value="0"
+                                                placeholder="0">
+                                            <span class="input-group-text" id="discountSuffix">₽</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-2 small" id="discountConversion" style="display: none;">
+                                    <span class="text-muted">Скидка составит: </span>
+                                    <span id="discountAmount" class="fw-bold">0.00 ₽</span>
+                                </div>
+                                
+                                <div class="form-text small">Необязательно</div>
+                            </div>
+                            
+                            <!-- Использование бонусов -->
+                            <div class="mb-4 border p-3 rounded" id="bonusSection" style="display: none;">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" 
+                                           type="checkbox" 
+                                           id="useBonuses" 
+                                           name="use_bonuses" 
+                                           value="1">
+                                    <label class="form-check-label fw-bold" for="useBonuses">
+                                        Использовать бонусы
+                                    </label>
+                                </div>
+                                
+                                <div class="row align-items-center" id="bonusInputRow" style="display: none;">
+                                    <div class="col-8">
+                                        <label for="bonusPointsToUse" class="form-label small mb-1">Количество бонусов:</label>
+                                        <div class="input-group input-group-sm">
+                                            <input type="number" 
+                                                   min="0" 
+                                                   step="1"
+                                                   class="form-control" 
+                                                   id="bonusPointsToUse" 
+                                                   name="bonus_points_to_use" 
+                                                   value="0"
+                                                   disabled>
+                                            <span class="input-group-text">баллов</span>
+                                        </div>
+                                        <div class="form-text small">
+                                            1 бонус = 1 рубль
+                                        </div>
+                                    </div>
+                                    <div class="col-4 text-end pt-3">
+                                        <button type="button" 
+                                                class="btn btn-outline-primary btn-sm" 
+                                                id="useMaxBonusesBtn">
+                                            <i class="bi bi-star-fill"></i> Макс
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div class="alert alert-warning mt-2 small p-2" id="bonusWarning" style="display: none;">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    <span id="bonusWarningText" class="small"></span>
+                                </div>
+                            </div>
+                            
+                            <!-- Способ оплаты -->
+                            <div class="mb-4">
+                                <label for="closePaymentMethod" class="form-label fw-bold">Способ оплаты *</label>
+                                <select class="form-select" 
+                                        id="closePaymentMethod" 
+                                        name="payment_method" 
+                                        required>
+                                    <option value="">Выберите способ оплаты</option>
+                                    <option value="cash">Наличные</option>
+                                    <option value="card">Карта</option>
+                                    <option value="online">Онлайн</option>
+                                    <option value="terminal">Терминал</option>
                                 </select>
                             </div>
-                            <div class="col-8">
-                                <div class="input-group">
-                                    <input type="number" 
-                                        min="0" 
-                                        step="0.01"
-                                        class="form-control" 
-                                        id="closeDiscount" 
-                                        name="discount" 
-                                        value="0"
-                                        placeholder="0">
-                                    <span class="input-group-text" id="discountSuffix">₽</span>
-                                </div>
+                            
+                            <!-- Комментарий -->
+                            <div class="mb-4">
+                                <label for="closeComment" class="form-label fw-bold">Комментарий</label>
+                                <textarea class="form-control" 
+                                        id="closeComment" 
+                                        name="comment" 
+                                        rows="2"
+                                        placeholder="Примечания к продаже..."></textarea>
+                            </div>
+                            
+                            <div class="alert alert-warning p-2 small">
+                                <i class="bi bi-exclamation-triangle me-1"></i>
+                                <small>При завершении продажи товары будут списаны со склада!</small>
                             </div>
                         </div>
-                        
-                        <div class="mt-2 small" id="discountConversion" style="display: none;">
-                            <span class="text-muted">Скидка составит: </span>
-                            <span id="discountAmount" class="fw-bold">0.00 ₽</span>
-                        </div>
-                        
-                        <div class="form-text">Необязательно</div>
-                    </div>
-                    
-                    <!-- Использование бонусов -->
-                    <div class="mb-3 border p-3 rounded" id="bonusSection" style="display: none;">
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" 
-                                   type="checkbox" 
-                                   id="useBonuses" 
-                                   name="use_bonuses" 
-                                   value="1">
-                            <label class="form-check-label fw-bold" for="useBonuses">
-                                Использовать бонусы
-                            </label>
-                        </div>
-                        
-                        <div class="row align-items-center" id="bonusInputRow" style="display: none;">
-                            <div class="col-8">
-                                <label for="bonusPointsToUse" class="form-label small mb-1">Сколько бонусов использовать:</label>
-                                <div class="input-group input-group-sm">
-                                    <input type="number" 
-                                           min="0" 
-                                           step="1"
-                                           class="form-control" 
-                                           id="bonusPointsToUse" 
-                                           name="bonus_points_to_use" 
-                                           value="0"
-                                           disabled>
-                                    <span class="input-group-text">бонусов</span>
-                                </div>
-                                <div class="form-text small">
-                                    1 бонус = 1 рубль
-                                </div>
-                            </div>
-                            <div class="col-4 text-end">
-                                <button type="button" 
-                                        class="btn btn-outline-primary btn-sm" 
-                                        id="useMaxBonusesBtn">
-                                    <i class="bi bi-star-fill"></i> Максимум
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div class="alert alert-warning mt-2 small" id="bonusWarning" style="display: none;">
-                            <i class="bi bi-info-circle me-1"></i>
-                            <span id="bonusWarningText"></span>
-                        </div>
-                    </div>
-                    
-                    <!-- Способ оплаты -->
-                    <div class="mb-3">
-                        <label for="closePaymentMethod" class="form-label fw-bold">Способ оплаты *</label>
-                        <select class="form-select" 
-                                id="closePaymentMethod" 
-                                name="payment_method" 
-                                required>
-                            <option value="">Выберите способ оплаты</option>
-                            <option value="cash">Наличные</option>
-                            <option value="card">Карта</option>
-                            <option value="online">Онлайн</option>
-                            <option value="terminal">Терминал</option>
-                        </select>
-                    </div>
-                    
-                    <!-- Комментарий -->
-                    <div class="mb-3">
-                        <label for="closeComment" class="form-label">Комментарий</label>
-                        <textarea class="form-control" 
-                                id="closeComment" 
-                                name="comment" 
-                                rows="2"
-                                placeholder="Примечания к продаже..."></textarea>
-                    </div>
-                    
-                    <div class="alert alert-warning mt-3">
-                        <i class="bi bi-exclamation-triangle me-2"></i>
-                        <small>При завершении продажи товары будут списаны со склада!</small>
                     </div>
                 </div>
 
@@ -173,7 +228,7 @@
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
                         Отмена
                     </button>
-                    <button type="submit" class="btn btn-success">
+                    <button type="submit" class="btn btn-success px-4">
                         <i class="bi bi-check-circle me-1"></i>Завершить продажу
                     </button>
                 </div>
@@ -215,6 +270,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const bonusWarning = document.getElementById('bonusWarning');
     const bonusWarningText = document.getElementById('bonusWarningText');
     
+    // Элементы калькулятора сдачи
+    const cashCalculator = document.getElementById('cashCalculator');
+    const calcTotalAmount = document.getElementById('calcTotalAmount');
+    const cashReceivedInput = document.getElementById('cashReceived');
+    const calcResult = document.getElementById('calcResult');
+    const changeAmount = document.getElementById('changeAmount');
+    const insufficientCash = document.getElementById('insufficientCash');
+    const missingAmount = document.getElementById('missingAmount');
+    const paymentMethodSelect = document.getElementById('closePaymentMethod');
+    
     // Переменные состояния
     let currentItemsTotal = 0;
     let currentHookahsTotal = 0;
@@ -225,6 +290,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentBonusDiscount = 0;
     let currentDiscountType = 'fixed';
     let maxSpendPercent = 50;
+    let currentFinalTotal = 0;
     
     // Функция для получения скидки в рублях
     function getDiscountInRubles() {
@@ -244,7 +310,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function calculateFinalTotal() {
         const discountInRubles = getDiscountInRubles();
         const subtotal = currentItemsTotal + currentHookahsTotal;
-        const finalTotal = Math.max(0, subtotal - discountInRubles - currentBonusDiscount);
+        currentFinalTotal = Math.max(0, subtotal - discountInRubles - currentBonusDiscount);
         
         // Обновляем отображение
         if (itemsTotalElem) itemsTotalElem.textContent = currentItemsTotal.toFixed(2) + ' ₽';
@@ -283,9 +349,19 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Итоговая сумма
-        if (finalTotalElem) finalTotalElem.textContent = finalTotal.toFixed(2) + ' ₽';
+        if (finalTotalElem) finalTotalElem.textContent = currentFinalTotal.toFixed(2) + ' ₽';
         
-        return finalTotal;
+        // Обновляем сумму в калькуляторе сдачи
+        if (calcTotalAmount) {
+            calcTotalAmount.textContent = currentFinalTotal.toFixed(2) + ' ₽';
+        }
+        
+        // Если выбраны наличные, пересчитываем сдачу
+        if (paymentMethodSelect && paymentMethodSelect.value === 'cash' && cashReceivedInput) {
+            calculateChange();
+        }
+        
+        return currentFinalTotal;
     }
     
     // Функция для обновления отображения скидки
@@ -362,13 +438,13 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (maxUsableBonuses > 0 && bonusWarningText) {
             bonusWarningText.innerHTML = `
-                <div>Клиент может использовать до <strong>${maxUsableBonuses.toLocaleString()}</strong> бонусов</div>
-                <div class="small mt-1">Лимит из бонусной карты: <strong>${maxSpendPercent}%</strong> от суммы заказа</div>
+                Можно использовать до <strong>${maxUsableBonuses.toLocaleString()}</strong> бонусов<br>
+                <small>Лимит: <strong>${maxSpendPercent}%</strong> от суммы заказа</small>
             `;
         } else if (currentClientBonusPoints > 0 && bonusWarningText) {
             bonusWarningText.innerHTML = `
-                <div>У клиента недостаточно бонусов для использования</div>
-                <div class="small mt-1">Лимит из бонусной карты: <strong>${maxSpendPercent}%</strong> от суммы заказа</div>
+                У клиента недостаточно бонусов для использования<br>
+                <small>Лимит: <strong>${maxSpendPercent}%</strong> от суммы заказа</small>
             `;
         } else if (bonusWarningText) {
             bonusWarningText.textContent = 'У клиента нет бонусов';
@@ -390,6 +466,54 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Пересчитываем сумму с учетом обновленных бонусов
         calculateFinalTotal();
+    }
+    
+    // Функция расчета сдачи
+    function calculateChange() {
+        if (!cashReceivedInput || currentFinalTotal <= 0) return;
+        
+        const cashReceived = parseFloat(cashReceivedInput.value) || 0;
+        
+        if (cashReceived === 0) {
+            calcResult.style.display = 'none';
+            insufficientCash.style.display = 'none';
+            return;
+        }
+        
+        if (cashReceived >= currentFinalTotal) {
+            const change = cashReceived - currentFinalTotal;
+            changeAmount.textContent = change.toFixed(2) + ' ₽';
+            calcResult.style.display = 'block';
+            insufficientCash.style.display = 'none';
+        } else {
+            const missing = currentFinalTotal - cashReceived;
+            missingAmount.textContent = missing.toFixed(2) + ' ₽';
+            calcResult.style.display = 'none';
+            insufficientCash.style.display = 'block';
+        }
+    }
+    
+    // Обработчик изменения способа оплаты
+    if (paymentMethodSelect) {
+        paymentMethodSelect.addEventListener('change', function() {
+            if (this.value === 'cash') {
+                cashCalculator.style.display = 'block';
+                // Устанавливаем значение в поле полученной суммы
+                if (cashReceivedInput) {
+                    cashReceivedInput.value = currentFinalTotal.toFixed(2);
+                }
+                calculateChange();
+            } else {
+                cashCalculator.style.display = 'none';
+                calcResult.style.display = 'none';
+                insufficientCash.style.display = 'none';
+            }
+        });
+    }
+    
+    // Обработчик изменения суммы полученной наличности
+    if (cashReceivedInput) {
+        cashReceivedInput.addEventListener('input', calculateChange);
     }
     
     // Обработчик открытия модалки
@@ -422,9 +546,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     closeDiscountInput.value = button.dataset.discount || 0;
                 }
                 
-                const closePaymentMethod = document.getElementById('closePaymentMethod');
-                if (closePaymentMethod) {
-                    closePaymentMethod.value = button.dataset.paymentMethod || '';
+                if (paymentMethodSelect) {
+                    paymentMethodSelect.value = button.dataset.paymentMethod || '';
+                    // Сразу показываем/скрываем калькулятор сдачи
+                    if (paymentMethodSelect.value === 'cash') {
+                        cashCalculator.style.display = 'block';
+                    } else {
+                        cashCalculator.style.display = 'none';
+                    }
                 }
                 
                 const closeComment = document.getElementById('closeComment');

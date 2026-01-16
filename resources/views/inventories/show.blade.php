@@ -89,6 +89,70 @@
         </div>
     @endif
 
+    @php
+        // Вычисляем общие финансовые итоги
+        $totalLoss = 0;
+        $totalGain = 0;
+        $hasNegativeItems = false;
+        $hasPositiveItems = false;
+    @endphp
+
+    <!-- Сводка по финансам -->
+    @if(!$inventory->items->isEmpty())
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Финансовый итог инвентаризации</h6>
+                        @foreach($inventory->items as $item)
+                            @php
+                                $product = $item->product;
+                                $difference = $item->actual_quantity - $item->system_quantity;
+                                
+                                // Используем поле cost (себестоимость)
+                                $costPrice = $product->cost ?? 0;
+                                
+                                // Рассчитываем финансовую разницу (отрицательная = убыток, положительная = прибыль)
+                                if ($difference < 0) {
+                                    // Потеря товара (убыток)
+                                    $itemLoss = abs($difference) * $costPrice;
+                                    $totalLoss += $itemLoss;
+                                    $hasNegativeItems = true;
+                                } elseif ($difference > 0) {
+                                    // Излишек товара (прибыль или ошибка в учете)
+                                    $itemGain = $difference * $costPrice;
+                                    $totalGain += $itemGain;
+                                    $hasPositiveItems = true;
+                                }
+                            @endphp
+                        @endforeach
+                        
+                        @if($hasNegativeItems || $hasPositiveItems)
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>Общий убыток:</span>
+                                <span class="text-danger fw-bold">{{ number_format($totalLoss, 2) }} ₽</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>Общий излишек:</span>
+                                <span class="text-success fw-bold">{{ number_format($totalGain, 2) }} ₽</span>
+                            </div>
+                            <hr>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span>Итоговый баланс:</span>
+                                <span class="fw-bold fs-5 {{ ($totalGain - $totalLoss) >= 0 ? 'text-success' : 'text-danger' }}">
+                                    {{ number_format($totalGain - $totalLoss, 2) }} ₽
+                                </span>
+                            </div>
+                        @else
+                            <div class="text-center text-muted">
+                                Нет расхождений в количестве товаров
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 
     <!-- Список товаров -->
     <div class="card border-0 shadow-sm">
@@ -121,6 +185,7 @@
                                 <th class="text-center">Системное кол-во</th>
                                 <th class="text-center">Фактическое кол-во</th>
                                 <th class="text-center">Разница</th>
+                                <th class="text-center">Финансовая разница</th>
                                 @if($inventory->isCreated())
                                     <th class="text-end">Действия</th>
                                 @endif
@@ -131,6 +196,9 @@
                             @php
                                 $product = $item->product;
                                 $unit = $product->unit ?? 'шт';
+                                
+                                // Используем поле cost (себестоимость)
+                                $costPrice = $product->cost ?? 0;
                                 
                                 // Функция для форматирования чисел без лишних нулей
                                 $formatQuantity = function($quantity) {
@@ -170,6 +238,12 @@
                                 $systemConverted = $formatConversion($item->system_quantity, $unit);
                                 $actualConverted = $formatConversion($item->actual_quantity, $unit);
                                 $diffConverted = $difference != 0 ? $formatConversion(abs($difference), $unit) : null;
+                                
+                                // Рассчитываем финансовую разницу
+                                $financialDifference = 0;
+                                if ($difference != 0) {
+                                    $financialDifference = $difference * $costPrice;
+                                }
                             @endphp
                             <tr>
                                 <td>
@@ -180,6 +254,12 @@
                                             @if($product->packaging > 1 && $unit !== 'шт')
                                                 ({{ $formatQuantity($product->packaging) }} {{ $unit }}/уп.)
                                             @endif
+                                            <div class="mt-1">
+                                                <small>Себестоимость: {{ number_format($costPrice, 2) }} ₽/{{ $unit }}</small>
+                                                @if($product->price)
+                                                    <br><small>Цена продажи: {{ number_format($product->price, 2) }} ₽/{{ $unit }}</small>
+                                                @endif
+                                            </div>
                                         </div>
                                     </div>
                                 </td>
@@ -236,6 +316,18 @@
                                         <span class="text-muted">0 {{ $unit }}</span>
                                     @endif
                                 </td>
+                                <td class="text-center">
+                                    @if($difference != 0)
+                                        <div class="{{ $financialDifference > 0 ? 'text-success' : 'text-danger' }}">
+                                            <strong>{{ $financialDifference > 0 ? '+' : '' }}{{ number_format($financialDifference, 2) }} ₽</strong>
+                                            <div class="text-muted small">
+                                                @ {{ number_format($costPrice, 2) }} ₽/{{ $unit }}
+                                            </div>
+                                        </div>
+                                    @else
+                                        <span class="text-muted">0 ₽</span>
+                                    @endif
+                                </td>
                                 @if($inventory->isCreated())
                                     <td class="text-end">
                                         <button type="button" 
@@ -251,6 +343,25 @@
                             </tr>
                             @endforeach
                         </tbody>
+                        @if($hasNegativeItems || $hasPositiveItems)
+                        <tfoot class="table-light">
+                            <tr>
+                                <th colspan="4" class="text-end">Итого по инвентаризации:</th>
+                                <th class="text-center">
+                                    <div class="{{ ($totalGain - $totalLoss) >= 0 ? 'text-success' : 'text-danger' }}">
+                                        <strong>{{ ($totalGain - $totalLoss) >= 0 ? '+' : '' }}{{ number_format($totalGain - $totalLoss, 2) }} ₽</strong>
+                                        <div class="text-muted small">
+                                            (убыток: {{ number_format($totalLoss, 2) }} ₽,
+                                            излишек: {{ number_format($totalGain, 2) }} ₽)
+                                        </div>
+                                    </div>
+                                </th>
+                                @if($inventory->isCreated())
+                                    <th></th>
+                                @endif
+                            </tr>
+                        </tfoot>
+                        @endif
                     </table>
                 </div>
             @endif

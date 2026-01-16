@@ -37,10 +37,8 @@ class EmployeeController extends Controller
             'position' => 'required|string|max:255',
             'phone' => 'nullable|string|max:20',
             'inn' => 'nullable|string|max:12',
-            'hookah_percentage' => 'nullable|numeric|min:0|max:100',
-            'hookah_rate' => 'nullable|numeric|min:0',
-            'shift_rate' => 'nullable|numeric|min:0',
-            'hourly_rate' => 'nullable|numeric|min:0',
+            'shift_salary' => 'nullable|numeric|min:0',
+            'revenue_percentage' => 'nullable|numeric|min:0|max:100',
         ]);
 
         $employee = Employee::create([
@@ -51,10 +49,8 @@ class EmployeeController extends Controller
             'social_network' => $request->social_network,
             'phone' => $request->phone,
             'notes' => $request->notes,
-            'hookah_percentage' => $request->hookah_percentage ?? 0,
-            'hookah_rate' => $request->hookah_rate ?? 0,
-            'shift_rate' => $request->shift_rate ?? 0,
-            'hourly_rate' => $request->hourly_rate ?? 0,
+            'shift_salary' => $request->shift_salary ?? 0,
+            'revenue_percentage' => $request->revenue_percentage ?? 0,
             'inn' => $request->inn,
             'tips_link' => $request->tips_link,
         ]);
@@ -90,16 +86,14 @@ class EmployeeController extends Controller
             'position' => 'required|string|max:255',
             'phone' => 'nullable|string|max:20',
             'inn' => 'nullable|string|max:12',
-            'hookah_percentage' => 'nullable|numeric|min:0|max:100',
-            'hookah_rate' => 'nullable|numeric|min:0',
-            'shift_rate' => 'nullable|numeric|min:0',
-            'hourly_rate' => 'nullable|numeric|min:0',
+            'shift_salary' => 'nullable|numeric|min:0',
+            'revenue_percentage' => 'nullable|numeric|min:0|max:100',
         ]);
 
         $data = $request->only([
             'name', 'email', 'position', 'social_network', 
-            'phone', 'notes', 'hookah_percentage', 'hookah_rate',
-            'shift_rate', 'hourly_rate', 'inn', 'tips_link'
+            'phone', 'notes', 'shift_salary', 'revenue_percentage',
+            'inn', 'tips_link'
         ]);
 
         if ($request->filled('password')) {

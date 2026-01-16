@@ -36,42 +36,12 @@
                         </div>
                         
                         <div class="col-md-6 mb-3">
-                            <label for="edit_EarntRantTable" class="form-label fw-bold">Начисление за стол (%) *</label>
+                            <label for="edit_BonusPercent" class="form-label fw-bold">Начисление бонусов (%) *</label>
                             <div class="input-group">
                                 <input type="number" 
                                        class="form-control" 
-                                       id="edit_EarntRantTable" 
-                                       name="EarntRantTable" 
-                                       min="0" 
-                                       max="100"
-                                       required>
-                                <span class="input-group-text">%</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="edit_EarntRantTakeaway" class="form-label fw-bold">Начисление с собой (%) *</label>
-                            <div class="input-group">
-                                <input type="number" 
-                                       class="form-control" 
-                                       id="edit_EarntRantTakeaway" 
-                                       name="EarntRantTakeaway" 
-                                       min="0" 
-                                       max="100"
-                                       required>
-                                <span class="input-group-text">%</span>
-                            </div>
-                        </div>
-                        
-                        <div class="col-md-6 mb-3">
-                            <label for="edit_MaxSpendPercent" class="form-label fw-bold">Макс. оплата бонусами (%) *</label>
-                            <div class="input-group">
-                                <input type="number" 
-                                       class="form-control" 
-                                       id="edit_MaxSpendPercent" 
-                                       name="MaxSpendPercent" 
+                                       id="edit_BonusPercent" 
+                                       name="BonusPercent" 
                                        min="0" 
                                        max="100"
                                        required>
@@ -81,12 +51,12 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label for="edit_TableCloseDiscountPercent" class="form-label fw-bold">Скидка при закрытии (%) *</label>
+                        <label for="edit_MaxSpendPercent" class="form-label fw-bold">Макс. оплата бонусами (%) *</label>
                         <div class="input-group">
                             <input type="number" 
                                    class="form-control" 
-                                   id="edit_TableCloseDiscountPercent" 
-                                   name="TableCloseDiscountPercent" 
+                                   id="edit_MaxSpendPercent" 
+                                   name="MaxSpendPercent" 
                                    min="0" 
                                    max="100"
                                    required>

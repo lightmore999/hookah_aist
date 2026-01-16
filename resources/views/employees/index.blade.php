@@ -101,17 +101,11 @@
                                 </td>
                                 <td>
                                     <div class="small">
-                                        @if($employee->hourly_rate > 0)
-                                            <span class="badge bg-info" title="Почасовая ставка">{{ $employee->hourly_rate }} ₽/ч</span>
+                                        @if($employee->shift_salary > 0)
+                                            <span class="badge bg-warning" title="Ставка за смену">{{ $employee->shift_salary }} ₽</span>
                                         @endif
-                                        @if($employee->shift_rate > 0)
-                                            <span class="badge bg-warning" title="Ставка за смену">{{ $employee->shift_rate }} ₽</span>
-                                        @endif
-                                        @if($employee->hookah_percentage > 0)
-                                            <span class="badge bg-success" title="Процент от кальяна">{{ $employee->hookah_percentage }}%</span>
-                                        @endif
-                                        @if($employee->hookah_rate > 0)
-                                            <span class="badge bg-primary" title="Ставка за кальян">{{ $employee->hookah_rate }} ₽</span>
+                                        @if($employee->revenue_percentage > 0)
+                                            <span class="badge bg-success" title="Процент с выручки">{{ $employee->revenue_percentage }}%</span>
                                         @endif
                                     </div>
                                 </td>
@@ -127,10 +121,8 @@
                                             data-phone="{{ $employee->phone }}"
                                             data-social="{{ $employee->social_network }}"
                                             data-notes="{{ $employee->notes }}"
-                                            data-percentage="{{ $employee->hookah_percentage }}"
-                                            data-hookah-rate="{{ $employee->hookah_rate }}"
-                                            data-shift-rate="{{ $employee->shift_rate }}"
-                                            data-hourly-rate="{{ $employee->hourly_rate }}"
+                                            data-shift-salary="{{ $employee->shift_salary }}"
+                                            data-revenue-percentage="{{ $employee->revenue_percentage }}"
                                             data-inn="{{ $employee->inn }}"
                                             data-tips="{{ $employee->tips_link }}">
                                         <i class="bi bi-pencil"></i>
@@ -177,10 +169,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('edit_phone').value = button.dataset.phone || '';
                 document.getElementById('edit_social_network').value = button.dataset.social || '';
                 document.getElementById('edit_notes').value = button.dataset.notes || '';
-                document.getElementById('edit_hookah_percentage').value = button.dataset.percentage || 0;
-                document.getElementById('edit_hookah_rate').value = button.dataset.hookahRate || 0;
-                document.getElementById('edit_shift_rate').value = button.dataset.shiftRate || 0;
-                document.getElementById('edit_hourly_rate').value = button.dataset.hourlyRate || 0;
+                document.getElementById('edit_shift_salary').value = button.dataset.shiftSalary || 0;
+                document.getElementById('edit_revenue_percentage').value = button.dataset.revenuePercentage || 0;
                 document.getElementById('edit_inn').value = button.dataset.inn || '';
                 document.getElementById('edit_tips_link').value = button.dataset.tips || '';
                 

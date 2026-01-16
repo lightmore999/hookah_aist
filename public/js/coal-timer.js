@@ -4,6 +4,7 @@ console.log('=== COAL TIMER SYSTEM LOADED ===');
 class CoalTimerSystem {
     constructor() {
         this.coalTimers = {};
+        this.persistentNotifications = {}; // Храним персистентные уведомления
         console.log('✅ CoalTimerSystem created');
         this.init();
     }
@@ -13,7 +14,121 @@ class CoalTimerSystem {
         this.initEventListeners();
         this.cleanupOldTimers();
         this.restoreAllTimers();
+        this.restorePersistentNotifications(); // Восстанавливаем уведомления
     }
+
+    // Восстанавливаем персистентные уведомления при загрузке
+    restorePersistentNotifications() {
+        const expiredNotifications = JSON.parse(localStorage.getItem('coal_expired_notifications') || '[]');
+        console.log(`🔔 Restoring ${expiredNotifications.length} persistent notifications`);
+        
+        expiredNotifications.forEach(data => {
+            this.createPersistentNotification(data.tableId, data.tableNumber, data.guestName);
+        });
+    }
+
+    // Сохраняем список уведомлений
+    saveNotifications() {
+        const notifications = Object.values(this.persistentNotifications).map(notif => ({
+            tableId: notif.tableId,
+            tableNumber: notif.tableNumber,
+            guestName: notif.guestName
+        }));
+        localStorage.setItem('coal_expired_notifications', JSON.stringify(notifications));
+    }
+
+    // Создаем персистентное уведомление
+    createPersistentNotification(tableId, tableNumber = '?', guestName = 'Клиент') {
+        // Если уведомление уже есть, не создаем дубликат
+        if (this.persistentNotifications[tableId]) {
+            return;
+        }
+
+        const notificationId = `coal-persistent-${tableId}`;
+        const existingNotification = document.getElementById(notificationId);
+        if (existingNotification) {
+            return; // Уже есть в DOM
+        }
+
+        // Создаем HTML уведомления
+        const notificationHtml = `
+            <div id="${notificationId}" class="toast show mb-2" role="alert" style="min-width: 300px;">
+                <div class="toast-header bg-danger text-white">
+                    <i class="bi bi-fire me-2"></i>
+                    <strong class="me-auto">Время углей истекло!</strong>
+                    <small>Сейчас</small>
+                    <button type="button" class="btn-close btn-close-white" 
+                            onclick="window.CoalTimerSystem.closePersistentNotification('${tableId}')"></button>
+                </div>
+                <div class="toast-body">
+                    <div class="fw-bold mb-1">Стол #${tableNumber}</div>
+                    <div class="text-muted small mb-2">${guestName}</div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="badge bg-danger">СРОЧНО!</span>
+                        <button class="btn btn-sm btn-outline-danger" 
+                                onclick="window.CoalTimerSystem.refreshCoalTimerFromNotification('${tableId}')">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Обновить угли
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Добавляем в контейнер для уведомлений
+        const container = this.getNotificationsContainer();
+        container.insertAdjacentHTML('beforeend', notificationHtml);
+
+        // Сохраняем информацию
+        this.persistentNotifications[tableId] = {
+            tableId,
+            tableNumber,
+            guestName,
+            elementId: notificationId
+        };
+        
+        this.saveNotifications();
+        
+        console.log(`🔔 Created persistent notification for table ${tableId}`);
+    }
+
+    // Получаем контейнер для уведомлений
+    getNotificationsContainer() {
+        let container = document.getElementById('coal-notifications-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'coal-notifications-container';
+            container.className = 'position-fixed bottom-0 end-0 p-3';
+            container.style.zIndex = '9999';
+            container.style.maxHeight = '70vh';
+            container.style.overflowY = 'auto';
+            document.body.appendChild(container);
+        }
+        return container;
+    }
+
+    // Закрыть персистентное уведомление
+    closePersistentNotification(tableId) {
+        const notifData = this.persistentNotifications[tableId];
+        if (!notifData) return;
+
+        const element = document.getElementById(notifData.elementId);
+        if (element) {
+            element.remove();
+        }
+
+        delete this.persistentNotifications[tableId];
+        this.saveNotifications();
+        
+        console.log(`🔕 Closed persistent notification for table ${tableId}`);
+    }
+
+    // Обновить угли из уведомления
+    refreshCoalTimerFromNotification(tableId) {
+        this.refreshCoalTimer(tableId);
+        this.closePersistentNotification(tableId);
+    }
+
+    // Остальные методы остаются без изменений, только добавляем вызовы для уведомлений
 
     initEventListeners() {
         // Делегирование событий для кнопок таймера углей
@@ -99,6 +214,11 @@ class CoalTimerSystem {
                 const timeLeft = Math.max(0, (15 * 60) - elapsedSeconds);
                 
                 this.showCoalTimer(tableId, cell, timeLeft, count);
+                
+                // Если время истекло, показываем уведомление
+                if (timeLeft <= 0) {
+                    this.showExpiredNotification(tableId, cell);
+                }
             } else {
                 // Нет сохраненного времени - создаем новый
                 this.showCoalTimer(tableId, cell, 15 * 60, count);
@@ -191,6 +311,21 @@ class CoalTimerSystem {
             this.startCoalTimer(tableId, timeLeft);
         } else {
             this.updateDisplayForExpired(tableId);
+        }
+    }
+
+    // Показать уведомление об истекшем времени
+    showExpiredNotification(tableId, cell) {
+        // Получаем информацию о столе
+        const tableNumber = cell.querySelector('button[data-table-number]')?.dataset.tableNumber || '?';
+        const guestName = cell.querySelector('.text-truncate')?.textContent?.trim() || 'Клиент';
+        
+        // Создаем персистентное уведомление
+        this.createPersistentNotification(tableId, tableNumber, guestName);
+        
+        // Показываем всплывающее уведомление
+        if (typeof showToast === 'function') {
+            showToast('danger', 'Время углей истекло!', `Стол #${tableNumber} (${guestName}) - требуется замена углей`);
         }
     }
 
@@ -308,6 +443,12 @@ class CoalTimerSystem {
             alert.classList.remove('alert-info', 'alert-warning');
             alert.classList.add('alert-danger');
         }
+
+        // Находим ячейку и показываем уведомление
+        const cell = this.findTableCell(tableId);
+        if (cell) {
+            this.showExpiredNotification(tableId, cell);
+        }
     }
 
     // Обновить угли (сбросить таймер)
@@ -333,6 +474,9 @@ class CoalTimerSystem {
             this.showCoalTimer(tableId, cell, 15 * 60, count);
         }
         
+        // Закрываем уведомление если оно есть
+        this.closePersistentNotification(tableId);
+        
         // Показываем уведомление
         if (typeof showToast === 'function') {
             showToast('success', 'Угли обновлены', `Таймер сброшен на 15 минут (смена #${count})`);
@@ -351,6 +495,9 @@ class CoalTimerSystem {
         
         // Меняем состояние на закрытое
         localStorage.setItem(`coal_timer_visible_${tableId}`, 'false');
+        
+        // Закрываем уведомление если оно есть
+        this.closePersistentNotification(tableId);
         
         // Находим ячейку и показываем кнопку
         const cell = this.findTableCell(tableId);
@@ -387,7 +534,7 @@ class CoalTimerSystem {
         }
     }
 
-    // Найти ячейку стола по ID
+    // Найти ячейку стола по ID (без изменений)
     findTableCell(tableId) {
         console.log(`🔍 [CoalTimer] Ищем ячейку для стола ${tableId}`);
         
@@ -451,7 +598,7 @@ class CoalTimerSystem {
         return null;
     }
 
-    // Вызывается при добавлении кальяна - ИСПРАВЛЕННАЯ ВЕРСИЯ
+    // Вызывается при добавлении кальяна
     onHookahAdded(tableId) {
         console.log(`🔥 HOOKAH ADDED: Adding coal timer for table ${tableId}`);
         
@@ -509,6 +656,9 @@ class CoalTimerSystem {
         localStorage.removeItem(`coal_timer_start_${tableId}`);
         localStorage.removeItem(`coal_timer_count_${tableId}`);
         
+        // Закрываем уведомление
+        this.closePersistentNotification(tableId);
+        
         // Удаляем placeholder из DOM
         const placeholder = document.getElementById(`coal-timer-placeholder-${tableId}`);
         if (placeholder) {
@@ -540,6 +690,10 @@ class CoalTimerSystem {
                         localStorage.removeItem(key);
                         localStorage.removeItem(`coal_timer_visible_${tableId}`);
                         localStorage.removeItem(`coal_timer_count_${tableId}`);
+                        
+                        // Удаляем уведомление
+                        this.closePersistentNotification(tableId);
+                        
                         removedCount++;
                     }
                 } catch (error) {
@@ -547,6 +701,18 @@ class CoalTimerSystem {
                 }
             }
         }
+        
+        // Очищаем старые уведомления
+        const notifications = JSON.parse(localStorage.getItem('coal_expired_notifications') || '[]');
+        const updatedNotifications = notifications.filter(notif => {
+            const isOld = (now - (localStorage.getItem(`coal_timer_start_${notif.tableId}`) || 0)) > oneDayMs;
+            if (isOld) {
+                this.closePersistentNotification(notif.tableId);
+            }
+            return !isOld;
+        });
+        
+        localStorage.setItem('coal_expired_notifications', JSON.stringify(updatedNotifications));
         
         if (removedCount > 0) {
             console.log(`🧹 Removed ${removedCount} old coal timers from localStorage`);
@@ -615,7 +781,7 @@ function initCoalTimerSystem() {
     return coalTimerSystem;
 }
 
-// Экспорт в глобальную область
+// Экспорт в глобальную область с новыми методами
 window.CoalTimerSystem = {
     init: initCoalTimerSystem,
     instance: () => coalTimerSystem,
@@ -638,6 +804,27 @@ window.CoalTimerSystem = {
             coalTimerSystem.initializeCoalTimer(tableId);
         } else {
             console.error('CoalTimerSystem not initialized');
+        }
+    },
+    // Методы для работы с уведомлениями
+    closePersistentNotification: (tableId) => {
+        if (coalTimerSystem) {
+            coalTimerSystem.closePersistentNotification(tableId);
+        }
+    },
+    refreshCoalTimerFromNotification: (tableId) => {
+        if (coalTimerSystem) {
+            coalTimerSystem.refreshCoalTimerFromNotification(tableId);
+        }
+    },
+    // Метод для очистки всех уведомлений
+    clearAllNotifications: () => {
+        if (coalTimerSystem) {
+            // Получаем все ID уведомлений
+            const notifications = JSON.parse(localStorage.getItem('coal_expired_notifications') || '[]');
+            notifications.forEach(notif => {
+                coalTimerSystem.closePersistentNotification(notif.tableId);
+            });
         }
     }
 };

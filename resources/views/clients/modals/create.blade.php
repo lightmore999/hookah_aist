@@ -77,22 +77,6 @@
                             </small>
                         </div>
                         
-                        <div class="col-md-6">
-                            <label for="bonus_points" class="form-label fw-bold">Бонусные баллы</label>
-                            <div class="input-group">
-                                <input type="number" 
-                                    class="form-control @error('bonus_points') is-invalid @enderror" 
-                                    id="bonus_points" 
-                                    name="bonus_points" 
-                                    value="{{ old('bonus_points', 0) }}" 
-                                    min="0"
-                                    step="1">
-                                <span class="input-group-text">баллов</span>
-                                @error('bonus_points')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                        </div>
                     </div>
 
                     <!-- Информация о выбранной карте -->

@@ -73,22 +73,6 @@
                             @enderror
                         </div>
                         
-                        <div class="col-md-6">
-                            <label for="edit_bonus_points" class="form-label fw-bold">Бонусные баллы</label>
-                            <div class="input-group">
-                                <input type="number" 
-                                    class="form-control @error('bonus_points') is-invalid @enderror" 
-                                    id="edit_bonus_points" 
-                                    name="bonus_points" 
-                                    value="{{ old('bonus_points', 0) }}" 
-                                    min="0"
-                                    step="1">
-                                <span class="input-group-text">баллов</span>
-                                @error('bonus_points')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                        </div>
                     </div>
 
                     <!-- Информация о выбранной карте -->
@@ -179,7 +163,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('edit_phone').value = button.dataset.phone;
                 document.getElementById('edit_birth_date').value = button.dataset.birthDate;
                 document.getElementById('edit_comment').value = button.dataset.comment;
-                document.getElementById('edit_bonus_points').value = button.dataset.bonusPoints || '0';
                 document.getElementById('edit_bonus_card_id').value = button.dataset.bonusCardId || '';
                 document.getElementById('editClientForm').action = `/clients/${button.dataset.id}`;
                 

@@ -361,6 +361,20 @@
                     </div>
                     @endif
                     
+                    <!-- Получаем информацию о начисленных бонусах из истории -->
+                    @php
+                        $bonusAwardedForSale = \App\Models\BonusHistory::where('sale_id', $sale->id)
+                            ->where('operation_type', 'credit')
+                            ->sum('amount');
+                    @endphp
+
+                    @if($bonusAwardedForSale > 0)
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Начислено бонусов:</span>
+                        <strong class="text-warning">+{{ number_format($bonusAwardedForSale, 0) }} баллов</strong>
+                    </div>
+                    @endif
+                    
                     <hr>
                     <div class="d-flex justify-content-between mb-0">
                         <span class="h5">Итого к оплате:</span>
@@ -386,7 +400,7 @@
     </div>
 </div>
 
-<!-- Модальные окна -->
+<!-- Модальные окна -->ы
 @include('sales.modals.edit')
 @include('sales.modals.close')
 @include('sales.modals.add-item')

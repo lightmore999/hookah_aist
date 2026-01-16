@@ -98,13 +98,36 @@
                                 <th>Дата</th>
                                 <th>Статус</th>
                                 <th>Товаров</th>
-                                <th>Разница</th>
+                                <th>Финансовый результат</th>
                                 <th>Создал</th>
                                 <th class="text-end">Действия</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach($inventories as $inventory)
+                            @php
+                                // Вычисляем финансовый результат
+                                $financialResult = 0;
+                                $totalLoss = 0;
+                                $totalGain = 0;
+                                
+                                foreach ($inventory->items as $item) {
+                                    $product = $item->product;
+                                    $difference = $item->actual_quantity - $item->system_quantity;
+                                    $costPrice = $product->cost ?? 0;
+                                    
+                                    if ($difference != 0) {
+                                        $itemFinancial = $difference * $costPrice;
+                                        $financialResult += $itemFinancial;
+                                        
+                                        if ($itemFinancial < 0) {
+                                            $totalLoss += abs($itemFinancial);
+                                        } else {
+                                            $totalGain += $itemFinancial;
+                                        }
+                                    }
+                                }
+                            @endphp
                             <tr>
                                 <td>
                                     <strong>{{ $inventory->name }}</strong>
@@ -126,17 +149,25 @@
                                     @endif
                                 </td>
                                 <td>
-                                    @php
-                                        $difference = $inventory->items->sum(function($item) {
-                                            return $item->actual_quantity - $item->system_quantity;
-                                        });
-                                    @endphp
-                                    @if($difference != 0)
-                                        <span class="badge bg-{{ $difference > 0 ? 'info' : 'danger' }}">
-                                            {{ $difference > 0 ? '+' : '' }}{{ $difference }}
-                                        </span>
+                                    @if($financialResult != 0)
+                                        <div class="{{ $financialResult > 0 ? 'text-success' : 'text-danger' }}">
+                                            <strong>{{ $financialResult > 0 ? '+' : '' }}{{ number_format($financialResult, 2) }} ₽</strong>
+                                            @if($totalLoss > 0 || $totalGain > 0)
+                                                <div class="text-muted small">
+                                                    @if($totalLoss > 0)
+                                                        <span class="text-danger">↓{{ number_format($totalLoss, 2) }} ₽</span>
+                                                    @endif
+                                                    @if($totalGain > 0)
+                                                        @if($totalLoss > 0)
+                                                            /
+                                                        @endif
+                                                        <span class="text-success">↑{{ number_format($totalGain, 2) }} ₽</span>
+                                                    @endif
+                                                </div>
+                                            @endif
+                                        </div>
                                     @else
-                                        <span class="text-muted">0</span>
+                                        <span class="text-muted">0 ₽</span>
                                     @endif
                                 </td>
                                 <td>{{ $inventory->creator->name }}</td>
@@ -171,6 +202,58 @@
                             </tr>
                             @endforeach
                         </tbody>
+                        @if($inventories->count() > 0)
+                        <tfoot class="table-light">
+                            <tr>
+                                @php
+                                    // Итоговые суммы по всем инвентаризациям
+                                    $overallFinancialResult = 0;
+                                    $overallTotalLoss = 0;
+                                    $overallTotalGain = 0;
+                                    
+                                    foreach ($inventories as $inv) {
+                                        foreach ($inv->items as $item) {
+                                            $product = $item->product;
+                                            $difference = $item->actual_quantity - $item->system_quantity;
+                                            $costPrice = $product->cost ?? 0;
+                                            
+                                            if ($difference != 0) {
+                                                $itemFinancial = $difference * $costPrice;
+                                                $overallFinancialResult += $itemFinancial;
+                                                
+                                                if ($itemFinancial < 0) {
+                                                    $overallTotalLoss += abs($itemFinancial);
+                                                } else {
+                                                    $overallTotalGain += $itemFinancial;
+                                                }
+                                            }
+                                        }
+                                    }
+                                @endphp
+                                <th colspan="4" class="text-end">Итого по всем инвентаризациям:</th>
+                                <th>{{ $inventories->sum('items_count') }}</th>
+                                <th>
+                                    <div class="{{ $overallFinancialResult >= 0 ? 'text-success' : 'text-danger' }}">
+                                        <strong>{{ $overallFinancialResult >= 0 ? '+' : '' }}{{ number_format($overallFinancialResult, 2) }} ₽</strong>
+                                        @if($overallTotalLoss > 0 || $overallTotalGain > 0)
+                                            <div class="text-muted small">
+                                                @if($overallTotalLoss > 0)
+                                                    <span class="text-danger">↓{{ number_format($overallTotalLoss, 2) }} ₽</span>
+                                                @endif
+                                                @if($overallTotalGain > 0)
+                                                    @if($overallTotalLoss > 0)
+                                                        /
+                                                    @endif
+                                                    <span class="text-success">↑{{ number_format($overallTotalGain, 2) }} ₽</span>
+                                                @endif
+                                            </div>
+                                        @endif
+                                    </div>
+                                </th>
+                                <th colspan="2"></th>
+                            </tr>
+                        </tfoot>
+                        @endif
                     </table>
                 </div>
                 

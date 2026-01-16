@@ -19,6 +19,7 @@ use App\Http\Controllers\FineController;
 use App\Http\Controllers\ExpenditureTypeController;
 use App\Http\Controllers\ExpenditureController;
 use App\Http\Controllers\AccountingController;
+use App\Http\Controllers\BonusHistoryController;
 
 /*
 |--------------------------------------------------------------------------
@@ -53,7 +54,20 @@ Route::middleware('auth')->group(function () {
         Route::delete('/{component}/remove', [ProductController::class, 'removeComponent'])->name('products.components.remove');
         Route::get('/available', [ProductController::class, 'getAvailableComponents'])->name('products.components.available');
     });
+
     Route::resource('clients', ClientController::class);
+        Route::post('/clients/{client}/add-bonus', [ClientController::class, 'addBonus'])
+        ->name('clients.add-bonus')
+        ->middleware('auth');
+        
+    Route::post('/clients/{client}/subtract-bonus', [ClientController::class, 'subtractBonus'])
+        ->name('clients.subtract-bonus')
+        ->middleware('auth');
+        
+    Route::get('/clients/{client}/bonus-history', [BonusHistoryController::class, 'index'])
+        ->name('clients.bonus-history')
+        ->middleware('auth');
+
     Route::resource('warehouses', WarehouseController::class);
     Route::resource('purchases', PurchaseController::class)->except(['index', 'show']);
 
@@ -120,6 +134,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/get-sale-hookahs', [TableController::class, 'getSaleHookahs'])->name('tables.get-sale-hookahs');
         Route::get('/get-sale-data', [TableController::class, 'getSaleData'])->name('tables.get-sale-data');
     });
+    Route::post('/tables/{table}/products/{item}/update-price', [TableController::class, 'updateProductPrice'])
+        ->name('tables.products.update-price');
 
     Route::resource('write-offs', WriteOffController::class);
     Route::resource('employees', EmployeeController::class);
@@ -190,6 +206,11 @@ Route::middleware('auth')->group(function () {
         // Экспорт данных
         Route::get('/export', [AccountingController::class, 'export'])->name('export');
     });
+
+    // История бонусов - общий доступ для всех авторизованных
+    Route::get('/bonus-history', [BonusHistoryController::class, 'index'])
+        ->name('bonus-history.index')
+        ->middleware('auth');
 
     
 });

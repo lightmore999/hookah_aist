@@ -18,12 +18,40 @@
                     <x-nav-link :href="route('tables.index')" :active="request()->routeIs('tables.index')">
                         Столы
                     </x-nav-link>
-                    <x-nav-link :href="route('hookahs.index')" :active="request()->routeIs('hookahs.index')">
-                        Кальяны
-                    </x-nav-link>
-                    <x-nav-link :href="route('products.index')" :active="request()->routeIs('products.index')">
-                        Товары
-                    </x-nav-link>
+                    <div class="relative" x-data="{ openProductsDropdown: false }">
+                        <button @click="openProductsDropdown = !openProductsDropdown" 
+                                @click.away="openProductsDropdown = false"
+                                :class="{
+                                    'text-gray-900 border-b-2 border-indigo-500': request()->routeIs('hookahs.*') || request()->routeIs('products.*'),
+                                    'text-gray-500 hover:text-gray-700 hover:border-gray-300': !(request()->routeIs('hookahs.*') || request()->routeIs('products.*'))
+                                }"
+                                class="inline-flex items-center px-3 py-2 text-sm font-medium leading-5 transition duration-150 ease-in-out focus:outline-none focus:text-gray-700 focus:border-gray-300">
+                            <span>Товары / Кальяны</span>
+                            <svg class="ml-1 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        
+                        <div x-show="openProductsDropdown" 
+                            x-transition:enter="transition ease-out duration-200"
+                            x-transition:enter-start="opacity-0 transform scale-95"
+                            x-transition:enter-end="opacity-100 transform scale-100"
+                            x-transition:leave="transition ease-in duration-75"
+                            x-transition:leave-start="opacity-100 transform scale-100"
+                            x-transition:leave-end="opacity-0 transform scale-95"
+                            class="absolute left-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                            <div class="py-1">
+                                <a href="{{ route('hookahs.index') }}" 
+                                class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('hookahs.*') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                    Кальяны
+                                </a>
+                                <a href="{{ route('products.index') }}" 
+                                class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('products.*') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                    Товары
+                                </a>
+                            </div>
+                        </div>
+                    </div>
                     <x-nav-link :href="route('clients.index')" :active="request()->routeIs('clients.index')">
                         Клиенты
                     </x-nav-link>
@@ -72,6 +100,9 @@
                             </x-dropdown-link>
                             <x-dropdown-link :href="route('accounting.index')">
                                 Бухгалтерия
+                            </x-dropdown-link>
+                            <x-dropdown-link :href="route('bonus-history.index')">
+                                История бонусов
                             </x-dropdown-link>
                         </div>
                     </div>
@@ -229,6 +260,9 @@
             <x-responsive-nav-link :href="route('accounting.index')" :active="request()->routeIs('accounting.index')">
                 Бухгалтерия
             </x-responsive-nav-link>
+            <x-dropdown-link :href="route('bonus-history.index')">
+                История бонусов
+            </x-dropdown-link>
         </div>
 
         <!-- Responsive Settings Options -->

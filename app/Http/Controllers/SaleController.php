@@ -11,6 +11,7 @@ use App\Models\Stock;
 use App\Models\Table;
 use App\Models\Hookah;
 use Illuminate\Http\Request;
+use App\Models\BonusHistory;
 
 class SaleController extends Controller
 {
@@ -82,18 +83,20 @@ class SaleController extends Controller
             'client', 
             'warehouse', 
             'items.product',
-            'hookahs', // это должно быть
+            'hookahs',
             'table'
         ]);
+        
         if ($sale->client) {
             $sale->client->load('bonusCard');
         }
         
-        $products = Product::with('recipeComponents.component')
+        // Загружаем продукты с категориями (используем product_category_id)
+        $products = Product::with(['recipeComponents.component', 'category'])
             ->orderBy('name')
             ->get();
             
-        $hookahs = Hookah::orderBy('name')->get(); // это должно быть
+        $hookahs = Hookah::orderBy('name')->get();
         
         $clients = Client::all();
         $warehouses = Warehouse::all();
@@ -101,7 +104,7 @@ class SaleController extends Controller
         return view('sales.show', compact(
             'sale', 
             'products',
-            'hookahs', // это должно быть
+            'hookahs',
             'clients',
             'warehouses'
         ));
@@ -159,7 +162,7 @@ class SaleController extends Controller
             'comment' => 'nullable|string|max:1000',
         ]);
 
-        // Обработка бонусов (УПРОЩЕННАЯ)
+        // Обработка бонусов
         if (isset($validated['use_bonuses']) && $validated['use_bonuses'] && !empty($validated['bonus_points_to_use'])) {
             if (!$sale->client_id) {
                 return back()->with('error', 'Для использования бонусов необходимо указать клиента');
@@ -169,13 +172,6 @@ class SaleController extends Controller
             if (!$bonusResult['success']) {
                 return back()->with('error', $bonusResult['message']);
             }
-        }
-
-        // ВАЖНО: Пересчитываем total сразу после применения бонусов
-        if ($sale->wasChanged('used_bonus_points')) {
-            $sale->refresh();
-            $sale->recalculateTotal();
-            $sale->refresh(); // Обновляем данные
         }
 
         // Проверяем наличие всех товаров
@@ -267,21 +263,30 @@ class SaleController extends Controller
         $this->recalculateSaleTotal($sale);
         $sale->refresh();
 
-        // Начисляем бонусы клиенту по правилам карты
-        $bonusMessage = '';
-        if ($sale->client_id) {
-            $pointsAwarded = $sale->awardBonusPoints();
-            if ($pointsAwarded > 0) {
-                $bonusMessage = " Начислено {$pointsAwarded} бонусов.";
-            }
-        }
-
-        // Обновляем остальные поля после пересчета
+        // Обновляем статус продажи на "completed" ПЕРЕД начислением бонусов
         $sale->update([
             'status' => 'completed',
             'payment_method' => $validated['payment_method'],
             'comment' => $validated['comment'] ?? $sale->comment,
         ]);
+
+        // Перезагружаем модель, чтобы получить обновленный статус
+        $sale->refresh();
+
+        // Начисляем бонусы клиенту по правилам карты (теперь статус "completed")
+        $bonusMessage = '';
+        
+        if ($sale->client_id) {
+            $pointsAwarded = $sale->awardBonusPoints();
+            if ($pointsAwarded > 0) {
+                $bonusMessage = " Начислено {$pointsAwarded} бонусов.";
+            }
+            
+            $client = Client::find($sale->client_id);
+            if ($client) {
+                $client->addPurchase($sale->total);
+            }
+        }
 
         // Формируем сообщение об успехе
         $successMessage = 'Продажа завершена успешно! Товары списаны со склада.' . $bonusMessage;

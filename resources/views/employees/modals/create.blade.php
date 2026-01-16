@@ -37,6 +37,9 @@
                                 <option value="" disabled selected>Выберите должность</option>
                                 <option value="Кальянщик" {{ old('position') == 'Кальянщик' ? 'selected' : '' }}>Кальянщик</option>
                                 <option value="Администратор" {{ old('position') == 'Администратор' ? 'selected' : '' }}>Администратор</option>
+                                <option value="Бармен" {{ old('position') == 'Бармен' ? 'selected' : '' }}>Бармен</option>
+                                <option value="Официант" {{ old('position') == 'Официант' ? 'selected' : '' }}>Официант</option>
+                                <option value="Уборщик" {{ old('position') == 'Уборщик' ? 'selected' : '' }}>Уборщик</option>
                             </select>
                             @error('position')
                                 <div class="invalid-feedback">{{ $message }}</div>
@@ -109,78 +112,46 @@
                         </div>
                     </div>
 
-                    <!-- Ставки оплаты -->
+                    <!-- Система оплаты -->
                     <div class="border rounded p-3 mb-4 bg-light">
                         <h6 class="fw-bold mb-3">💵 Система оплаты</h6>
                         
                         <div class="row g-3">
-                            <div class="col-md-4">
-                                <label for="hookah_percentage" class="form-label">Процент от кальяна</label>
+                            <div class="col-md-6">
+                                <label for="shift_salary" class="form-label">Ставка за смену</label>
+                                <div class="input-group">
+                                    <input type="number" 
+                                        min="0" 
+                                        step="0.01"
+                                        class="form-control @error('shift_salary') is-invalid @enderror" 
+                                        id="shift_salary" 
+                                        name="shift_salary" 
+                                        value="{{ old('shift_salary', 0) }}">
+                                    <span class="input-group-text">₽</span>
+                                    @error('shift_salary')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="form-text">Фиксированная оплата за смену</div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <label for="revenue_percentage" class="form-label">Процент с выручки</label>
                                 <div class="input-group">
                                     <input type="number" 
                                         min="0" 
                                         max="100" 
                                         step="0.1"
-                                        class="form-control @error('hookah_percentage') is-invalid @enderror" 
-                                        id="hookah_percentage" 
-                                        name="hookah_percentage" 
-                                        value="{{ old('hookah_percentage', 0) }}">
+                                        class="form-control @error('revenue_percentage') is-invalid @enderror" 
+                                        id="revenue_percentage" 
+                                        name="revenue_percentage" 
+                                        value="{{ old('revenue_percentage', 0) }}">
                                     <span class="input-group-text">%</span>
-                                    @error('hookah_percentage')
+                                    @error('revenue_percentage')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
                                 </div>
-                            </div>
-                            
-                            <div class="col-md-4">
-                                <label for="hookah_rate" class="form-label">Ставка за кальян</label>
-                                <div class="input-group">
-                                    <input type="number" 
-                                        min="0" 
-                                        step="0.01"
-                                        class="form-control @error('hookah_rate') is-invalid @enderror" 
-                                        id="hookah_rate" 
-                                        name="hookah_rate" 
-                                        value="{{ old('hookah_rate', 0) }}">
-                                    <span class="input-group-text">₽</span>
-                                    @error('hookah_rate')
-                                        <div class="invalid-feedback">{{ $message }}</div>
-                                    @enderror
-                                </div>
-                            </div>
-                            
-                            <div class="col-md-4">
-                                <label for="shift_rate" class="form-label">Ставка за смену</label>
-                                <div class="input-group">
-                                    <input type="number" 
-                                        min="0" 
-                                        step="0.01"
-                                        class="form-control @error('shift_rate') is-invalid @enderror" 
-                                        id="shift_rate" 
-                                        name="shift_rate" 
-                                        value="{{ old('shift_rate', 0) }}">
-                                    <span class="input-group-text">₽</span>
-                                    @error('shift_rate')
-                                        <div class="invalid-feedback">{{ $message }}</div>
-                                    @enderror
-                                </div>
-                            </div>
-                            
-                            <div class="col-md-4">
-                                <label for="hourly_rate" class="form-label">Почасовая ставка</label>
-                                <div class="input-group">
-                                    <input type="number" 
-                                        min="0" 
-                                        step="0.01"
-                                        class="form-control @error('hourly_rate') is-invalid @enderror" 
-                                        id="hourly_rate" 
-                                        name="hourly_rate" 
-                                        value="{{ old('hourly_rate', 0) }}">
-                                    <span class="input-group-text">₽/ч</span>
-                                    @error('hourly_rate')
-                                        <div class="invalid-feedback">{{ $message }}</div>
-                                    @enderror
-                                </div>
+                                <div class="form-text">Процент от общей выручки заведения</div>
                             </div>
                         </div>
                     </div>

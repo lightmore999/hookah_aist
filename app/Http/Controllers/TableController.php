@@ -12,6 +12,7 @@ use App\Models\Warehouse;
 use App\Models\Stock;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
+use App\Models\BonusHistory;
 
 class TableController extends Controller
 {
@@ -583,6 +584,7 @@ class TableController extends Controller
     }
     
     // Завершить продажу и закрыть стол
+
     public function closeSaleAndTable(Request $request, Table $table)
     {
         $sale = Sale::where('table_id', $table->id)->firstOrFail();
@@ -601,19 +603,18 @@ class TableController extends Controller
             'bonus_points_to_use' => 'nullable|integer|min:0'
         ]);
         
-        // Обработка бонусов
-        $useBonuses = $request->has('use_bonuses') && $request->input('use_bonuses') === '1';
-        $bonusPoints = (int) $request->input('bonus_points_to_use', 0);
-        
         // Определяем клиента (из таблицы или из продажи)
         $clientId = $table->client_id ?? $sale->client_id;
+        $client = $clientId ? Client::with('bonusCard')->find($clientId) : null;
+        
+        // ============ ОБРАБОТКА ИСПОЛЬЗОВАНИЯ БОНУСОВ ============
+        $useBonuses = $request->has('use_bonuses') && $request->input('use_bonuses') === '1';
+        $bonusPoints = (int) $request->input('bonus_points_to_use', 0);
         
         if ($useBonuses && $bonusPoints > 0) {
             if (!$clientId) {
                 return back()->with('error', 'Для использования бонусов необходимо указать клиента');
             }
-            
-            $client = Client::with('bonusCard')->find($clientId);
             
             if (!$client) {
                 return back()->with('error', 'Клиент не найден');
@@ -633,14 +634,14 @@ class TableController extends Controller
                 $discount = $validated['discount_in_rubles'] ?? $discount;
             }
             
-            // Проверяем максимальное количество бонусов
+            // Проверяем максимальное количество бонусов по карте
             $maxPercent = $client->bonusCard ? $client->bonusCard->MaxSpendPercent : 50;
             $percentage = $maxPercent / 100;
             $maxUsable = floor(($subtotal - $discount) * $percentage);
             $maxUsable = min($client->bonus_points, $maxUsable);
             
             if ($bonusPoints > $maxUsable) {
-                return back()->with('error', "Можно использовать не более {$maxUsable} бонусов");
+                return back()->with('error', "Можно использовать не более {$maxUsable} бонусов (макс. {$maxPercent}% от суммы)");
             }
             
             if ($client->bonus_points < $bonusPoints) {
@@ -648,21 +649,32 @@ class TableController extends Controller
             }
             
             // Списываем бонусы у клиента
+            $oldBalance = $client->bonus_points;
             $client->bonus_points -= $bonusPoints;
             $client->save();
+            
+            // СОХРАНЯЕМ В ИСТОРИЮ СПИСАНИЕ БОНУСОВ
+            BonusHistory::create([
+                'client_id' => $clientId,
+                'amount' => $bonusPoints,
+                'operation_type' => 'debit',
+                'balance_after' => $client->bonus_points,
+                'reason' => 'Списание бонусов при оплате продажи #' . $sale->id . ' (стол ' . $table->table_number . ')',
+                'sale_id' => $sale->id,
+            ]);
             
             // Сохраняем использованные бонусы в продаже
             $sale->used_bonus_points = $bonusPoints;
             $sale->save();
         }
         
-        // Определяем реальную скидку для сохранения
+        // ============ ОПРЕДЕЛЕНИЕ СКИДКИ ============
         $discount = $validated['discount'];
         if (isset($validated['discount_type']) && $validated['discount_type'] === 'percent') {
             $discount = $validated['discount_in_rubles'] ?? $discount;
         }
         
-        // Проверяем наличие товаров на складе
+        // ============ ПРОВЕРКА НАЛИЧИЯ ТОВАРОВ ============
         foreach ($sale->items as $item) {
             $product = $item->product;
             
@@ -676,15 +688,22 @@ class TableController extends Controller
                     
                     if (!$stock || $stock->quantity < $requiredQuantity) {
                         // Если были использованы бонусы - возвращаем их
-                        if ($sale->used_bonus_points > 0 && $clientId) {
-                            $client = Client::find($clientId);
-                            if ($client) {
-                                $client->bonus_points += $sale->used_bonus_points;
-                                $client->save();
-                            }
-                            $sale->used_bonus_points = 0;
-                            $sale->save();
+                        if ($sale->used_bonus_points > 0 && $client) {
+                            $client->bonus_points += $sale->used_bonus_points;
+                            $client->save();
+                            
+                            // ЗАПИСЬ В ИСТОРИЮ О ВОЗВРАТЕ
+                            BonusHistory::create([
+                                'client_id' => $clientId,
+                                'amount' => $sale->used_bonus_points,
+                                'operation_type' => 'credit',
+                                'balance_after' => $client->bonus_points,
+                                'reason' => 'Возврат бонусов - недостаточно товара на складе',
+                                'sale_id' => $sale->id,
+                            ]);
                         }
+                        $sale->used_bonus_points = 0;
+                        $sale->save();
                         
                         return back()->with('error', 
                             "Недостаточно компонента для товара '{$product->name}'"
@@ -698,15 +717,22 @@ class TableController extends Controller
                 
                 if (!$stock || $stock->quantity < $item->quantity) {
                     // Если были использованы бонусы - возвращаем их
-                    if ($sale->used_bonus_points > 0 && $clientId) {
-                        $client = Client::find($clientId);
-                        if ($client) {
-                            $client->bonus_points += $sale->used_bonus_points;
-                            $client->save();
-                        }
-                        $sale->used_bonus_points = 0;
-                        $sale->save();
+                    if ($sale->used_bonus_points > 0 && $client) {
+                        $client->bonus_points += $sale->used_bonus_points;
+                        $client->save();
+                        
+                        // ЗАПИСЬ В ИСТОРИЮ О ВОЗВРАТЕ
+                        BonusHistory::create([
+                            'client_id' => $clientId,
+                            'amount' => $sale->used_bonus_points,
+                            'operation_type' => 'credit',
+                            'balance_after' => $client->bonus_points,
+                            'reason' => 'Возврат бонусов - недостаточно товара на складе',
+                            'sale_id' => $sale->id,
+                        ]);
                     }
+                    $sale->used_bonus_points = 0;
+                    $sale->save();
                     
                     return back()->with('error', 
                         "Недостаточно товара: {$product->name}"
@@ -715,7 +741,7 @@ class TableController extends Controller
             }
         }
         
-        // Списываем товары со склада
+        // ============ СПИСАНИЕ ТОВАРОВ СО СКЛАДА ============
         foreach ($sale->items as $item) {
             $product = $item->product;
             
@@ -739,9 +765,12 @@ class TableController extends Controller
             }
         }
         
+        // ============ ОБНОВЛЕНИЕ ДАННЫХ ПРОДАЖИ ============
         // Обновляем client_id в продаже если нужно
         if (!$sale->client_id && $table->client_id) {
             $sale->client_id = $table->client_id;
+            $clientId = $table->client_id;
+            $client = Client::with('bonusCard')->find($clientId);
         }
         
         // Обновляем продажу
@@ -754,26 +783,65 @@ class TableController extends Controller
         
         // Пересчитываем итоговую сумму
         $this->recalculateSaleTotal($sale);
+        $sale->refresh();
         
-        // Начисляем бонусы клиенту (5% от финальной суммы)
+        // ============ НАЧИСЛЕНИЕ БОНУСОВ ПО КАРТЕ КЛИЕНТА ============
         $bonusMessage = '';
-        if ($clientId) {
-            $finalTotal = $sale->total;
-            $pointsAwarded = floor($finalTotal * 0.05); // 5% от суммы
-            
-            if ($pointsAwarded > 0) {
-                $client = Client::find($clientId);
-                if ($client) {
+        $pointsAwarded = 0;
+        
+        if ($client) {
+            if ($client->bonusCard) {
+                // У клиента ЕСТЬ бонусная карта
+                // Получаем данные из бонусной карты
+                $bonusPercent = $client->bonusCard->BonusPercent;
+                $finalTotal = $sale->total;
+                
+                // Рассчитываем бонусы от текущей покупки
+                $pointsAwarded = floor($finalTotal * ($bonusPercent / 100));
+                
+                if ($pointsAwarded > 0) {
+                    $oldBalance = $client->bonus_points;
                     $client->bonus_points += $pointsAwarded;
                     $client->save();
-                    $bonusMessage = " Начислено {$pointsAwarded} бонусов.";
+                    
+                    // СОХРАНЯЕМ В ИСТОРИЮ НАЧИСЛЕНИЕ БОНУСОВ
+                    BonusHistory::create([
+                        'client_id' => $clientId,
+                        'amount' => $pointsAwarded,
+                        'operation_type' => 'credit',
+                        'balance_after' => $client->bonus_points,
+                        'reason' => "Начисление {$bonusPercent}% бонусов за продажу #" . $sale->id . ' (стол ' . $table->table_number . ')',
+                        'sale_id' => $sale->id,
+                    ]);
+                    
+                    $bonusMessage = " Начислено {$pointsAwarded} бонусов ({$bonusPercent}% от суммы).";
+                }
+            } else {
+                // У клиента НЕТ бонусной карты
+                // Проверяем, достиг ли клиент необходимой суммы для получения карты
+                $requiredSpend = 0; // В реальной системе это будет значение из настроек
+                
+                // Сумма ВСЕХ покупок клиента (включая текущую)
+                $clientTotalSpent = Sale::where('client_id', $clientId)
+                    ->where('status', 'completed')
+                    ->sum('total');
+                
+                // Прибавляем текущую продажу
+                $totalSpentAfterThis = $clientTotalSpent + $sale->total;
+                
+                // Если есть требование по сумме для карты и клиент ее достиг
+                if ($requiredSpend > 0 && $totalSpentAfterThis >= $requiredSpend) {
+                    $bonusMessage = " Клиент достиг необходимой суммы для получения бонусной карты!";
+                    // Здесь можно добавить автоматическое создание карты
                 }
             }
+            $client->addPurchase($sale->total);
         }
         
-        // Закрываем стол
+        // ============ ЗАКРЫТИЕ СТОЛА ============
         $table->update(['status' => 'closed']);
         
+        // ============ ФОРМИРОВАНИЕ СООБЩЕНИЯ ОБ УСПЕХЕ ============
         $successMessage = 'Стол закрыт и продажа завершена успешно!';
         
         if ($bonusMessage) {
@@ -999,8 +1067,21 @@ class TableController extends Controller
                 'clientMaxSpendPercent' => $table->client && $table->client->bonusCard 
                     ? $table->client->bonusCard->MaxSpendPercent 
                     : 50,
+                'clientBonusPercent' => $table->client && $table->client->bonusCard 
+                    ? $table->client->bonusCard->BonusPercent 
+                    : 5,
+                'clientRequiredSpend' => $table->client && $table->client->bonusCard 
+                    ? $table->client->bonusCard->RequiredSpendAmount 
+                    : 0,
+                'clientBonusCardName' => $table->client && $table->client->bonusCard 
+                    ? $table->client->bonusCard->Name 
+                    : null,
                 'usedBonusPoints' => 0,
-                'bonusEarned' => 0
+                'bonusEarned' => 0,
+                'bonusEarnedPercent' => 0,
+                'canEarnBonus' => false,
+                'bonusCalculation' => 'Нет данных о бонусной карте',
+                'hasBonusCard' => $table->client && $table->client->bonusCard ? true : false
             ]);
         }
         
@@ -1012,15 +1093,24 @@ class TableController extends Controller
         $clientName = null;
         $clientBonusPoints = 0;
         $clientMaxSpendPercent = 50;
+        $clientBonusPercent = 5; // Процент начисления бонусов по умолчанию
+        $clientRequiredSpend = 0; // Минимальная сумма для начисления
+        $clientBonusCardName = null;
+        $hasBonusCard = false;
         
         if ($clientId) {
             $client = Client::with('bonusCard')->find($clientId);
             if ($client) {
                 $clientName = $client->name;
                 $clientBonusPoints = $client->bonus_points;
-                $clientMaxSpendPercent = $client->bonusCard 
-                    ? $client->bonusCard->MaxSpendPercent 
-                    : 50;
+                $hasBonusCard = $client->bonusCard ? true : false;
+                
+                if ($client->bonusCard) {
+                    $clientMaxSpendPercent = $client->bonusCard->MaxSpendPercent;
+                    $clientBonusPercent = $client->bonusCard->BonusPercent;
+                    $clientRequiredSpend = $client->bonusCard->RequiredSpendAmount;
+                    $clientBonusCardName = $client->bonusCard->Name;
+                }
             }
         }
         
@@ -1053,8 +1143,44 @@ class TableController extends Controller
         // Итоговая сумма с учетом скидки и бонусов
         $finalTotal = max(0, $subtotal - $sale->discount - $sale->used_bonus_points);
         
-        // Рассчитываем начисленные бонусы (5% от финальной суммы)
-        $bonusEarned = floor($finalTotal * 0.05);
+        // Рассчитываем начисленные бонусы
+        $bonusEarned = 0;
+        $bonusEarnedPercent = 0;
+        $canEarnBonus = false;
+        $bonusCalculation = '';
+        
+        if ($clientId) {
+            if ($hasBonusCard) {
+                // Если у клиента уже есть карта, всегда начисляем бонусы
+                $canEarnBonus = true;
+                $bonusEarned = floor($finalTotal * ($clientBonusPercent / 100));
+                $bonusEarnedPercent = $clientBonusPercent;
+                $bonusCalculation = "{$clientBonusPercent}% от {$finalTotal} руб. = {$bonusEarned} бонусов";
+            } else {
+                // У клиента нет карты - проверяем, достиг ли он необходимой суммы
+                $canEarnBonus = false;
+                
+                // Рассчитываем общую сумму покупок клиента
+                $totalClientSpent = Sale::where('client_id', $clientId)
+                    ->where('status', 'completed')
+                    ->sum('total');
+                
+                $totalAfterThis = $totalClientSpent + $finalTotal;
+                
+                if ($clientRequiredSpend > 0) {
+                    if ($totalAfterThis >= $clientRequiredSpend) {
+                        $bonusCalculation = "Клиент достиг необходимой суммы для получения карты!";
+                    } else {
+                        $remaining = $clientRequiredSpend - $totalAfterThis;
+                        $bonusCalculation = "Для получения карты нужно потратить еще {$remaining} руб.";
+                    }
+                } else {
+                    $bonusCalculation = "У клиента нет бонусной карты";
+                }
+            }
+        } else {
+            $bonusCalculation = "Клиент не указан";
+        }
         
         return response()->json([
             'success' => true,
@@ -1068,12 +1194,36 @@ class TableController extends Controller
             'finalTotal' => (float)$finalTotal,
             'paymentMethod' => $sale->payment_method,
             'comment' => $sale->comment,
+            
+            // Информация о клиенте
             'clientId' => $clientId,
             'clientName' => $clientName,
             'clientBonusPoints' => $clientBonusPoints,
+            'hasBonusCard' => $hasBonusCard,
+            
+            // Информация о бонусной карте
             'clientMaxSpendPercent' => $clientMaxSpendPercent,
+            'clientBonusPercent' => $clientBonusPercent,
+            'clientRequiredSpend' => $clientRequiredSpend,
+            'clientBonusCardName' => $clientBonusCardName,
+            
+            // Использованные бонусы
             'usedBonusPoints' => $sale->used_bonus_points,
-            'bonusEarned' => $bonusEarned
+            
+            // Расчет начисляемых бонусов
+            'bonusEarned' => $bonusEarned,
+            'bonusEarnedPercent' => $bonusEarnedPercent,
+            'canEarnBonus' => $canEarnBonus,
+            'bonusCalculation' => $bonusCalculation,
+            
+            // Для отладки
+            'debug' => [
+                'finalTotal' => $finalTotal,
+                'requiredSpend' => $clientRequiredSpend,
+                'bonusPercent' => $clientBonusPercent,
+                'calculation' => $bonusCalculation,
+                'hasCard' => $hasBonusCard
+            ]
         ]);
     }
 
@@ -1151,6 +1301,35 @@ class TableController extends Controller
             
             return $stock ? $stock->quantity : 0;
         }
+    }
+
+    public function updateProductPrice(Request $request, Table $table, SaleItem $item)
+    {
+        $sale = Sale::where('table_id', $table->id)->firstOrFail();
+        
+        if ($sale->status === 'completed') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Нельзя изменять товары в завершенной продаже'
+            ], 400);
+        }
+        
+        $validated = $request->validate([
+            'unit_price' => 'required|numeric|min:0.01'
+        ]);
+        
+        $item->update(['unit_price' => $validated['unit_price']]);
+        
+        // Пересчитываем сумму
+        $this->recalculateSaleTotal($sale);
+        $sale->refresh();
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Цена обновлена',
+            'total' => $sale->total,
+            'newTotal' => $sale->total
+        ]);
     }
 
 }

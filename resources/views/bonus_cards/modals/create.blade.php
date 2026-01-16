@@ -1,4 +1,3 @@
-<!-- resources/views/bonus_cards/modals/create.blade.php -->
 <div class="modal fade" id="createCardModal" tabindex="-1" aria-labelledby="createCardModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -46,87 +45,45 @@
                             <small class="text-muted">Сумма, которую должен потратить клиент для получения карты</small>
                         </div>
                         
-                        <!-- Начисление за стол -->
+                        <!-- Начисление бонусов с продажи -->
                         <div class="col-md-6 mb-3">
-                            <label for="EarntRantTable" class="form-label fw-bold">Начисление за стол (%) *</label>
+                            <label for="BonusPercent" class="form-label fw-bold">Начисление бонусов (%) *</label>
                             <div class="input-group">
                                 <input type="number" 
-                                       class="form-control @error('EarntRantTable') is-invalid @enderror" 
-                                       id="EarntRantTable" 
-                                       name="EarntRantTable" 
-                                       value="{{ old('EarntRantTable', 5) }}" 
+                                       class="form-control @error('BonusPercent') is-invalid @enderror" 
+                                       id="BonusPercent" 
+                                       name="BonusPercent" 
+                                       value="{{ old('BonusPercent', 5) }}" 
                                        min="0" 
                                        max="100"
                                        required>
                                 <span class="input-group-text">%</span>
-                                @error('EarntRantTable')
+                                @error('BonusPercent')
                                     <div class="invalid-feedback">{{ $message }}</div>
                                 @enderror
                             </div>
-                            <small class="text-muted">Процент бонусов от суммы заказа за стол</small>
+                            <small class="text-muted">Процент бонусов от суммы продажи</small>
                         </div>
                     </div>
                     
-                    <div class="row">
-                        <!-- Начисление за доставку/с собой -->
-                        <div class="col-md-6 mb-3">
-                            <label for="EarntRantTakeaway" class="form-label fw-bold">Начисление с собой (%) *</label>
-                            <div class="input-group">
-                                <input type="number" 
-                                       class="form-control @error('EarntRantTakeaway') is-invalid @enderror" 
-                                       id="EarntRantTakeaway" 
-                                       name="EarntRantTakeaway" 
-                                       value="{{ old('EarntRantTakeaway', 2) }}" 
-                                       min="0" 
-                                       max="100"
-                                       required>
-                                <span class="input-group-text">%</span>
-                                @error('EarntRantTakeaway')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                            <small class="text-muted">Процент бонусов от суммы заказа с собой/доставка</small>
-                        </div>
-                        
-                        <!-- Максимальный процент оплаты бонусами -->
-                        <div class="col-md-6 mb-3">
-                            <label for="MaxSpendPercent" class="form-label fw-bold">Макс. оплата бонусами (%) *</label>
-                            <div class="input-group">
-                                <input type="number" 
-                                       class="form-control @error('MaxSpendPercent') is-invalid @enderror" 
-                                       id="MaxSpendPercent" 
-                                       name="MaxSpendPercent" 
-                                       value="{{ old('MaxSpendPercent', 10) }}" 
-                                       min="0" 
-                                       max="100"
-                                       required>
-                                <span class="input-group-text">%</span>
-                                @error('MaxSpendPercent')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                            <small class="text-muted">Максимальный процент от суммы заказа, который можно оплатить бонусами</small>
-                        </div>
-                    </div>
-                    
-                    <!-- Скидка при закрытии стола -->
+                    <!-- Максимальный процент оплаты бонусами -->
                     <div class="mb-3">
-                        <label for="TableCloseDiscountPercent" class="form-label fw-bold">Скидка при закрытии (%) *</label>
+                        <label for="MaxSpendPercent" class="form-label fw-bold">Макс. оплата бонусами (%) *</label>
                         <div class="input-group">
                             <input type="number" 
-                                   class="form-control @error('TableCloseDiscountPercent') is-invalid @enderror" 
-                                   id="TableCloseDiscountPercent" 
-                                   name="TableCloseDiscountPercent" 
-                                   value="{{ old('TableCloseDiscountPercent', 0) }}" 
+                                   class="form-control @error('MaxSpendPercent') is-invalid @enderror" 
+                                   id="MaxSpendPercent" 
+                                   name="MaxSpendPercent" 
+                                   value="{{ old('MaxSpendPercent', 10) }}" 
                                    min="0" 
                                    max="100"
                                    required>
                             <span class="input-group-text">%</span>
-                            @error('TableCloseDiscountPercent')
+                            @error('MaxSpendPercent')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
                         </div>
-                        <small class="text-muted">Процент скидки при закрытии стола</small>
+                        <small class="text-muted">Максимальный процент от суммы заказа, который можно оплатить бонусами</small>
                     </div>
                 </div>
 

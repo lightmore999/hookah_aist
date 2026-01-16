@@ -62,26 +62,17 @@
                             </p>
                         </div>
                         
-                        <div class="row mb-3">
-                            <div class="col-6">
-                                <small class="text-muted d-block">Начисление за стол:</small>
-                                <span class="badge bg-primary">{{ $card->EarntRantTable }}%</span>
-                            </div>
-                            <div class="col-6">
-                                <small class="text-muted d-block">Начисление с собой:</small>
-                                <span class="badge bg-secondary">{{ $card->EarntRantTakeaway }}%</span>
-                            </div>
+                        <div class="mb-3">
+                            <small class="text-muted d-block mb-1">Начисление бонусов с продажи:</small>
+                            <p class="mb-1">
+                                <i class="bi bi-percent me-1 text-primary"></i>
+                                <span class="badge bg-primary">{{ $card->BonusPercent }}%</span>
+                            </p>
                         </div>
                         
-                        <div class="row mb-3">
-                            <div class="col-6">
-                                <small class="text-muted d-block">Макс. оплата бонусами:</small>
-                                <span class="badge bg-warning text-dark">{{ $card->MaxSpendPercent }}%</span>
-                            </div>
-                            <div class="col-6">
-                                <small class="text-muted d-block">Скидка при закрытии:</small>
-                                <span class="badge bg-success">{{ $card->TableCloseDiscountPercent }}%</span>
-                            </div>
+                        <div class="mb-3">
+                            <small class="text-muted d-block">Макс. оплата бонусами:</small>
+                            <span class="badge bg-warning text-dark">{{ $card->MaxSpendPercent }}%</span>
                         </div>
                         
                         <div class="mt-4 pt-3 border-top">
@@ -93,10 +84,8 @@
                                         data-id="{{ $card->IDBonusCard }}"
                                         data-name="{{ $card->Name }}"
                                         data-required="{{ $card->RequiredSpendAmount }}"
-                                        data-table="{{ $card->EarntRantTable }}"
-                                        data-takeaway="{{ $card->EarntRantTakeaway }}"
                                         data-max="{{ $card->MaxSpendPercent }}"
-                                        data-discount="{{ $card->TableCloseDiscountPercent }}">
+                                        data-bonus="{{ $card->BonusPercent }}">
                                     <i class="bi bi-pencil me-1"></i> Редактировать
                                 </button>
                                 <button type="button" 
@@ -168,10 +157,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Заполняем поля формы
                     document.getElementById('edit_Name').value = button.getAttribute('data-name');
                     document.getElementById('edit_RequiredSpendAmount').value = button.getAttribute('data-required');
-                    document.getElementById('edit_EarntRantTable').value = button.getAttribute('data-table');
-                    document.getElementById('edit_EarntRantTakeaway').value = button.getAttribute('data-takeaway');
                     document.getElementById('edit_MaxSpendPercent').value = button.getAttribute('data-max');
-                    document.getElementById('edit_TableCloseDiscountPercent').value = button.getAttribute('data-discount');
+                    document.getElementById('edit_BonusPercent').value = button.getAttribute('data-bonus');
                     
                     // Устанавливаем action формы
                     const form = document.getElementById('editCardForm');
@@ -186,5 +173,4 @@ document.addEventListener('DOMContentLoaded', function() {
 @endsection
 
 @section('scripts')
-
 @endsection

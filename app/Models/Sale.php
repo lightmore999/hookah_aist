@@ -135,6 +135,9 @@ class Sale extends Model
             ];
         }
 
+        // Получаем текущий баланс до списания
+        $oldBalance = $client->bonus_points;
+        
         // Списываем бонусы у клиента
         $client->bonus_points -= $pointsToUse;
         $client->save();
@@ -142,6 +145,16 @@ class Sale extends Model
         // Сохраняем в продажу
         $this->used_bonus_points = $pointsToUse;
         $this->save();
+
+        // СОХРАНЯЕМ В ИСТОРИЮ СПИСАНИЕ БОНУСОВ
+        \App\Models\BonusHistory::create([
+            'client_id' => $this->client_id,
+            'amount' => $pointsToUse,
+            'operation_type' => 'debit',
+            'balance_after' => $client->bonus_points, // баланс после списания
+            'reason' => 'Списание бонусов при оплате продажи #' . $this->id,
+            'sale_id' => $this->id,
+        ]);
 
         return [
             'success' => true,
@@ -177,39 +190,45 @@ class Sale extends Model
     // Метод для начисления бонусов после завершения продажи
     public function awardBonusPoints()
     {
-        if (!$this->client_id || $this->status !== 'completed') {
+        if (!$this->client_id || !$this->client->bonusCard) {
             return 0;
         }
 
         $client = $this->client;
-        $bonusCard = $client->bonusCard;
         
-        if (!$bonusCard) {
-            return 0;
-        }
+        // Рассчитываем сумму для начисления бонусов
+        // Берем итоговую сумму продажи (без вычета скидки бонусами)
+        $bonusableAmount = $this->total + ($this->used_bonus_points ?? 0); // Добавляем бонусы обратно
+        
+        // Используем BonusPercent из бонусной карты
+        $percent = $client->bonusCard->BonusPercent;
+        
+        // Расчет бонусов
+        $pointsToAward = $bonusableAmount * ($percent / 100);
+        $pointsToAward = floor($pointsToAward);
 
-        // Определяем процент начисления в зависимости от типа заказа
-        $isTableOrder = !is_null($this->table_id);
-        $earnRate = $isTableOrder ? $bonusCard->EarntRantTable : $bonusCard->EarntRantTakeaway;
-        
-        // Начисляем проценты от суммы заказа
-        $pointsToAdd = floor($this->final_total * ($earnRate / 100));
-        
-        if ($pointsToAdd > 0) {
-            $client->bonus_points += $pointsToAdd;
-            $client->save();
+        if ($pointsToAward > 0) {
+            // Получаем баланс до начисления
+            $oldBalance = $client->bonus_points;
             
-            // Логируем начисление
-            \Log::info('Начислены бонусы клиенту', [
-                'client_id' => $client->id,
+            // Начисляем бонусы
+            $client->bonus_points += $pointsToAward;
+            $client->save();
+
+            // СОХРАНЯЕМ В ИСТОРИЮ НАЧИСЛЕНИЕ БОНУСОВ
+            \App\Models\BonusHistory::create([
+                'client_id' => $this->client_id,
+                'amount' => $pointsToAward,
+                'operation_type' => 'credit',
+                'balance_after' => $client->bonus_points, // баланс после начисления
+                'reason' => 'Начисление бонусов за продажу #' . $this->id,
                 'sale_id' => $this->id,
-                'points_added' => $pointsToAdd,
-                'total_bonus_points' => $client->bonus_points
             ]);
         }
 
-        return $pointsToAdd;
+        return $pointsToAward;
     }
+
     // Методы
     public function recalculateTotal()
     {

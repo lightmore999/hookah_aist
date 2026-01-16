@@ -64,6 +64,7 @@
                                 <th>Имя</th>
                                 <th>Телефон</th>
                                 <th>Бонусная карта</th>
+                                <th>Потрачено за всё время</th> <!-- НОВЫЙ СТОЛБЕЦ -->
                                 <th>Бонусы</th>
                                 <th>Дата рождения</th>
                                 <th>Комментарий</th>
@@ -77,9 +78,12 @@
                                     <strong>{{ $client->name }}</strong>
                                 </td>
                                 <td>{{ $client->phone }}</td>
+                                
+                                <!-- Столбец "Бонусная карта" -->
                                 <td>
                                     @if($client->bonusCard)
-                                        <span class="badge bg-info" data-bs-toggle="tooltip" title="{{ $client->bonusCard->Name }}">
+                                        <span class="badge bg-info" data-bs-toggle="tooltip" 
+                                            title="Требуется трат: {{ number_format($client->bonusCard->RequiredSpendAmount, 2) }} руб.">
                                             <i class="bi bi-credit-card me-1"></i>
                                             {{ $client->bonusCard->Name }}
                                         </span>
@@ -87,16 +91,54 @@
                                         <span class="text-muted">—</span>
                                     @endif
                                 </td>
+                                
+                                <!-- НОВЫЙ СТОЛБЕЦ: "Потрачено за всё время" -->
                                 <td>
-                                    @if($client->bonus_points > 0)
-                                        <span class="badge bg-success">
-                                            <i class="bi bi-star-fill me-1"></i>
-                                            {{ $client->bonus_points }}
-                                        </span>
-                                    @else
-                                        <span class="text-muted">0</span>
-                                    @endif
+                                    <div class="fw-bold">
+                                        {{ number_format($client->total_spent, 2) }} ₽
+                                    </div>
+                                    
                                 </td>
+                                
+                                <!-- Столбец "Бонусы" -->
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <!-- Количество бонусов -->
+                                        @if($client->bonus_points > 0)
+                                            <span class="badge bg-success">
+                                                <i class="bi bi-star-fill me-1"></i>
+                                                {{ $client->bonus_points }}
+                                            </span>
+                                        @else
+                                            <span class="text-muted small">0</span>
+                                        @endif
+                                        
+                                        <!-- Кнопки операций с бонусами -->
+                                        <div class="btn-group btn-group-sm" style="height: 26px;">
+                                            <button type="button" 
+                                                    class="btn btn-outline-success add-bonus-btn px-2 py-0"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#addBonusModal"
+                                                    data-id="{{ $client->id }}"
+                                                    data-name="{{ $client->name }}"
+                                                    title="Начислить бонусы">
+                                                <i class="bi bi-plus"></i>
+                                            </button>
+                                            <button type="button" 
+                                                    class="btn btn-outline-success subtract-bonus-btn px-2 py-0"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#subtractBonusModal"
+                                                    data-id="{{ $client->id }}"
+                                                    data-name="{{ $client->name }}"
+                                                    data-bonus-points="{{ $client->bonus_points }}"
+                                                    {{ $client->bonus_points <= 0 ? 'disabled' : '' }}
+                                                    title="Списать бонусы">
+                                                <i class="bi bi-dash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </td>
+                                
                                 <td>{{ $client->birth_date ? $client->birth_date->format('d.m.Y') : '-' }}</td>
                                 <td>{{ $client->comment ? Str::limit($client->comment, 50) : '-' }}</td>
                                 <td class="text-end">
@@ -113,6 +155,13 @@
                                             data-bonus-card-id="{{ $client->bonus_card_id }}">
                                         <i class="bi bi-pencil"></i>
                                     </button>
+
+                                    <a href="{{ route('clients.bonus-history', $client) }}" 
+                                    class="btn btn-info btn-sm"
+                                    title="История бонусов">
+                                        <i class="bi bi-clock-history"></i>
+                                    </a>
+
                                     <button type="button" 
                                             class="btn btn-outline-danger btn-sm delete-client-btn"
                                             data-bs-toggle="modal"
@@ -125,6 +174,19 @@
                             </tr>
                             @endforeach
                         </tbody>
+                        <!-- Итоговая строка -->
+                        <tfoot class="table-light">
+                            <tr>
+                                <th colspan="3" class="text-end">Итого:</th>
+                                <th class="fw-bold">
+                                    {{ number_format($clients->sum('total_spent'), 2) }} ₽
+                                </th>
+                                <th class="fw-bold">
+                                    {{ $clients->sum('bonus_points') }} бон.
+                                </th>
+                                <th colspan="3"></th>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             @endif
@@ -135,6 +197,7 @@
 @include('clients.modals.create', ['bonusCards' => \App\Models\BonusCard::all()])
 @include('clients.modals.edit', ['bonusCards' => \App\Models\BonusCard::all()])
 @include('clients.modals.delete')
+@include('clients.modals.bonus-operations')
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -144,7 +207,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return new bootstrap.Tooltip(tooltipTriggerEl)
     });
     
-    // Обработчик удаления оставляем без изменений
+    // Обработчик удаления
     const deleteClientModal = document.getElementById('deleteClientModal');
     if (deleteClientModal) {
         deleteClientModal.addEventListener('show.bs.modal', function(event) {

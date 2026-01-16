@@ -7,6 +7,7 @@ const HookahTimerManager = {
     TIMER_LIMIT_MINUTES: 15,
     TIMER_LIMIT_MS: 15 * 60 * 1000,
     STORAGE_PREFIX: 'hookah_timer_',
+    NOTIFICATIONS_KEY: 'hookah_expired_notifications',
     
     // =============== ПУБЛИЧНЫЕ МЕТОДЫ ===============
     
@@ -18,6 +19,9 @@ const HookahTimerManager = {
         
         // Очищаем старые таймеры из localStorage
         this.cleanupOldTimers();
+        
+        // Восстанавливаем персистентные уведомления
+        this.restorePersistentNotifications();
         
         // Ждем отрисовки таблицы
         this.initAllTimers();
@@ -78,7 +82,7 @@ const HookahTimerManager = {
         
         if (serverTimer) {
             console.log(`🔄 Cell ${index}: Activating server timer for table ${tableId}`);
-            this.activateServerTimer(serverTimer, tableId);
+            this.activateServerTimer(serverTimer, tableId, cell);
         } else {
             console.log(`🔄 Cell ${index}: Creating new timer for table ${tableId}`);
             this.createClientTimer(cell, tableId);
@@ -90,7 +94,7 @@ const HookahTimerManager = {
     /**
      * Активировать существующий серверный таймер
      */
-    activateServerTimer(timerElement, tableId) {
+    activateServerTimer(timerElement, tableId, cell) {
         if (!timerElement || !tableId) return;
         
         console.log(`🎯 Activating server timer for table ${tableId}`);
@@ -121,6 +125,9 @@ const HookahTimerManager = {
             clearInterval(timerElement._intervalId);
         }
         
+        // Удаляем старое уведомление если есть
+        this.removePersistentNotification(tableId);
+        
         // Функция обновления таймера
         const updateTimer = () => {
             const now = Date.now();
@@ -143,6 +150,11 @@ const HookahTimerManager = {
                 
                 alertElement.classList.remove('alert-warning');
                 alertElement.classList.add('alert-danger');
+                
+                // Показываем персистентное уведомление
+                if (!this.hasPersistentNotification(tableId)) {
+                    this.showPersistentNotification(tableId, cell);
+                }
             } else {
                 const remainingMinutes = Math.floor(remainingMs / 60000);
                 const seconds = Math.floor((remainingMs % 60000) / 1000);
@@ -213,7 +225,7 @@ const HookahTimerManager = {
         timerContainer.appendChild(timerElement);
         
         // Активируем таймер
-        this.activateServerTimer(timerElement, tableId);
+        this.activateServerTimer(timerElement, tableId, cell);
     },
     
     /**
@@ -253,6 +265,9 @@ const HookahTimerManager = {
         // Удаляем из localStorage
         const storageKey = `${this.STORAGE_PREFIX}${tableId}`;
         localStorage.removeItem(storageKey);
+        
+        // Удаляем уведомление
+        this.removePersistentNotification(tableId);
         
         // Находим и останавливаем все таймеры для этого стола
         document.querySelectorAll('.hookah-requirement-timer').forEach(timerElement => {
@@ -301,6 +316,9 @@ const HookahTimerManager = {
         // Удаляем старое время из localStorage
         const storageKey = `${this.STORAGE_PREFIX}${tableId}`;
         localStorage.removeItem(storageKey);
+        
+        // Удаляем уведомление
+        this.removePersistentNotification(tableId);
         
         // Перезапускаем таймер
         document.querySelectorAll(`.hookah-requirement-timer[data-table-id="${tableId}"]`).forEach(timerElement => {
@@ -390,6 +408,233 @@ const HookahTimerManager = {
     updateTableOnHookahAdded(tableId) {
         console.log(`🔄 Updating table interface after hookah added: ${tableId}`);
         this.stopTimer(tableId);
+    },
+    
+    // =============== ПЕРСИСТЕНТНЫЕ УВЕДОМЛЕНИЯ ===============
+    
+    /**
+     * Показать персистентное уведомление
+     */
+    showPersistentNotification(tableId, cell) {
+        // Получаем информацию о столе
+        const tableNumber = cell.querySelector('button[data-table-number]')?.dataset.tableNumber || '?';
+        const guestName = cell.querySelector('.text-truncate')?.textContent?.trim() || 'Клиент';
+        
+        const notificationId = `hookah-notification-${tableId}`;
+        
+        // Проверяем, не существует ли уже уведомление
+        if (document.getElementById(notificationId)) {
+            return;
+        }
+        
+        // Получаем контейнер для уведомлений
+        const container = this.getNotificationsContainer();
+        
+        // Создаем уведомление
+        const notificationHtml = `
+            <div id="${notificationId}" class="toast show mb-2" role="alert" style="min-width: 300px;">
+                <div class="toast-header bg-danger text-white">
+                    <i class="bi bi-alarm-fill me-2"></i>
+                    <strong class="me-auto">Требуется кальян!</strong>
+                    <small class="text-white-50">${this.getCurrentTime()}</small>
+                    <button type="button" class="btn-close btn-close-white" 
+                            onclick="window.HookahTimerManager.closePersistentNotification('${tableId}')"></button>
+                </div>
+                <div class="toast-body">
+                    <div class="fw-bold mb-1">Стол #${tableNumber}</div>
+                    <div class="text-muted small mb-2">${guestName}</div>
+                    <div class="alert alert-warning p-2 mb-2">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        <small>Клиент ждет кальян уже более 15 минут!</small>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <button class="btn btn-sm btn-outline-danger" 
+                                onclick="window.HookahTimerManager.resetTimer('${tableId}')">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Сбросить таймер
+                        </button>
+                        <button class="btn btn-sm btn-success" 
+                                onclick="window.HookahTimerManager.markHookahAdded('${tableId}')">
+                            <i class="bi bi-check-lg me-1"></i>Кальян поставлен
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        container.insertAdjacentHTML('beforeend', notificationHtml);
+        
+        // Сохраняем уведомление в localStorage
+        this.savePersistentNotification(tableId, tableNumber, guestName);
+        
+        // Показываем всплывающее уведомление
+        if (typeof showToast === 'function') {
+            showToast('danger', 'Требуется кальян!', `Стол #${tableNumber} (${guestName}) ждет кальян уже более 15 минут`);
+        }
+        
+        console.log(`🔔 Created persistent notification for table ${tableId}`);
+    },
+    
+    /**
+     * Получить контейнер для уведомлений
+     */
+    getNotificationsContainer() {
+        let container = document.getElementById('hookah-notifications-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'hookah-notifications-container';
+            container.className = 'position-fixed bottom-0 end-0 p-3';
+            container.style.zIndex = '9998';
+            container.style.maxHeight = '70vh';
+            container.style.overflowY = 'auto';
+            document.body.appendChild(container);
+        }
+        return container;
+    },
+    
+    /**
+     * Получить текущее время для отображения
+     */
+    getCurrentTime() {
+        const now = new Date();
+        return now.toLocaleTimeString('ru-RU', { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+        });
+    },
+    
+    /**
+     * Сохранить уведомление в localStorage
+     */
+    savePersistentNotification(tableId, tableNumber, guestName) {
+        const notifications = JSON.parse(localStorage.getItem(this.NOTIFICATIONS_KEY) || '[]');
+        
+        // Проверяем, нет ли уже этого уведомления
+        if (!notifications.some(n => n.tableId == tableId)) {
+            notifications.push({
+                tableId: tableId,
+                tableNumber: tableNumber,
+                guestName: guestName,
+                createdAt: Date.now()
+            });
+            
+            localStorage.setItem(this.NOTIFICATIONS_KEY, JSON.stringify(notifications));
+        }
+    },
+    
+    /**
+     * Удалить персистентное уведомление
+     */
+    removePersistentNotification(tableId) {
+        const notificationId = `hookah-notification-${tableId}`;
+        const element = document.getElementById(notificationId);
+        if (element) {
+            element.remove();
+        }
+        
+        // Удаляем из localStorage
+        const notifications = JSON.parse(localStorage.getItem(this.NOTIFICATIONS_KEY) || '[]');
+        const updatedNotifications = notifications.filter(n => n.tableId != tableId);
+        localStorage.setItem(this.NOTIFICATIONS_KEY, JSON.stringify(updatedNotifications));
+        
+        console.log(`🔕 Removed persistent notification for table ${tableId}`);
+    },
+    
+    /**
+     * Проверить наличие уведомления
+     */
+    hasPersistentNotification(tableId) {
+        const notifications = JSON.parse(localStorage.getItem(this.NOTIFICATIONS_KEY) || '[]');
+        return notifications.some(n => n.tableId == tableId);
+    },
+    
+    /**
+     * Восстановить все персистентные уведомления
+     */
+    restorePersistentNotifications() {
+        console.log('🔄 Restoring persistent notifications...');
+        
+        const notifications = JSON.parse(localStorage.getItem(this.NOTIFICATIONS_KEY) || '[]');
+        console.log(`📋 Found ${notifications.length} notifications to restore`);
+        
+        // Очищаем старые уведомления (старше 24 часов)
+        const now = Date.now();
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        const validNotifications = notifications.filter(n => (now - n.createdAt) <= oneDayMs);
+        
+        if (validNotifications.length < notifications.length) {
+            localStorage.setItem(this.NOTIFICATIONS_KEY, JSON.stringify(validNotifications));
+        }
+        
+        // Восстанавливаем валидные уведомления
+        validNotifications.forEach(notif => {
+            // Ищем ячейку стола
+            const cells = document.querySelectorAll('td[style*="border: 2px solid #2196f3"]');
+            let foundCell = null;
+            
+            for (const cell of cells) {
+                const tableIdButton = cell.querySelector(`button[data-table-id="${notif.tableId}"]`);
+                if (tableIdButton) {
+                    foundCell = cell;
+                    break;
+                }
+            }
+            
+            if (foundCell) {
+                this.showPersistentNotification(notif.tableId, foundCell);
+            }
+        });
+    },
+    
+    /**
+     * Закрыть персистентное уведомление (публичный метод для HTML)
+     */
+    closePersistentNotification(tableId) {
+        this.removePersistentNotification(tableId);
+    },
+    
+    /**
+     * Отметить, что кальян был поставлен (публичный метод для HTML)
+     */
+    markHookahAdded(tableId) {
+        // Находим ячейку стола
+        const cells = document.querySelectorAll('td[style*="border: 2px solid #2196f3"]');
+        let foundCell = null;
+        
+        for (const cell of cells) {
+            const tableIdButton = cell.querySelector(`button[data-table-id="${tableId}"]`);
+            if (tableIdButton) {
+                foundCell = cell;
+                break;
+            }
+        }
+        
+        if (foundCell) {
+            // Находим кнопку "Кальяны" и кликаем на нее (симуляция открытия модалки)
+            const hookahButton = foundCell.querySelector('button.open-sale-hookahs-btn');
+            if (hookahButton) {
+                hookahButton.click();
+                showToast('success', 'Открыта модалка кальянов', 'Можно добавить кальян для стола');
+            }
+            
+            // Удаляем уведомление
+            this.removePersistentNotification(tableId);
+        }
+    },
+    
+    /**
+     * Очистить все персистентные уведомления
+     */
+    clearAllNotifications() {
+        // Удаляем все DOM элементы
+        const container = document.getElementById('hookah-notifications-container');
+        if (container) {
+            container.remove();
+        }
+        
+        // Очищаем localStorage
+        localStorage.removeItem(this.NOTIFICATIONS_KEY);
+        
+        console.log('🧹 All hookah notifications cleared');
     }
 };
 
@@ -407,3 +652,20 @@ window.resetHookahTimer = function(tableId) {
         window.HookahTimerManager.resetTimer(tableId);
     }
 };
+
+// Автоматическая инициализация при загрузке страницы
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(() => {
+            if (window.HookahTimerManager) {
+                window.HookahTimerManager.init();
+            }
+        }, 1000);
+    });
+} else {
+    setTimeout(() => {
+        if (window.HookahTimerManager) {
+            window.HookahTimerManager.init();
+        }
+    }, 1000);
+}

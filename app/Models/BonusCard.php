@@ -9,7 +9,6 @@ class BonusCard extends Model
 {
     use HasFactory;
 
-    // Если первичный ключ не 'id', укажите его
     protected $primaryKey = 'IDBonusCard';
     public $incrementing = true;
     protected $keyType = 'int';
@@ -17,18 +16,14 @@ class BonusCard extends Model
     protected $fillable = [
         'Name',
         'RequiredSpendAmount',
-        'EarntRantTable',
-        'EarntRantTakeaway',
         'MaxSpendPercent',
-        'TableCloseDiscountPercent'
+        'BonusPercent'
     ];
 
     protected $casts = [
         'RequiredSpendAmount' => 'integer',
-        'EarntRantTable' => 'integer',
-        'EarntRantTakeaway' => 'integer',
         'MaxSpendPercent' => 'integer',
-        'TableCloseDiscountPercent' => 'integer',
+        'BonusPercent' => 'integer',
     ];
 
     public function clients()

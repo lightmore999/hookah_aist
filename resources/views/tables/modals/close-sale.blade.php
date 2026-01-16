@@ -28,20 +28,40 @@
                                                 <div class="small mt-1">
                                                     Доступно бонусов: <span id="clientBonusPoints" class="badge bg-primary"></span>
                                                 </div>
+                                                <div class="small mt-1" id="clientCardInfo">
+                                                    <!-- Информация о карте будет здесь -->
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                     <div class="col-4 text-end">
                                         <div class="small text-muted">Можно использовать:</div>
-                                        <div><strong id="maxUsableBonuses" class="text-success"></strong> бонусов</div>
+                                        <div><strong id="maxUsableBonuses" class="text-success"></strong></div>
                                         <div class="small text-muted mt-1">
-                                            Лимит: <span id="maxSpendPercentText">50</span>%
+                                            Лимит: <span id="maxSpendPercentText">50%</span>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Секция использования бонусов - ТОЛЬКО ОДНА! -->
+                            <!-- Информация о начисляемых бонусах -->
+                            <div class="alert alert-warning mb-3" id="bonusAwardInfo" style="display: none;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <i class="bi bi-gift text-warning me-2"></i>
+                                        <strong>Начисляемые бонусы:</strong>
+                                    </div>
+                                    <div class="text-end">
+                                        <span id="bonusAwardAmount" class="h5 mb-0 text-success">0</span>
+                                        <span class="text-muted small d-block" id="bonusAwardPercent">0% от суммы</span>
+                                    </div>
+                                </div>
+                                <div class="mt-2 small" id="bonusAwardDetails">
+                                    <!-- Детали расчета будут здесь -->
+                                </div>
+                            </div>
+
+                            <!-- Секция использования бонусов -->
                             <div class="mb-3 border p-3 rounded" id="bonusSection" style="display: none;">
                                 <div class="form-check mb-2">
                                     <input class="form-check-input" 
@@ -50,7 +70,7 @@
                                         name="use_bonuses" 
                                         value="1">
                                     <label class="form-check-label fw-bold" for="useBonuses">
-                                        Использовать бонусы
+                                        <i class="bi bi-stars me-1"></i>Использовать бонусы
                                     </label>
                                 </div>
                                 
@@ -219,6 +239,57 @@
                                     <small class="text-muted" id="finalTotalBreakdown">(Товары + Кальяны) - Скидка</small>
                                 </div>
                             </div>
+
+                            <!-- Калькулятор сдачи (показывается только для наличных) -->
+                            <div class="card border-info mt-3" id="cashCalculator" style="display: none;">
+                                <div class="card-header bg-info bg-opacity-10 border-info py-2">
+                                    <h6 class="mb-0"><i class="bi bi-calculator me-1"></i>Калькулятор сдачи</h6>
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="row align-items-center mb-2">
+                                        <div class="col-6">
+                                            <small>Сумма к оплате:</small>
+                                            <div class="h5 text-info mb-0" id="calcTotalAmount">0.00 ₽</div>
+                                        </div>
+                                        <div class="col-6 text-end">
+                                            <small class="text-muted">Введите полученную сумму</small>ы
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <div class="input-group">
+                                            <input type="number" 
+                                                min="0" 
+                                                step="0.01"
+                                                class="form-control" 
+                                                id="cashReceived" 
+                                                placeholder="0.00"
+                                                value="0">
+                                            <span class="input-group-text">₽</span>
+                                        </div>
+                                        <div class="form-text small">
+                                            Сумма, которую дал клиент
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="alert alert-success py-2 mb-2" id="calcResult" style="display: none;">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span><i class="bi bi-cash-coin me-1"></i>Сдача:</span>
+                                            <strong id="changeAmount" class="h4 mb-0">0.00 ₽</strong>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="alert alert-danger py-2 small" id="insufficientCash" style="display: none;">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-exclamation-triangle me-2"></i>
+                                            <div>
+                                                <strong>Недостаточно!</strong>
+                                                <div class="small">Нужно еще: <strong id="missingAmount">0.00 ₽</strong></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -235,3 +306,4 @@
         </div>
     </div>
 </div>
+

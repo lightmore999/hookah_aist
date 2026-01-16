@@ -33,8 +33,6 @@ class HookahController extends Controller
             'name' => 'required|string|max:255',
             'price' => 'required|numeric|min:0',
             'cost' => 'required|numeric|min:0',
-            'hookah_maker_rate' => 'required|numeric|min:0',
-            'administrator_rate' => 'required|numeric|min:0',
         ]);
 
         Hookah::create($validated);
@@ -68,8 +66,6 @@ class HookahController extends Controller
             'name' => 'required|string|max:255',
             'price' => 'required|numeric|min:0',
             'cost' => 'required|numeric|min:0',
-            'hookah_maker_rate' => 'required|numeric|min:0',
-            'administrator_rate' => 'required|numeric|min:0',
         ]);
 
         $hookah->update($validated);

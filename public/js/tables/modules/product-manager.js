@@ -1,17 +1,45 @@
 /**
- * ProductManager - управление товарами для столов
+ * ProductManager - управление товарами для столов с фильтрацией
  */
 class ProductManager {
     constructor() {
         this.currentTableId = null;
         this.currentSaleId = null;
+        this.allProducts = [];
+        this.filteredProducts = [];
         
         this.init();
     }
     
     init() {
         this.bindEvents();
+        this.initializeProducts();
         console.log('ProductManager initialized');
+    }
+    
+    initializeProducts() {
+        const productSelect = document.getElementById('productSelect');
+        if (productSelect) {
+            // Собираем все товары в массив
+            productSelect.querySelectorAll('option').forEach(option => {
+                if (option.value) {
+                    this.allProducts.push({
+                        element: option,
+                        id: option.value,
+                        text: option.textContent.toLowerCase(),
+                        category: option.dataset.category || 'null',
+                        categoryName: option.dataset.categoryName || 'Без категории',
+                        price: parseFloat(option.dataset.price) || 0,
+                        unit: option.dataset.unit || 'шт',
+                        isComposite: option.dataset.isComposite === '1',
+                        available: parseFloat(option.dataset.available) || 0,
+                        disabled: option.disabled
+                    });
+                }
+            });
+            
+            console.log('Загружено товаров:', this.allProducts.length);
+        }
     }
     
     bindEvents() {
@@ -56,6 +84,29 @@ class ProductManager {
                 this.removeProduct(itemId);
             }
         });
+        
+        // Обработчики фильтрации
+        const categoryFilter = document.getElementById('categoryFilterProducts');
+        const searchInput = document.getElementById('searchTableProduct');
+        const clearSearchBtn = document.getElementById('clearTableSearch');
+        
+        if (categoryFilter) {
+            categoryFilter.addEventListener('change', () => {
+                this.filterProducts();
+            });
+        }
+        
+        if (searchInput) {
+            searchInput.addEventListener('input', () => {
+                this.filterProducts();
+            });
+        }
+        
+        if (clearSearchBtn) {
+            clearSearchBtn.addEventListener('click', () => {
+                this.clearSearch();
+            });
+        }
     }
     
     handleModalShow(event) {
@@ -73,13 +124,25 @@ class ProductManager {
         
         // Загружаем данные через AJAX
         this.loadSaleItems();
+        
+        // Применяем фильтрацию товаров
+        setTimeout(() => {
+            this.filterProducts();
+        }, 100);
     }
     
     handleProductSelectChange() {
         const productSelect = document.getElementById('productSelect');
         const selectedOption = productSelect.options[productSelect.selectedIndex];
+        
+        if (!selectedOption || !selectedOption.value) {
+            this.hideAvailabilityWarning();
+            return;
+        }
+        
         const unit = selectedOption.dataset.unit;
         const price = selectedOption.dataset.price;
+        const available = parseFloat(selectedOption.dataset.available) || 0;
         
         // Устанавливаем цену по умолчанию
         const priceInput = document.getElementById('productPrice');
@@ -104,6 +167,125 @@ class ProductManager {
         if (quantityInput) {
             quantityInput.step = unit === 'шт' ? '1' : '0.001';
             quantityInput.min = unit === 'шт' ? '1' : '0.001';
+        }
+        
+        // Показываем информацию о доступности
+        this.showAvailabilityInfo(available, unit);
+    }
+    
+    showAvailabilityInfo(available, unit) {
+        const availabilityInfo = document.getElementById('productAvailabilityInfo');
+        const availabilityMessage = document.getElementById('availabilityMessage');
+        
+        if (!availabilityInfo || !availabilityMessage) return;
+        
+        if (available <= 0) {
+            availabilityInfo.style.display = 'block';
+            availabilityInfo.className = 'alert alert-danger mt-2 p-2';
+            availabilityMessage.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i> Товар отсутствует на складе`;
+        } else {
+            availabilityInfo.style.display = 'block';
+            availabilityInfo.className = 'alert alert-success mt-2 p-2';
+            availabilityMessage.innerHTML = `<i class="bi bi-check-circle me-1"></i> Доступно: ${available} ${unit}`;
+        }
+    }
+    
+    hideAvailabilityWarning() {
+        const availabilityInfo = document.getElementById('productAvailabilityInfo');
+        if (availabilityInfo) {
+            availabilityInfo.style.display = 'none';
+        }
+    }
+    
+    filterProducts() {
+        const categoryFilter = document.getElementById('categoryFilterProducts');
+        const searchInput = document.getElementById('searchTableProduct');
+        const productSelect = document.getElementById('productSelect');
+        
+        if (!categoryFilter || !searchInput || !productSelect) {
+            console.error('Элементы фильтрации не найдены');
+            return;
+        }
+        
+        const selectedCategory = categoryFilter.value;
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        
+        // Показываем все опции
+        for (let i = 1; i < productSelect.options.length; i++) {
+            productSelect.options[i].style.display = '';
+        }
+        
+        let visibleCount = 0;
+        let firstVisibleOption = null;
+        
+        // Фильтруем товары
+        for (let i = 1; i < productSelect.options.length; i++) {
+            const option = productSelect.options[i];
+            if (!option.value) continue;
+            
+            const category = option.dataset.category || 'null';
+            const text = option.textContent.toLowerCase();
+            
+            let shouldShow = true;
+            
+            // Фильтр по категории
+            if (selectedCategory !== 'all') {
+                if (selectedCategory === 'null') {
+                    shouldShow = category === 'null';
+                } else {
+                    shouldShow = category === selectedCategory;
+                }
+            }
+            
+            // Фильтр по поиску
+            if (shouldShow && searchTerm) {
+                shouldShow = text.includes(searchTerm);
+            }
+            
+            // Показываем/скрываем элемент
+            if (shouldShow) {
+                option.style.display = '';
+                visibleCount++;
+                
+                if (!firstVisibleOption) {
+                    firstVisibleOption = option;
+                }
+            } else {
+                option.style.display = 'none';
+            }
+        }
+        
+        // Автоматически выбираем первый видимый товар если есть фильтры
+        if ((selectedCategory !== 'all' || searchTerm) && firstVisibleOption) {
+            productSelect.value = firstVisibleOption.value;
+            this.handleProductSelectChange();
+        }
+        
+        // Сообщение если ничего не найдено
+        this.showNoProductsWarning(visibleCount === 0 && productSelect.options.length > 1);
+    }
+    
+    showNoProductsWarning(show) {
+        const productSelect = document.getElementById('productSelect');
+        if (!productSelect) return;
+        
+        const existingWarning = productSelect.parentNode.querySelector('.alert-warning:not(#productAvailabilityInfo)');
+        
+        if (show && !existingWarning) {
+            const warningDiv = document.createElement('div');
+            warningDiv.className = 'alert alert-warning mt-2';
+            warningDiv.textContent = 'Товары не найдены';
+            productSelect.parentNode.insertBefore(warningDiv, productSelect.nextSibling);
+        } else if (existingWarning && !show) {
+            existingWarning.remove();
+        }
+    }
+    
+    clearSearch() {
+        const searchInput = document.getElementById('searchTableProduct');
+        if (searchInput) {
+            searchInput.value = '';
+            this.filterProducts();
         }
     }
     
@@ -230,6 +412,22 @@ class ProductManager {
             return;
         }
         
+        // Проверка доступности товара
+        const available = parseFloat(selectedOption.dataset.available) || 0;
+        if (available < quantity) {
+            if (available > 0) {
+                const addAvailable = confirm(`Доступно только ${available} ${unit}. Добавить это количество?`);
+                if (addAvailable) {
+                    quantityInput.value = available;
+                    return this.addProduct(); // Рекурсивный вызов с обновленным количеством
+                }
+                return;
+            } else {
+                this.showToast('warning', 'Внимание', 'Товар отсутствует на складе');
+                return;
+            }
+        }
+        
         const requestData = {
             product_id: productId,
             quantity: quantity,
@@ -237,6 +435,12 @@ class ProductManager {
         };
         
         console.log('Adding product:', requestData);
+        
+        // Показываем индикатор загрузки
+        const addBtn = document.getElementById('addProductBtn');
+        const originalHtml = addBtn.innerHTML;
+        addBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Добавление...';
+        addBtn.disabled = true;
         
         try {
             const data = await this.makeRequest(`/tables/${this.currentTableId}/add-product`, {
@@ -259,6 +463,14 @@ class ProductManager {
                 this.resetProductForm();
             } else {
                 this.showToast('danger', 'Ошибка', data.message || 'Не удалось добавить товар');
+                
+                // Предлагаем добавить доступное количество
+                if (data.details && data.details.can_add_max && data.details.available > 0) {
+                    if (confirm(`Доступно только ${data.details.available} ${data.details.unit}. Добавить это количество?`)) {
+                        quantityInput.value = data.details.available;
+                        setTimeout(() => this.addProduct(), 100);
+                    }
+                }
             }
         } catch (error) {
             console.error('Error adding product:', error);
@@ -267,8 +479,12 @@ class ProductManager {
             if (error.data && error.data.message && error.data.message.includes('Недостаточно товара')) {
                 this.showStockWarning(error.data, selectedOption);
             } else {
-                this.showToast('danger', 'Ошибка', 'Не удалось добавить товар');
+                this.showToast('danger', 'Ошибка', 'Не удалось добавить товар: ' + error.message);
             }
+        } finally {
+            // Восстанавливаем кнопку
+            addBtn.innerHTML = originalHtml;
+            addBtn.disabled = false;
         }
     }
     
@@ -336,6 +552,8 @@ class ProductManager {
             hint.textContent = '';
             hint.className = 'text-muted';
         }
+        
+        this.hideAvailabilityWarning();
     }
     
     showStockWarning(errorData, selectedOption) {
@@ -393,7 +611,25 @@ class ProductManager {
             return window.TableManager.makeRequest(url, options);
         }
         
-        throw new Error('TableManager.makeRequest not available');
+        // Если TableManager не доступен, используем fetch
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+        
+        const defaultOptions = {
+            headers: {
+                'X-CSRF-TOKEN': csrfToken,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+        };
+        
+        const response = await fetch(url, { ...defaultOptions, ...options });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+        
+        return await response.json();
     }
     
     showToast(type, title, message) {
