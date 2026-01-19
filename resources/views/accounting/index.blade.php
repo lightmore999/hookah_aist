@@ -11,38 +11,39 @@
         </h1>
     </div>
 
-    <!-- Общая статистика -->
+    <!-- Общая статистика по способам оплаты -->
+    @php
+        $colors = ['primary', 'success', 'info', 'warning', 'danger', 'dark'];
+    @endphp
+
     <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card border-primary">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Всего доходов</h6>
-                    <h3 class="text-primary">{{ number_format($totalStats['total_income'], 0) }} ₽</h3>
+        @foreach($paymentMethods as $index => $method)
+            @php
+                $methodId = $method->IDPaymentMethod;
+                $methodTotal = 0;
+                if (isset($totalStats['payment_stats'][$methodId])) {
+                    $methodTotal = $totalStats['payment_stats'][$methodId]['total'] ?? 0;
+                }
+            @endphp
+            <div class="col-md-3 mb-3">
+                <div class="card border-{{ $colors[$index % count($colors)] }}">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">{{ $method->Name }}</h6>
+                        <h3 class="text-{{ $colors[$index % count($colors)] }}">
+                            {{ number_format($methodTotal, 0) }} ₽
+                        </h3>
+                    </div>
                 </div>
             </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-success">
+    @endforeach
+        
+        <!-- Общий доход -->
+        <div class="col-md-3 mb-3">
+            <div class="card border-dark">
                 <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Наличные</h6>
-                    <h3 class="text-success">{{ number_format($totalStats['cash_income'], 0) }} ₽</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-info">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Безналичные</h6>
-                    <h3 class="text-info">{{ number_format($totalStats['card_income'], 0) }} ₽</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card {{ $totalStats['profit'] >= 0 ? 'border-success' : 'border-danger' }}">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Прибыль за всё время</h6>
-                    <h3 class="{{ $totalStats['profit'] >= 0 ? 'text-success' : 'text-danger' }}">
-                        {{ number_format($totalStats['profit'], 0) }} ₽
+                    <h6 class="text-muted mb-2">Общий доход</h6>
+                    <h3 class="text-dark">
+                        {{ number_format($totalStats['total_income'], 0) }} ₽
                     </h3>
                 </div>
             </div>
@@ -139,10 +140,12 @@
                 <table class="table table-bordered table-hover mb-0">
                     <thead class="table-light" style="position: sticky; top: 0; z-index: 10;">
                         <tr>
-                            <th style="position: sticky; left: 0; background: #f8f9fa;">Период</th>
+                            <th style="position: sticky; left: 0; background: #f8f9fa; min-width: 150px;">Период</th>
                             
-                            <!-- КАССА -->
-                            <th colspan="2" class="text-center bg-light">КАССА</th>
+                            <!-- КАССА - Динамические столбцы -->
+                            @if(count($paymentMethods) > 0)
+                                <th colspan="{{ count($paymentMethods) }}" class="text-center bg-light">КАССА</th>
+                            @endif
                             
                             <!-- ВЫРУЧКА -->
                             <th class="text-center bg-light">ВЫРУЧКА</th>
@@ -159,11 +162,12 @@
                         <tr>
                             <th style="position: sticky; left: 0; background: #f8f9fa;">&nbsp;</th>
                             
-                            <!-- КАССА -->
-                            <th class="text-end">Наличные</th>
-                            <th class="text-end">Карта</th>
+                            <!-- СПОСОБЫ ОПЛАТЫ -->
+                           @foreach($paymentMethods as $method)
+                                <th class="text-end" style="min-width: 100px;">{{ $method->Name }}</th>
+                            @endforeach
                             
-                            <!-- ВЫРУЧКА -->
+                            <!-- ВЫРУЧКА -->ы
                             <th class="text-end">Всего</th>
                             
                             <!-- СТОЛЫ -->
@@ -179,6 +183,7 @@
                             <!-- РАСХОДЫ И ПРИБЫЛЬ -->
                             <th class="text-end">Расходы</th>
                             <th class="text-end">Зарплата</th>
+                            <th class="text-end">Штрафы</th>
                             <th class="text-end">Прибыль</th>
                         </tr>
                     </thead>
@@ -199,9 +204,20 @@
                                 @endif
                             </td>
                             
-                            <!-- КАССА -->
-                            <td class="text-end text-success">{{ number_format($row['cash_total'], 0) }} ₽</td>
-                            <td class="text-end text-primary">{{ number_format($row['card_total'], 0) }} ₽</td>
+                            <!-- СПОСОБЫ ОПЛАТЫ -->
+                           @foreach($paymentMethods as $method)
+                                @php
+                                    $methodId = $method->IDPaymentMethod;
+                                    $paymentAmount = $row["payment_{$methodId}"] ?? 0;
+                                    $colors = ['primary', 'success', 'info', 'warning', 'danger', 'dark'];
+                                    $colorClass = $colors[$loop->index % count($colors)];
+                                @endphp
+                                <td class="text-end">
+                                    <span class="text-{{ $colorClass }}">
+                                        {{ number_format($paymentAmount, 0) }} ₽
+                                    </span>
+                                </td>
+                            @endforeach
                             
                             <!-- ВЫРУЧКА -->
                             <td class="text-end fw-bold">{{ number_format($row['revenue'], 0) }} ₽</td>
@@ -219,26 +235,40 @@
                             <!-- РАСХОДЫ И ПРИБЫЛЬ -->
                             <td class="text-end text-danger">{{ number_format($row['expenses'], 0) }} ₽</td>
                             <td class="text-end text-danger">{{ number_format($row['salary'], 0) }} ₽</td>
+                            <td class="text-end text-danger">{{ number_format($row['fines'], 0) }} ₽</td>
                             <td class="text-end fw-bold {{ $row['profit'] >= 0 ? 'text-success' : 'text-danger' }}">
                                 {{ number_format($row['profit'], 0) }} ₽
                             </td>
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="13" class="text-center py-4 text-muted">
+                            <td colspan="{{ 1 + count($paymentMethods) + 10 }}" class="text-center py-4 text-muted">
                                 <i class="bi bi-calendar-x me-2"></i>Нет данных за выбранный период
                             </td>
                         </tr>
                         @endforelse
                         
                         <!-- Итого -->
-                        @if(count($tableData) > 1)
+                        @if(count($tableData) > 0)
                         <tr class="table-active">
                             <td style="position: sticky; left: 0; background: #f8f9fa;"><strong>ИТОГО</strong></td>
                             
-                            <!-- КАССА -->
-                            <td class="text-end fw-bold text-success">{{ number_format(collect($tableData)->sum('cash_total'), 0) }} ₽</td>
-                            <td class="text-end fw-bold text-primary">{{ number_format(collect($tableData)->sum('card_total'), 0) }} ₽</td>
+                            <!-- СПОСОБЫ ОПЛАТЫ -->
+                            @foreach($paymentMethods as $method)
+                                <td class="text-end fw-bold">
+                                    @php
+                                        $paymentTotal = 0;
+                                        foreach ($tableData as $row) {
+                                            $paymentTotal += $row["payment_{$method->id}"] ?? 0;
+                                        }
+                                        $colors = ['primary', 'success', 'info', 'warning', 'danger', 'dark'];
+                                        $colorClass = $colors[$loop->index % count($colors)];
+                                    @endphp
+                                    <span class="text-{{ $colorClass }}">
+                                        {{ number_format($paymentTotal, 0) }} ₽
+                                    </span>
+                                </td>
+                            @endforeach
                             
                             <!-- ВЫРУЧКА -->
                             <td class="text-end fw-bold">{{ number_format(collect($tableData)->sum('revenue'), 0) }} ₽</td>
@@ -263,6 +293,7 @@
                             <!-- РАСХОДЫ И ПРИБЫЛЬ -->
                             <td class="text-end fw-bold text-danger">{{ number_format(collect($tableData)->sum('expenses'), 0) }} ₽</td>
                             <td class="text-end fw-bold text-danger">{{ number_format(collect($tableData)->sum('salary'), 0) }} ₽</td>
+                            <td class="text-end fw-bold text-danger">{{ number_format(collect($tableData)->sum('fines'), 0) }} ₽</td>
                             <td class="text-end fw-bold {{ collect($tableData)->sum('profit') >= 0 ? 'text-success' : 'text-danger' }}">
                                 {{ number_format(collect($tableData)->sum('profit'), 0) }} ₽
                             </td>
@@ -276,6 +307,7 @@
             <small>
                 <i class="bi bi-info-circle me-1"></i>
                 Показано: {{ count($tableData) }} периодов | 
+                Способов оплаты: {{ count($paymentMethods) }} |
                 <span class="text-primary">■ Текущий период выделен синим</span> |
                 Прибыль = Выручка - Себестоимость - Расходы - Зарплата - Штрафы
             </small>
@@ -300,10 +332,12 @@
     white-space: nowrap;
     padding: 8px 12px;
     border: 1px solid #dee2e6;
+    font-size: 0.9rem;
 }
 .table thead th {
     background-color: #f8f9fa;
     border-bottom: 2px solid #dee2e6;
+    vertical-align: middle;
 }
 .table tbody tr:hover {
     background-color: rgba(0, 0, 0, 0.02);
@@ -311,17 +345,9 @@
 .table-primary {
     background-color: rgba(13, 110, 253, 0.1) !important;
 }
-.table-secondary {
-    background-color: rgba(108, 117, 125, 0.1) !important;
-}
-.table-info {
-    background-color: rgba(13, 202, 240, 0.1) !important;
-}
-.table-warning {
-    background-color: rgba(255, 193, 7, 0.1) !important;
-}
-.table-danger {
-    background-color: rgba(220, 53, 69, 0.1) !important;
+.table-active {
+    background-color: rgba(0, 0, 0, 0.05) !important;
+    font-weight: bold;
 }
 </style>
 

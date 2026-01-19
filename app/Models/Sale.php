@@ -4,7 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Stock;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Sale extends Model
 {
@@ -12,12 +14,11 @@ class Sale extends Model
 
     protected $fillable = [
         'client_id',
-        'warehouse_id',
         'table_id',
         'total',
         'discount',
-        'used_bonus_points', // добавляем только это поле
-        'payment_method',
+        'used_bonus_points',
+        'payment_method_id', 
         'status',
         'comment',
         'sale_date',
@@ -27,36 +28,66 @@ class Sale extends Model
         'total' => 'decimal:2',
         'discount' => 'decimal:2',
         'sale_date' => 'datetime',
+        'used_bonus_points' => 'integer',
     ];
 
-    public function client()
+    // =========== ОТНОШЕНИЯ ===========
+
+    /**
+     * Клиент, совершивший покупку
+     */
+    public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
     }
 
-    public function warehouse()
+    /**
+     * Стол, за которым была продажа
+     */
+    public function table(): BelongsTo
     {
-        return $this->belongsTo(Warehouse::class);
+        return $this->belongsTo(Table::class, 'table_id');
     }
 
-    public function items()
+    /**
+     * Способ оплаты
+     */
+    public function paymentMethod(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethod::class, 'payment_method_id', 'IDPaymentMethod');
+    }
+
+    /**
+     * Товары в продаже
+     */
+    public function items(): HasMany
     {
         return $this->hasMany(SaleItem::class);
     }
 
-    public function hookahs()
+    /**
+     * Кальяны в продаже
+     */
+    public function hookahs(): BelongsToMany
     {
         return $this->belongsToMany(Hookah::class, 'sale_hookahs')
                     ->withTimestamps();
     }
 
-    public function table()
+    /**
+     * История бонусных операций
+     */
+    public function bonusHistories(): HasMany
     {
-        return $this->belongsTo(Table::class, 'table_id');
+        return $this->hasMany(BonusHistory::class, 'sale_id');
     }
 
-    // Accessors
-    public function getStatusTextAttribute()
+    // =========== ACCESSORS ===========
+
+    /**
+     * Текстовое представление статуса
+     */
+    public function getStatusTextAttribute(): string
     {
         $statuses = [
             'new' => 'Новый',
@@ -68,37 +99,79 @@ class Sale extends Model
         return $statuses[$this->status] ?? $this->status;
     }
 
-    // Добавляем бонусную скидку как вычисляемое поле
-    public function getBonusDiscountAttribute()
+    /**
+     * Бонусная скидка (1 бонус = 1 рубль)
+     */
+    public function getBonusDiscountAttribute(): float
     {
-        // 1 бонус = 1 рубль (или другая валюта)
-        return $this->used_bonus_points;
+        return (float) ($this->used_bonus_points ?? 0);
     }
 
-    // Обновляем FinalTotal чтобы учитывал бонусы
-    public function getFinalTotalAttribute()
+    /**
+     * Итоговая сумма с учетом всех скидок и бонусов
+     */
+    public function getFinalTotalAttribute(): float
     {
-        $total = $this->total - $this->discount - ($this->used_bonus_points ?? 0);
+        $total = (float) $this->total - (float) $this->discount - (float) $this->bonus_discount;
         return max(0, $total); // Не даем уйти в минус
     }
 
-    public function getHookahsTotalAttribute()
+    /**
+     * Сумма кальянов
+     */
+    public function getHookahsTotalAttribute(): float
     {
         return $this->hookahs->sum('price');
     }
 
-    public function hasTable()
+    /**
+     * Название способа оплаты
+     */
+    public function getPaymentMethodNameAttribute(): string
+    {
+        return $this->paymentMethod ? $this->paymentMethod->Name : 'Не указано';
+    }
+
+    /**
+     * Форматированная дата продажи
+     */
+    public function getFormattedSaleDateAttribute(): string
+    {
+        return $this->sale_date ? $this->sale_date->format('d.m.Y H:i') : '-';
+    }
+
+    // =========== ПРОВЕРКИ ===========
+
+    /**
+     * Проверка, есть ли привязанный стол
+     */
+    public function hasTable(): bool
     {
         return !is_null($this->table_id);
     }
 
-    // Методы для работы с бонусами (УПРОЩЕННЫЕ)
-    public function canUseBonuses()
+    /**
+     * Проверка, можно ли использовать бонусы
+     */
+    public function canUseBonuses(): bool
     {
         return $this->client_id && $this->client && $this->client->bonus_points > 0;
     }
 
-    public function getMaxUsableBonuses()
+    /**
+     * Проверка, использовались ли бонусы
+     */
+    public function getUsedBonusCardAttribute(): bool
+    {
+        return $this->used_bonus_points > 0;
+    }
+
+    // =========== МЕТОДЫ ДЛЯ БОНУСОВ ===========
+
+    /**
+     * Максимальное количество бонусов для использования
+     */
+    public function getMaxUsableBonuses(): int
     {
         if (!$this->canUseBonuses()) {
             return 0;
@@ -109,14 +182,16 @@ class Sale extends Model
         $maxPercent = $bonusCard ? $bonusCard->MaxSpendPercent : 50; // 50% по умолчанию
         
         // Можно использовать не более X% суммы заказа
-        $maxBonusesByTotal = floor($this->total * ($maxPercent / 100));
+        $maxBonusesByTotal = floor((float) $this->total * ($maxPercent / 100));
         
         // Но не больше, чем есть у клиента
-        return min($this->client->bonus_points, $maxBonusesByTotal);
+        return min($this->client->bonus_points, (int) $maxBonusesByTotal);
     }
 
-    // Метод для применения бонусов
-    public function applyBonuses($pointsToUse)
+    /**
+     * Применить бонусы к продаже
+     */
+    public function applyBonuses(int $pointsToUse): array
     {
         if (!$this->client_id || $this->status === 'completed') {
             return [
@@ -146,12 +221,12 @@ class Sale extends Model
         $this->used_bonus_points = $pointsToUse;
         $this->save();
 
-        // СОХРАНЯЕМ В ИСТОРИЮ СПИСАНИЕ БОНУСОВ
-        \App\Models\BonusHistory::create([
+        // Сохраняем в историю списание бонусов
+        BonusHistory::create([
             'client_id' => $this->client_id,
             'amount' => $pointsToUse,
             'operation_type' => 'debit',
-            'balance_after' => $client->bonus_points, // баланс после списания
+            'balance_after' => $client->bonus_points,
             'reason' => 'Списание бонусов при оплате продажи #' . $this->id,
             'sale_id' => $this->id,
         ]);
@@ -163,8 +238,10 @@ class Sale extends Model
         ];
     }
 
-    // Метод для отмены бонусов
-    public function cancelBonuses()
+    /**
+     * Отменить использование бонусов
+     */
+    public function cancelBonuses(): array
     {
         if ($this->status === 'completed' || $this->used_bonus_points == 0) {
             return [
@@ -187,8 +264,10 @@ class Sale extends Model
         ];
     }
 
-    // Метод для начисления бонусов после завершения продажи
-    public function awardBonusPoints()
+    /**
+     * Начислить бонусы после завершения продажи
+     */
+    public function awardBonusPoints(): int
     {
         if (!$this->client_id || !$this->client->bonusCard) {
             return 0;
@@ -198,7 +277,7 @@ class Sale extends Model
         
         // Рассчитываем сумму для начисления бонусов
         // Берем итоговую сумму продажи (без вычета скидки бонусами)
-        $bonusableAmount = $this->total + ($this->used_bonus_points ?? 0); // Добавляем бонусы обратно
+        $bonusableAmount = (float) $this->total + (float) ($this->used_bonus_points ?? 0);
         
         // Используем BonusPercent из бонусной карты
         $percent = $client->bonusCard->BonusPercent;
@@ -208,29 +287,30 @@ class Sale extends Model
         $pointsToAward = floor($pointsToAward);
 
         if ($pointsToAward > 0) {
-            // Получаем баланс до начисления
-            $oldBalance = $client->bonus_points;
-            
             // Начисляем бонусы
             $client->bonus_points += $pointsToAward;
             $client->save();
 
-            // СОХРАНЯЕМ В ИСТОРИЮ НАЧИСЛЕНИЕ БОНУСОВ
-            \App\Models\BonusHistory::create([
+            // Сохраняем в историю начисление бонусов
+            BonusHistory::create([
                 'client_id' => $this->client_id,
                 'amount' => $pointsToAward,
                 'operation_type' => 'credit',
-                'balance_after' => $client->bonus_points, // баланс после начисления
+                'balance_after' => $client->bonus_points,
                 'reason' => 'Начисление бонусов за продажу #' . $this->id,
                 'sale_id' => $this->id,
             ]);
         }
 
-        return $pointsToAward;
+        return (int) $pointsToAward;
     }
 
-    // Методы
-    public function recalculateTotal()
+    // =========== МЕТОДЫ ДЛЯ ПРОДАЖ ===========
+
+    /**
+     * Пересчитать итоговую сумму
+     */
+    public function recalculateTotal(): float
     {
         // Сумма товаров
         $productsTotal = $this->items->sum(function($item) {
@@ -243,41 +323,48 @@ class Sale extends Model
         $total = $productsTotal + $hookahsTotal;
         
         // Вычитаем скидку и бонусы
-        $finalTotal = $total - $this->discount - ($this->used_bonus_points ?? 0);
+        $finalTotal = $total - (float) $this->discount - (float) ($this->used_bonus_points ?? 0);
         $finalTotal = max(0, $finalTotal); // Не даем уйти в минус
 
-        if ($this->total != $finalTotal) {
+        if ((float) $this->total != $finalTotal) {
             $this->update(['total' => $finalTotal]);
         }
 
         return $finalTotal;
     }
-    public function completeSale()
+
+    /**
+     * Завершить продажу
+     */
+    public function completeSale(): array
     {
         // Проверяем наличие всех товаров
         foreach ($this->items as $item) {
-            $stock = Stock::where('warehouse_id', $this->warehouse_id)
-                         ->where('product_id', $item->product_id)
-                         ->first();
-
-            if (!$stock || $stock->quantity < $item->quantity) {
+            // Убираем проверку склада, так как склад больше не привязан к продаже
+            // Теперь нужно проверять общее наличие товара в системе
+            
+            $product = $item->product;
+            if (!$product || $product->total_quantity < $item->quantity) {
                 return [
                     'success' => false,
-                    'message' => "Недостаточно товара: {$item->product->name}. Доступно: " . ($stock->quantity ?? 0)
+                    'message' => "Недостаточно товара: {$item->product->name}. Доступно: " . ($product->total_quantity ?? 0)
                 ];
             }
         }
 
-        // Списываем товары
+        // Списываем товары (теперь без привязки к конкретному складу)
         foreach ($this->items as $item) {
-            $stock = Stock::where('warehouse_id', $this->warehouse_id)
-                         ->where('product_id', $item->product_id)
-                         ->first();
-
-            $result = $stock->useQuantity($item->quantity);
-            if (!$result['success']) {
-                return $result;
+            $product = $item->product;
+            if ($product) {
+                $product->total_quantity -= $item->quantity;
+                $product->save();
             }
+        }
+
+        // Начисляем бонусы если есть бонусная карта
+        $bonusAwarded = 0;
+        if ($this->client_id && $this->client->bonusCard) {
+            $bonusAwarded = $this->awardBonusPoints();
         }
 
         $this->status = 'completed';
@@ -285,7 +372,58 @@ class Sale extends Model
 
         return [
             'success' => true,
-            'message' => 'Продажа завершена успешно'
+            'message' => 'Продажа завершена успешно' . ($bonusAwarded ? " (+{$bonusAwarded} бонусов)" : ""),
+            'bonus_awarded' => $bonusAwarded,
         ];
+    }
+
+    // =========== SCOPES ===========
+
+    /**
+     * Scope для фильтрации по способу оплаты
+     */
+    public function scopeByPaymentMethod($query, $paymentMethodId)
+    {
+        return $query->where('payment_method_id', $paymentMethodId);
+    }
+
+    /**
+     * Scope для фильтрации по дате продажи
+     */
+    public function scopeBetweenDates($query, $startDate, $endDate)
+    {
+        return $query->whereBetween('sale_date', [$startDate, $endDate]);
+    }
+
+    /**
+     * Scope для продаж с использованием бонусов
+     */
+    public function scopeWithBonusUsage($query)
+    {
+        return $query->where('used_bonus_points', '>', 0);
+    }
+
+    /**
+     * Scope для продаж по конкретному клиенту
+     */
+    public function scopeByClient($query, $clientId)
+    {
+        return $query->where('client_id', $clientId);
+    }
+
+    /**
+     * Scope для активных продаж (не завершенных)
+     */
+    public function scopeActive($query)
+    {
+        return $query->whereIn('status', ['new', 'in_progress']);
+    }
+
+    /**
+     * Scope для завершенных продаж
+     */
+    public function scopeCompleted($query)
+    {
+        return $query->where('status', 'completed');
     }
 }

@@ -76,27 +76,22 @@
                                             <option value="">Выберите товар...</option>
                                             @foreach($products as $product)
                                             @php
-                                                // Для столов обычно используется основной склад
-                                                $warehouseId = \App\Models\Warehouse::first()->id ?? 1;
-                                                $stock = \App\Models\Stock::where('warehouse_id', $warehouseId)
-                                                    ->where('product_id', $product->id)
-                                                    ->first();
-                                                $available = $stock ? $stock->quantity : 0;
+                                                // Получаем доступное количество ВО ВСЕХ СКЛАДАХ
+                                                $available = \App\Models\Stock::where('product_id', $product->id)->sum('quantity');
                                                 
                                                 // Для составных товаров рассчитываем доступное количество
                                                 if ($product->is_composite) {
                                                     $minAvailable = PHP_INT_MAX;
                                                     foreach ($product->recipeComponents as $component) {
-                                                        $componentStock = \App\Models\Stock::where('warehouse_id', $warehouseId)
-                                                            ->where('product_id', $component->component_product_id)
-                                                            ->first();
+                                                        $totalComponentQuantity = \App\Models\Stock::where('product_id', $component->component_product_id)
+                                                            ->sum('quantity');
                                                         
-                                                        if (!$componentStock || $componentStock->quantity <= 0) {
+                                                        if ($totalComponentQuantity <= 0) {
                                                             $available = 0;
                                                             break;
                                                         }
                                                         
-                                                        $availableForComponent = floor($componentStock->quantity / $component->quantity);
+                                                        $availableForComponent = floor($totalComponentQuantity / $component->quantity);
                                                         $minAvailable = min($minAvailable, $availableForComponent);
                                                     }
                                                     $available = ($minAvailable !== PHP_INT_MAX) ? $minAvailable : 0;

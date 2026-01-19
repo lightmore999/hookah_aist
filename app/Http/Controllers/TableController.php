@@ -13,6 +13,7 @@ use App\Models\Stock;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use App\Models\BonusHistory;
+use App\Models\PaymentMethod;
 
 class TableController extends Controller
 {
@@ -23,7 +24,6 @@ class TableController extends Controller
         $selectedDate = $request->has('date') 
             ? Carbon::parse($request->date)
             : Carbon::today();
-        
         
         // Создаем временные границы
         $startOfDay = $selectedDate->copy()->startOfDay();
@@ -73,6 +73,9 @@ class TableController extends Controller
         // Получаем кальяны для модальных окон
         $hookahs = Hookah::orderBy('name')->get();
         
+        // ✅ ДОБАВЛЕНО: Получаем способы оплаты
+        $paymentMethods = PaymentMethod::orderBy('Name')->get();
+    
         return view('tables.index', compact(
             'tables',
             'tableNumbers',
@@ -80,7 +83,8 @@ class TableController extends Controller
             'allSalesForTables',
             'clients',
             'products',
-            'hookahs'
+            'hookahs',
+            'paymentMethods'
         ));
     }
     
@@ -278,26 +282,15 @@ class TableController extends Controller
             // Проверяем, есть ли уже продажа для этого стола
             $existingSale = Sale::where('table_id', $table->id)->first();
             if (!$existingSale) {
-                // Создаем продажу для этого стола
-                $warehouse = Warehouse::first();
-                
-                if (!$warehouse) {
-                    $warehouse = Warehouse::create([
-                        'name' => 'Основной склад',
-                        'address' => 'Основной адрес',
-                        'phone' => '+79999999999'
-                    ]);
-                }
                 
                 Sale::create([
                     'client_id' => $table->client_id,
-                    'warehouse_id' => $warehouse->id,
                     'table_id' => $table->id,
                     'total' => 0,
                     'discount' => 0,
                     'status' => 'active',
                     'sale_date' => now(),
-                    'payment_method' => null,
+                    'payment_method_id' => null, // изменено
                     'comment' => null,
                 ]);
             }
@@ -367,9 +360,9 @@ class TableController extends Controller
         }
         
         // ✅ ПРОВЕРКА НАЛИЧИЯ НА СКЛАДЕ
-        $availableQuantity = $this->getAvailableQuantity($sale->warehouse_id, $product);
-        
-        if (!$this->checkStockAvailability($sale->warehouse_id, $product, $requestedQuantity)) {
+        $availableQuantity = $this->getAvailableQuantity($product);
+
+        if (!$this->checkStockAvailability($product, $requestedQuantity)) {
             $unitText = $product->unit === 'шт' ? 'штук' : $product->unit;
             
             // Формируем детальное сообщение об ошибке
@@ -379,7 +372,7 @@ class TableController extends Controller
             
             // Для составных товаров добавляем детали по компонентам
             if ($product->is_composite) {
-                $componentDetails = $this->getComponentAvailabilityDetails($sale->warehouse_id, $product, $requestedQuantity);
+                $componentDetails = $this->getComponentAvailabilityDetails($product, $requestedQuantity);
                 $errorMessage .= "\n\nНедостаточно компонентов:\n";
                 
                 foreach ($componentDetails as $detail) {
@@ -400,7 +393,7 @@ class TableController extends Controller
                     'available' => $availableQuantity,
                     'can_add_max' => $availableQuantity > 0,
                     'is_composite' => $product->is_composite,
-                    'components' => $product->is_composite ? $this->getComponentAvailabilityDetails($sale->warehouse_id, $product, $requestedQuantity) : null
+                    'components' => $product->is_composite ? $this->getComponentAvailabilityDetails($product, $requestedQuantity) : null
                 ]
             ], 400);
         }
@@ -425,16 +418,15 @@ class TableController extends Controller
         ]);
     }
 
-    private function getComponentAvailabilityDetails($warehouseId, Product $product, $requestedQuantity)
+    private function getComponentAvailabilityDetails(Product $product, $requestedQuantity)
     {
         $details = [];
         
         foreach ($product->recipeComponents as $component) {
-            $componentStock = Stock::where('warehouse_id', $warehouseId)
-                ->where('product_id', $component->component_product_id)
-                ->first();
-            
-            $availableComponent = $componentStock ? $componentStock->quantity : 0;
+            $totalComponentQuantity = Stock::where('product_id', $component->component_product_id)
+                ->sum('quantity');
+
+            $availableComponent = $totalComponentQuantity;
             $requiredComponent = $requestedQuantity * $component->quantity;
             
             $details[] = [
@@ -597,7 +589,7 @@ class TableController extends Controller
             'discount' => 'required|numeric|min:0',
             'discount_in_rubles' => 'nullable|numeric|min:0',
             'discount_type' => 'nullable|string|in:fixed,percent',
-            'payment_method' => 'required|string|in:cash,card,online,terminal',
+            'payment_method_id' => 'required|exists:payment_methods,IDPaymentMethod', // изменено
             'comment' => 'nullable|string|max:1000',
             'use_bonuses' => 'nullable|string',
             'bonus_points_to_use' => 'nullable|integer|min:0'
@@ -680,88 +672,46 @@ class TableController extends Controller
             
             if ($product->is_composite) {
                 foreach ($product->recipeComponents as $component) {
-                    $stock = Stock::where('warehouse_id', $sale->warehouse_id)
-                                ->where('product_id', $component->component_product_id)
-                                ->first();
+                    $requiredComponentQuantity = $item->quantity * $component->quantity;
                     
-                    $requiredQuantity = $item->quantity * $component->quantity;
+                    // Ищем склады, где есть этот компонент, отсортированные по убыванию количества
+                    $stocks = Stock::where('product_id', $component->component_product_id)
+                        ->where('quantity', '>', 0)
+                        ->orderByDesc('quantity')
+                        ->get();
                     
-                    if (!$stock || $stock->quantity < $requiredQuantity) {
-                        // Если были использованы бонусы - возвращаем их
-                        if ($sale->used_bonus_points > 0 && $client) {
-                            $client->bonus_points += $sale->used_bonus_points;
-                            $client->save();
-                            
-                            // ЗАПИСЬ В ИСТОРИЮ О ВОЗВРАТЕ
-                            BonusHistory::create([
-                                'client_id' => $clientId,
-                                'amount' => $sale->used_bonus_points,
-                                'operation_type' => 'credit',
-                                'balance_after' => $client->bonus_points,
-                                'reason' => 'Возврат бонусов - недостаточно товара на складе',
-                                'sale_id' => $sale->id,
-                            ]);
-                        }
-                        $sale->used_bonus_points = 0;
-                        $sale->save();
+                    // Списываем по очереди с каждого склада
+                    $remainingQuantity = $requiredComponentQuantity;
+                    foreach ($stocks as $stock) {
+                        if ($remainingQuantity <= 0) break;
                         
-                        return back()->with('error', 
-                            "Недостаточно компонента для товара '{$product->name}'"
-                        );
+                        $quantityToDeduct = min($stock->quantity, $remainingQuantity);
+                        $stock->quantity -= $quantityToDeduct;
+                        $stock->save();
+                        
+                        $remainingQuantity -= $quantityToDeduct;
                     }
                 }
             } else {
-                $stock = Stock::where('warehouse_id', $sale->warehouse_id)
-                            ->where('product_id', $item->product_id)
-                            ->first();
+                $requiredQuantity = $item->quantity;
                 
-                if (!$stock || $stock->quantity < $item->quantity) {
-                    // Если были использованы бонусы - возвращаем их
-                    if ($sale->used_bonus_points > 0 && $client) {
-                        $client->bonus_points += $sale->used_bonus_points;
-                        $client->save();
-                        
-                        // ЗАПИСЬ В ИСТОРИЮ О ВОЗВРАТЕ
-                        BonusHistory::create([
-                            'client_id' => $clientId,
-                            'amount' => $sale->used_bonus_points,
-                            'operation_type' => 'credit',
-                            'balance_after' => $client->bonus_points,
-                            'reason' => 'Возврат бонусов - недостаточно товара на складе',
-                            'sale_id' => $sale->id,
-                        ]);
-                    }
-                    $sale->used_bonus_points = 0;
-                    $sale->save();
+                // Ищем склады, где есть этот товар, отсортированные по убыванию количества
+                $stocks = Stock::where('product_id', $item->product_id)
+                    ->where('quantity', '>', 0)
+                    ->orderByDesc('quantity')
+                    ->get();
+                
+                // Списываем по очереди с каждого склада
+                $remainingQuantity = $requiredQuantity;
+                foreach ($stocks as $stock) {
+                    if ($remainingQuantity <= 0) break;
                     
-                    return back()->with('error', 
-                        "Недостаточно товара: {$product->name}"
-                    );
-                }
-            }
-        }
-        
-        // ============ СПИСАНИЕ ТОВАРОВ СО СКЛАДА ============
-        foreach ($sale->items as $item) {
-            $product = $item->product;
-            
-            if ($product->is_composite) {
-                foreach ($product->recipeComponents as $component) {
-                    $stock = Stock::where('warehouse_id', $sale->warehouse_id)
-                                ->where('product_id', $component->component_product_id)
-                                ->first();
-                    
-                    $requiredQuantity = $item->quantity * $component->quantity;
-                    $stock->quantity -= $requiredQuantity;
+                    $quantityToDeduct = min($stock->quantity, $remainingQuantity);
+                    $stock->quantity -= $quantityToDeduct;
                     $stock->save();
+                    
+                    $remainingQuantity -= $quantityToDeduct;
                 }
-            } else {
-                $stock = Stock::where('warehouse_id', $sale->warehouse_id)
-                            ->where('product_id', $item->product_id)
-                            ->first();
-                
-                $stock->quantity -= $item->quantity;
-                $stock->save();
             }
         }
         
@@ -776,7 +726,7 @@ class TableController extends Controller
         // Обновляем продажу
         $sale->update([
             'discount' => $discount,
-            'payment_method' => $validated['payment_method'],
+            'payment_method_id' => $validated['payment_method_id'], // изменено
             'comment' => $validated['comment'] ?? $sale->comment,
             'status' => 'completed',
         ]);
@@ -1060,6 +1010,7 @@ class TableController extends Controller
                 'bonusDiscount' => 0,
                 'finalTotal' => 0,
                 'paymentMethod' => null,
+                'paymentMethodId' => null, // добавлено
                 'comment' => null,
                 'clientId' => $table->client_id,
                 'clientName' => $table->client ? $table->client->name : null,
@@ -1085,8 +1036,8 @@ class TableController extends Controller
             ]);
         }
         
-        // Загружаем товары, кальяны
-        $sale->load(['items.product', 'hookahs']);
+        // Загружаем товары, кальяны и способ оплаты
+        $sale->load(['items.product', 'hookahs', 'paymentMethod']);
         
         // Приоритет: клиент из таблицы, если нет - из продажи
         $clientId = $table->client_id ?? $sale->client_id;
@@ -1192,7 +1143,8 @@ class TableController extends Controller
             'discount' => (float)$sale->discount,
             'bonusDiscount' => (float)$sale->used_bonus_points,
             'finalTotal' => (float)$finalTotal,
-            'paymentMethod' => $sale->payment_method,
+            'paymentMethod' => $sale->paymentMethod ? $sale->paymentMethod->Name : null, // изменено
+            'paymentMethodId' => $sale->payment_method_id, // добавлено
             'comment' => $sale->comment,
             
             // Информация о клиенте
@@ -1240,28 +1192,26 @@ class TableController extends Controller
     /**
      * Проверяет наличие товара на складе
      */
-    private function checkStockAvailability($warehouseId, Product $product, $requestedQuantity)
+    private function checkStockAvailability(Product $product, $requestedQuantity)
     {
         if ($product->is_composite) {
-            // Проверка для составных товаров
+            // Проверка для составных товаров - суммарно по всем складам
             foreach ($product->recipeComponents as $component) {
-                $stock = Stock::where('warehouse_id', $warehouseId)
-                            ->where('product_id', $component->component_product_id)
-                            ->first();
+                $totalComponentQuantity = Stock::where('product_id', $component->component_product_id)
+                    ->sum('quantity');
                 
                 $requiredQuantity = $requestedQuantity * $component->quantity;
                 
-                if (!$stock || $stock->quantity < $requiredQuantity) {
+                if ($totalComponentQuantity < $requiredQuantity) {
                     return false;
                 }
             }
         } else {
-            // Проверка для обычных товаров
-            $stock = Stock::where('warehouse_id', $warehouseId)
-                        ->where('product_id', $product->id)
-                        ->first();
+            // Проверка для обычных товаров - суммарно по всем складам
+            $totalProductQuantity = Stock::where('product_id', $product->id)
+                ->sum('quantity');
             
-            if (!$stock || $stock->quantity < $requestedQuantity) {
+            if ($totalProductQuantity < $requestedQuantity) {
                 return false;
             }
         }
@@ -1272,34 +1222,30 @@ class TableController extends Controller
     /**
      * Получает доступное количество товара на складе
      */
-    private function getAvailableQuantity($warehouseId, Product $product)
+    private function getAvailableQuantity(Product $product)
     {
         if ($product->is_composite) {
             // Для составных товаров находим минимальное количество среди компонентов
             $minAvailable = PHP_INT_MAX;
             
             foreach ($product->recipeComponents as $component) {
-                $stock = Stock::where('warehouse_id', $warehouseId)
-                            ->where('product_id', $component->component_product_id)
-                            ->first();
+                $totalComponentQuantity = Stock::where('product_id', $component->component_product_id)
+                    ->sum('quantity');
                 
-                if (!$stock) {
+                if ($totalComponentQuantity == 0) {
                     return 0;
                 }
                 
                 // Сколько можно сделать из доступных компонентов
-                $availableForComponent = floor($stock->quantity / $component->quantity);
+                $availableForComponent = floor($totalComponentQuantity / $component->quantity);
                 $minAvailable = min($minAvailable, $availableForComponent);
             }
             
             return $minAvailable;
         } else {
-            // Для обычных товаров
-            $stock = Stock::where('warehouse_id', $warehouseId)
-                        ->where('product_id', $product->id)
-                        ->first();
-            
-            return $stock ? $stock->quantity : 0;
+            // Для обычных товаров - сумма по всем складам
+            return Stock::where('product_id', $product->id)
+                ->sum('quantity');
         }
     }
 

@@ -7,6 +7,7 @@ use App\Models\Expenditure;
 use App\Models\Hookah;
 use App\Models\Fine;
 use App\Models\Product;
+use App\Models\PaymentMethod;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -45,6 +46,7 @@ class AccountingController extends Controller
         
         // Общая статистика за все время
         $totalStats = $this->getTotalStats();
+        $paymentMethods = PaymentMethod::orderBy('Name')->get();
         
         return view('accounting.index', [
             'tableData' => $tableData,
@@ -57,6 +59,7 @@ class AccountingController extends Controller
             'weeksCount' => $weeksCount,
             'monthsCount' => $monthsCount,
             'totalStats' => $totalStats,
+            'paymentMethods' => $paymentMethods,
         ]);
     }
     
@@ -145,10 +148,10 @@ class AccountingController extends Controller
      */
     private function getDailyStats($date)
     {
-        // Продажи за день (только завершенные)
+        // Продажи за день (только завершенные) с загрузкой способа оплаты
         $sales = Sale::whereDate('created_at', $date)
             ->where('status', 'completed')
-            ->with(['items', 'hookahs'])
+            ->with(['items', 'hookahs', 'paymentMethod'])
             ->get();
         
         // Разделяем продажи: столы и обычные
@@ -160,15 +163,35 @@ class AccountingController extends Controller
             return is_null($sale->table_id);
         });
         
-        // === КАССА ===
-        // Наличные
-        $cashIncome = $sales->where('payment_method', 'cash')->sum('total');
-        
-        // Карта (включая онлайн и терминал)
-        $cardIncome = $sales->whereIn('payment_method', ['card', 'online', 'terminal'])->sum('total');
-        
         // === ВЫРУЧКА ===
         $totalRevenue = $sales->sum('total');
+        
+        // === СПОСОБЫ ОПЛАТЫ ===
+        $paymentMethods = PaymentMethod::orderBy('Name')->get();
+        $paymentStats = [];
+        
+        // Группируем продажи по payment_method_id
+        $groupedSales = [];
+        foreach ($sales as $sale) {
+            $methodId = $sale->payment_method_id;
+            if (!isset($groupedSales[$methodId])) {
+                $groupedSales[$methodId] = 0;
+            }
+            $groupedSales[$methodId] += $sale->total;
+        }
+        
+        // Создаем статистику для каждого способа оплаты
+        foreach ($paymentMethods as $method) {
+            // ИСПРАВЛЕНО: используем IDPaymentMethod вместо id
+            $methodId = $method->IDPaymentMethod;
+            $total = $groupedSales[$methodId] ?? 0;
+            
+            $paymentStats[$methodId] = [
+                'id' => $methodId,
+                'name' => $method->Name,
+                'total' => $total,
+            ];
+        }
         
         // === СТОЛЫ ===
         // Гости
@@ -193,7 +216,6 @@ class AccountingController extends Controller
         });
         
         // Выручка с продаж привязанных к столу (БЕЗ кальянов)
-        // Это ключевое изменение: total минус стоимость кальянов
         $tableProductIncome = $tableSales->sum(function($sale) {
             $hookahSum = $sale->hookahs->sum('price');
             return $sale->total - $hookahSum;
@@ -206,7 +228,7 @@ class AccountingController extends Controller
         
         // Средний чек со столов
         $tableSalesCount = $tableSales->count();
-        $totalTableIncome = $tableProductIncome + $hookahIncome; // Уже включает оба компонента
+        $totalTableIncome = $tableProductIncome + $hookahIncome;
         $averageCheck = $tableSalesCount > 0 ? $totalTableIncome / $tableSalesCount : 0;
         
         // === ОСТАЛЬНЫЕ ПРОДАЖИ ===
@@ -231,18 +253,8 @@ class AccountingController extends Controller
         // Чистая прибыль (без зарплаты)
         $profit = $totalRevenue - $totalCost - $expenditures - $fines;
         
-        // Проверка: общая сумма должна совпадать
-        $calculatedTotal = $tableProductIncome + $hookahIncome + $nonTableIncome;
-        $difference = $totalRevenue - $calculatedTotal;
-        
-        // Если есть разница, это могут быть скидки или другие корректировки
-        // Можно добавить отладку
-        
-        return [
-            // Касса
-            'cash_total' => $cashIncome,
-            'card_total' => $cardIncome,
-            
+        // === ФОРМИРУЕМ РЕЗУЛЬТАТ ===
+        $result = [
             // Выручка
             'revenue' => $totalRevenue,
             
@@ -258,7 +270,7 @@ class AccountingController extends Controller
             
             // Расходы и прибыль
             'expenses' => $expenditures,
-            'salary' => 0, // Пока пусто
+            'salary' => 0,
             'fines' => $fines,
             'profit' => $profit,
             
@@ -268,20 +280,27 @@ class AccountingController extends Controller
             'non_table_sales' => $nonTableSales->count(),
             'total_cost' => $totalCost,
             'hookah_cost' => $hookahCost,
-            'revenue_check' => $calculatedTotal, // Для отладки
-            'revenue_difference' => $difference, // Для отладки
         ];
+        
+        // Добавляем динамические столбцы для каждого способа оплаты
+        // ИСПРАВЛЕНО: используем IDPaymentMethod
+        foreach ($paymentMethods as $method) {
+            $methodId = $method->IDPaymentMethod;
+            $result["payment_{$methodId}"] = $paymentStats[$methodId]['total'] ?? 0;
+        }
+        
+        return $result;
     }
     
     /**
      * Статистика за период
      */
-   private function getPeriodStats($startDate, $endDate)
+    private function getPeriodStats($startDate, $endDate)
     {
-        // Продажи за период (только завершенные)
+        // Продажи за период (только завершенные) с загрузкой способа оплаты
         $sales = Sale::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->where('status', 'completed')
-            ->with(['items', 'hookahs'])
+            ->with(['items', 'hookahs', 'paymentMethod'])
             ->get();
         
         // Разделяем продажи: столы и обычные
@@ -293,15 +312,21 @@ class AccountingController extends Controller
             return is_null($sale->table_id);
         });
         
-        // === КАССА ===
-        // Наличные
-        $cashIncome = $sales->where('payment_method', 'cash')->sum('total');
-        
-        // Карта (включая онлайн и терминал)
-        $cardIncome = $sales->whereIn('payment_method', ['card', 'online', 'terminal'])->sum('total');
-        
         // === ВЫРУЧКА ===
         $totalRevenue = $sales->sum('total');
+        
+        // === СПОСОБЫ ОПЛАТЫ ===
+        $paymentMethods = PaymentMethod::orderBy('Name')->get();
+        
+        // Группируем продажи по payment_method_id
+        $groupedSales = [];
+        foreach ($sales as $sale) {
+            $methodId = $sale->payment_method_id;
+            if (!isset($groupedSales[$methodId])) {
+                $groupedSales[$methodId] = 0;
+            }
+            $groupedSales[$methodId] += $sale->total;
+        }
         
         // === СТОЛЫ ===
         // Гости
@@ -363,14 +388,8 @@ class AccountingController extends Controller
         // Чистая прибыль (без зарплаты)
         $profit = $totalRevenue - $totalCost - $expenditures - $fines;
         
-        // Проверка суммы
-        $calculatedTotal = $tableProductIncome + $hookahIncome + $nonTableIncome;
-        
-        return [
-            // Касса
-            'cash_total' => $cashIncome,
-            'card_total' => $cardIncome,
-            
+        // === ФОРМИРУЕМ РЕЗУЛЬТАТ ===
+        $result = [
             // Выручка
             'revenue' => $totalRevenue,
             
@@ -386,7 +405,7 @@ class AccountingController extends Controller
             
             // Расходы и прибыль
             'expenses' => $expenditures,
-            'salary' => 0, // Пока пусто
+            'salary' => 0,
             'fines' => $fines,
             'profit' => $profit,
             
@@ -396,9 +415,16 @@ class AccountingController extends Controller
             'non_table_sales' => $nonTableSales->count(),
             'total_cost' => $totalCost,
             'hookah_cost' => $hookahCost,
-            'revenue_check' => $calculatedTotal,
-            'revenue_difference' => $totalRevenue - $calculatedTotal,
         ];
+        
+        // Добавляем динамические столбцы для каждого способа оплаты
+        // ИСПРАВЛЕНО: используем IDPaymentMethod
+        foreach ($paymentMethods as $method) {
+            $methodId = $method->IDPaymentMethod;
+            $result["payment_{$methodId}"] = $groupedSales[$methodId] ?? 0;
+        }
+        
+        return $result;
     }
     
     /**
@@ -409,11 +435,32 @@ class AccountingController extends Controller
         // Все завершенные продажи
         $sales = Sale::where('status', 'completed')->get();
         
-        // Наличные
-        $cashIncome = $sales->where('payment_method', 'cash')->sum('total');
+        // Получаем все способы оплаты
+        $paymentMethods = PaymentMethod::all();
+        $paymentStats = [];
         
-        // Карта
-        $cardIncome = $sales->whereIn('payment_method', ['card', 'online', 'terminal'])->sum('total');
+        // Группируем продажи по payment_method_id
+        $groupedSales = [];
+        foreach ($sales as $sale) {
+            $methodId = $sale->payment_method_id;
+            if (!isset($groupedSales[$methodId])) {
+                $groupedSales[$methodId] = 0;
+            }
+            $groupedSales[$methodId] += $sale->total;
+        }
+        
+        // Создаем статистику для каждого способа оплаты
+        // ИСПРАВЛЕНО: используем IDPaymentMethod
+        foreach ($paymentMethods as $method) {
+            $methodId = $method->IDPaymentMethod;
+            $total = $groupedSales[$methodId] ?? 0;
+            
+            $paymentStats[$methodId] = [
+                'id' => $methodId,
+                'name' => $method->Name,
+                'total' => $total
+            ];
+        }
         
         // Все расходы
         $expenditures = Expenditure::sum('cost');
@@ -428,13 +475,12 @@ class AccountingController extends Controller
         $profit = $totalRevenue - $expenditures - $fines;
         
         return [
-            'cash_income' => $cashIncome,
-            'card_income' => $cardIncome,
             'total_income' => $totalRevenue,
             'expenses' => $expenditures,
             'fines' => $fines,
             'profit' => $profit,
             'sales_count' => $sales->count(),
+            'payment_stats' => $paymentStats,
         ];
     }
     
@@ -522,7 +568,7 @@ class AccountingController extends Controller
     }
     
     /**
-     * Статистика по способам оплаты
+     * Статистика по способам оплаты (обновленная)
      */
     public function paymentStats(Request $request)
     {
@@ -531,62 +577,71 @@ class AccountingController extends Controller
         $endDate = $request->get('end_date');
         
         if ($startDate && $endDate) {
-            $sales = Sale::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            $sales = Sale::with('paymentMethod')
+                ->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
                 ->where('status', 'completed')
                 ->get();
             $periodText = Carbon::parse($startDate)->format('d.m.Y') . ' - ' . Carbon::parse($endDate)->format('d.m.Y');
         } else {
-            $sales = Sale::whereDate('created_at', $date)
+            $sales = Sale::with('paymentMethod')
+                ->whereDate('created_at', $date)
                 ->where('status', 'completed')
                 ->get();
             $periodText = Carbon::parse($date)->format('d.m.Y');
         }
         
-        // Группируем по способам оплаты
-        $paymentStats = [
-            'cash' => [
-                'name' => 'Наличные',
-                'count' => 0,
-                'amount' => 0,
-            ],
-            'card' => [
-                'name' => 'Карта',
-                'count' => 0,
-                'amount' => 0,
-            ],
-            'online' => [
-                'name' => 'Онлайн',
-                'count' => 0,
-                'amount' => 0,
-            ],
-            'terminal' => [
-                'name' => 'Терминал',
-                'count' => 0,
-                'amount' => 0,
-            ],
-        ];
+        // Получаем все способы оплаты
+        $paymentMethods = PaymentMethod::orderBy('Name')->get();
         
+        // Группируем продажи по payment_method_id
+        $groupedSales = [];
+        $totalCount = 0;
         foreach ($sales as $sale) {
-            $method = $sale->payment_method;
-            if (isset($paymentStats[$method])) {
-                $paymentStats[$method]['count']++;
-                $paymentStats[$method]['amount'] += $sale->total;
+            $methodId = $sale->payment_method_id;
+            if (!isset($groupedSales[$methodId])) {
+                $groupedSales[$methodId] = [
+                    'count' => 0,
+                    'amount' => 0,
+                ];
             }
+            $groupedSales[$methodId]['count']++;
+            $groupedSales[$methodId]['amount'] += $sale->total;
+            $totalCount++;
         }
         
-        // Убираем пустые методы
-        $paymentStats = array_filter($paymentStats, function($stat) {
+        // Готовим массив для статистики
+        $paymentStats = [];
+        $totalAmount = $sales->sum('total');
+        
+        // ИСПРАВЛЕНО: используем IDPaymentMethod
+        foreach ($paymentMethods as $method) {
+            $methodId = $method->IDPaymentMethod;
+            $methodData = $groupedSales[$methodId] ?? ['count' => 0, 'amount' => 0];
+            
+            $percentage = $totalAmount > 0 ? round(($methodData['amount'] / $totalAmount) * 100, 1) : 0;
+            
+            $paymentStats[$methodId] = [
+                'name' => $method->Name,
+                'count' => $methodData['count'],
+                'amount' => $methodData['amount'],
+                'percentage' => $percentage,
+            ];
+        }
+        
+        // Фильтруем только те методы, у которых есть продажи
+        $filteredStats = array_filter($paymentStats, function($stat) {
             return $stat['count'] > 0;
         });
         
         return view('accounting.payment-stats', [
-            'stats' => $paymentStats,
+            'stats' => $filteredStats,
             'date' => $date,
             'startDate' => $startDate,
             'endDate' => $endDate,
             'periodText' => $periodText,
-            'total_count' => $sales->count(),
-            'total_amount' => $sales->sum('total'),
+            'total_count' => $totalCount,
+            'total_amount' => $totalAmount,
+            'all_methods' => $paymentMethods,
         ]);
     }
     
@@ -603,14 +658,14 @@ class AccountingController extends Controller
             $sales = Sale::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
                 ->where('status', 'completed')
                 ->where('used_bonus_points', '>', 0)
-                ->with('client')
+                ->with(['client', 'paymentMethod'])
                 ->get();
             $periodText = Carbon::parse($startDate)->format('d.m.Y') . ' - ' . Carbon::parse($endDate)->format('d.m.Y');
         } else {
             $sales = Sale::whereDate('created_at', $date)
                 ->where('status', 'completed')
                 ->where('used_bonus_points', '>', 0)
-                ->with('client')
+                ->with(['client', 'paymentMethod'])
                 ->get();
             $periodText = Carbon::parse($date)->format('d.m.Y');
         }
@@ -704,8 +759,6 @@ class AccountingController extends Controller
             // Заголовки
             fputcsv($file, [
                 'Период',
-                'Наличные',
-                'Карта',
                 'Выручка',
                 'Гости',
                 'Кальяны',
@@ -723,8 +776,6 @@ class AccountingController extends Controller
             foreach ($data as $row) {
                 fputcsv($file, [
                     $row['period'],
-                    $row['cash_total'],
-                    $row['card_total'],
                     $row['revenue'],
                     $row['guests_count'],
                     $row['hookah_count'],
@@ -797,13 +848,13 @@ class AccountingController extends Controller
         if ($startDate && $endDate) {
             $sales = Sale::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
                 ->where('status', 'completed')
-                ->with(['items', 'hookahs'])
+                ->with(['items', 'hookahs', 'paymentMethod'])
                 ->get();
             $periodText = Carbon::parse($startDate)->format('d.m.Y') . ' - ' . Carbon::parse($endDate)->format('d.m.Y');
         } else {
             $sales = Sale::whereDate('created_at', $date)
                 ->where('status', 'completed')
-                ->with(['items', 'hookahs'])
+                ->with(['items', 'hookahs', 'paymentMethod'])
                 ->get();
             $periodText = Carbon::parse($date)->format('d.m.Y');
         }
@@ -866,6 +917,67 @@ class AccountingController extends Controller
             'startDate' => $startDate,
             'endDate' => $endDate,
             'periodText' => $periodText,
+        ]);
+    }
+    
+    /**
+     * Получить детальную статистику по всем способам оплаты
+     */
+    public function getPaymentMethodsStats(Request $request)
+    {
+        $date = $request->get('date', now()->format('Y-m-d'));
+        $startDate = $request->get('start_date');
+        $endDate = $request->get('end_date');
+        
+        if ($startDate && $endDate) {
+            $sales = Sale::with('paymentMethod')
+                ->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+                ->where('status', 'completed')
+                ->get();
+        } else {
+            $sales = Sale::with('paymentMethod')
+                ->whereDate('created_at', $date)
+                ->where('status', 'completed')
+                ->get();
+        }
+        
+        $paymentMethods = PaymentMethod::all();
+        $stats = [];
+        
+        // Группируем продажи по payment_method_id
+        $groupedSales = [];
+        foreach ($sales as $sale) {
+            $methodId = $sale->payment_method_id;
+            if (!isset($groupedSales[$methodId])) {
+                $groupedSales[$methodId] = [
+                    'count' => 0,
+                    'total' => 0,
+                ];
+            }
+            $groupedSales[$methodId]['count']++;
+            $groupedSales[$methodId]['total'] += $sale->total;
+        }
+        
+        // ИСПРАВЛЕНО: используем IDPaymentMethod
+        foreach ($paymentMethods as $method) {
+            $methodId = $method->IDPaymentMethod;
+            $methodData = $groupedSales[$methodId] ?? ['count' => 0, 'total' => 0];
+            $avgCheck = $methodData['count'] > 0 ? $methodData['total'] / $methodData['count'] : 0;
+            
+            $stats[] = [
+                'id' => $methodId,
+                'name' => $method->Name,
+                'count' => $methodData['count'],
+                'total' => $methodData['total'],
+                'avg_check' => $avgCheck,
+            ];
+        }
+        
+        return response()->json([
+            'success' => true,
+            'stats' => $stats,
+            'total_sales' => $sales->count(),
+            'total_amount' => $sales->sum('total'),
         ]);
     }
 }

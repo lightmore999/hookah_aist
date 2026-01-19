@@ -23,39 +23,41 @@
         </div>
     </div>
 
-    <!-- Фильтры -->
+    <!-- Упрощенные фильтры -->
     <div class="card border-0 shadow-sm mb-4">
-        <div class="card-body">
-            <form method="GET" action="{{ route('inventories.index') }}" class="row g-3">
-                <div class="col-md-4">
-                    <label for="name" class="form-label small fw-bold">Поиск по названию</label>
+        <div class="card-body p-3">
+            <form method="GET" action="{{ route('inventories.index') }}" class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label for="name" class="form-label small fw-bold mb-1">Поиск по названию</label>
                     <input type="text" name="name" id="name" 
-                        class="form-control form-control-sm" 
+                        class="form-control" 
                         value="{{ request('name') }}"
-                        placeholder="Введите название...">
+                        placeholder="Введите название инвентаризации...">
                 </div>
                 
-                <div class="col-md-3">
-                    <label for="date_from" class="form-label small fw-bold">С даты</label>
-                    <input type="date" name="date_from" id="date_from" 
-                        class="form-control form-control-sm" 
-                        value="{{ request('date_from') }}">
+                <div class="col-md-4">
+                    <label for="warehouse_id" class="form-label small fw-bold mb-1">Фильтр по складу</label>
+                    <select name="warehouse_id" id="warehouse_id" 
+                        class="form-select">
+                        <option value="">Все склады</option>
+                        @foreach($warehouses as $warehouse)
+                            <option value="{{ $warehouse->id }}" 
+                                {{ request('warehouse_id') == $warehouse->id ? 'selected' : '' }}>
+                                {{ $warehouse->name }}
+                            </option>
+                        @endforeach
+                    </select>
                 </div>
                 
-                <div class="col-md-3">
-                    <label for="date_to" class="form-label small fw-bold">По дату</label>
-                    <input type="date" name="date_to" id="date_to" 
-                        class="form-control form-control-sm" 
-                        value="{{ request('date_to') }}">
-                </div>
-                
-                <div class="col-md-2 d-flex align-items-end">
-                    <button type="submit" class="btn btn-sm btn-primary me-2">
-                        <i class="bi bi-search"></i> Найти
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search me-1"></i> Найти
                     </button>
-                    <a href="{{ route('inventories.index') }}" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi bi-x-circle"></i> Сбросить
-                    </a>
+                    @if(request()->has('name') || request()->has('warehouse_id'))
+                        <a href="{{ route('inventories.index') }}" class="btn btn-outline-secondary w-100 mt-2">
+                            <i class="bi bi-x-circle me-1"></i> Сбросить
+                        </a>
+                    @endif
                 </div>
             </form>
         </div>
@@ -94,7 +96,7 @@
                         <thead class="table-light">
                             <tr>
                                 <th>Название</th>
-                                <th>Склад</th>
+                                <th>Склады</th>
                                 <th>Дата</th>
                                 <th>Статус</th>
                                 <th>Товаров</th>
@@ -132,7 +134,23 @@
                                 <td>
                                     <strong>{{ $inventory->name }}</strong>
                                 </td>
-                                <td>{{ $inventory->warehouse->name }}</td>
+                                <td>
+                                    @if($inventory->warehouses->count() > 0)
+                                        <div>
+                                            <span class="badge bg-primary">{{ $inventory->warehouses->count() }}</span>
+                                            @if($inventory->warehouses->count() <= 3)
+                                                {{ $inventory->warehouses->pluck('name')->join(', ') }}
+                                            @else
+                                                {{ $inventory->warehouses->first()->name }} 
+                                                <span class="text-muted">+{{ $inventory->warehouses->count() - 1 }}</span>
+                                            @endif
+                                        </div>
+                                    @elseif($inventory->warehouse)
+                                        <span class="badge bg-secondary">{{ $inventory->warehouse->name }}</span>
+                                    @else
+                                        <span class="text-muted">—</span>
+                                    @endif
+                                </td>
                                 <td>{{ $inventory->inventory_date->format('d.m.Y H:i') }}</td>
                                 <td>
                                     @if($inventory->isCreated())
@@ -184,7 +202,8 @@
                                                 data-bs-target="#editInventoryModal"
                                                 data-id="{{ $inventory->id }}"
                                                 data-name="{{ $inventory->name }}"
-                                                data-inventory-date="{{ $inventory->inventory_date->format('Y-m-d\TH:i') }}">
+                                                data-inventory-date="{{ $inventory->inventory_date->format('Y-m-d\TH:i') }}"
+                                                data-warehouse-ids="{{ $inventory->warehouses->pluck('id')->join(',') }}">
                                             <i class="bi bi-pencil"></i>
                                         </button>
                                     @endif
@@ -278,6 +297,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('edit_name').value = button.dataset.name;
                 document.getElementById('edit_inventory_date').value = button.dataset.inventoryDate;
                 document.getElementById('editInventoryForm').action = `/inventories/${button.dataset.id}`;
+                
+                // Устанавливаем выбранные склады
+                const warehouseIds = button.dataset.warehouseIds.split(',');
+                if (document.getElementById('edit_warehouse_ids')) {
+                    // Снимаем все предыдущие выборы
+                    $('#edit_warehouse_ids option').prop('selected', false);
+                    
+                    // Устанавливаем выбранные склады
+                    warehouseIds.forEach(function(warehouseId) {
+                        if (warehouseId) {
+                            $('#edit_warehouse_ids option[value="' + warehouseId + '"]').prop('selected', true);
+                        }
+                    });
+                    $('#edit_warehouse_ids').trigger('change');
+                }
             }
         });
     }
@@ -300,4 +334,4 @@ document.addEventListener('DOMContentLoaded', function() {
 @include('inventories.modals.edit')
 @include('inventories.modals.delete')
 
-@endsection
+@endsection 

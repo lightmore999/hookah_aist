@@ -12,22 +12,23 @@
                 @csrf
                 
                 <div class="modal-body">
-                    <!-- Склад -->
+                    <!-- Склады (множественный выбор) -->
                     <div class="mb-4">
-                        <label for="warehouse_id" class="form-label fw-bold">Склад *</label>
-                        <select name="warehouse_id" id="warehouse_id" 
-                                class="form-select @error('warehouse_id') is-invalid @enderror" 
+                        <label for="warehouse_ids" class="form-label fw-bold">Склады *</label>
+                        <select name="warehouse_ids[]" id="warehouse_ids" 
+                                class="form-select @error('warehouse_ids') is-invalid @enderror" 
+                                multiple
                                 required>
-                            <option value="">Выберите склад</option>
                             @foreach($warehouses as $warehouse)
-                                <option value="{{ $warehouse->id }}" {{ old('warehouse_id') == $warehouse->id ? 'selected' : '' }}>
+                                <option value="{{ $warehouse->id }}" {{ in_array($warehouse->id, old('warehouse_ids', [])) ? 'selected' : '' }}>
                                     {{ $warehouse->name }}
                                 </option>
                             @endforeach
                         </select>
-                        @error('warehouse_id')
+                        @error('warehouse_ids')
                             <div class="invalid-feedback">{{ $message }}</div>
                         @enderror
+                        <div class="form-text">Выберите один или несколько складов для инвентаризации</div>
                     </div>
 
                     <!-- Название -->
@@ -58,19 +59,6 @@
                         @enderror
                         <div class="form-text">Если оставить пустым, будет установлена текущая дата и время</div>
                     </div>
-
-                    <!-- Заметки -->
-                    <div class="mb-4">
-                        <label for="notes" class="form-label fw-bold">Заметки</label>
-                        <textarea class="form-control @error('notes') is-invalid @enderror" 
-                                  id="notes" 
-                                  name="notes" 
-                                  rows="3"
-                                  placeholder="Дополнительная информация об инвентаризации">{{ old('notes') }}</textarea>
-                        @error('notes')
-                            <div class="invalid-feedback">{{ $message }}</div>
-                        @enderror
-                    </div>
                 </div>
 
                 <div class="modal-footer border-top-0">
@@ -85,3 +73,17 @@
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Инициализация Select2 для выбора нескольких складов
+    if (document.getElementById('warehouse_ids')) {
+        $('#warehouse_ids').select2({
+            placeholder: "Выберите склады",
+            allowClear: true,
+            width: '100%',
+            dropdownParent: $('#createInventoryModal')
+        });
+    }
+});
+</script>

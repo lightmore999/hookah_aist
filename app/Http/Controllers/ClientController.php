@@ -139,4 +139,14 @@ class ClientController extends Controller
         return redirect()->route('clients.index')
             ->with('success', '⚠️ Списано ' . $validated['amount'] . ' бонусов у клиента ' . $client->name);
     }
+    
+    public function exportExcel()
+    {
+        $filename = 'clients_' . date('Y-m-d_H-i') . '.xlsx';
+        
+        return \Maatwebsite\Excel\Facades\Excel::download(
+            new \App\Exports\ClientsExport(), 
+            $filename
+        );
+    }
 }

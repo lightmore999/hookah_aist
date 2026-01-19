@@ -104,6 +104,9 @@
                             <x-dropdown-link :href="route('bonus-history.index')">
                                 История бонусов
                             </x-dropdown-link>
+                            <x-dropdown-link :href="route('payment-methods.index')">
+                                Способы оплаты
+                            </x-dropdown-link>
                         </div>
                     </div>
                 </div>

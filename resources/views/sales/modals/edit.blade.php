@@ -28,13 +28,14 @@
                             </select>
                         </div>
                         
-                        <!-- Склад -->
+                        <!-- Способ оплаты -->
                         <div class="col-md-12">
-                            <label for="edit_warehouse_id" class="form-label fw-bold">Склад</label>
-                            <select class="form-select" id="edit_warehouse_id" name="warehouse_id" required>
-                                @foreach($warehouses as $warehouse)
-                                    <option value="{{ $warehouse->id }}">
-                                        {{ $warehouse->name }}
+                            <label for="edit_payment_method_id" class="form-label fw-bold">Способ оплаты</label>
+                            <select class="form-select" id="edit_payment_method_id" name="payment_method_id">
+                                <option value="">Не выбран</option>
+                                @foreach($paymentMethods as $method)
+                                    <option value="{{ $method->IDPaymentMethod }}">
+                                        {{ $method->Name }}
                                     </option>
                                 @endforeach
                             </select>

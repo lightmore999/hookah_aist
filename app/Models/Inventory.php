@@ -7,49 +7,34 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Inventory extends Model
 {
     use HasFactory, SoftDeletes;
 
-    /**
-     * Статусы инвентаризации
-     */
     const STATUS_CREATED = 'created';
     const STATUS_CLOSED = 'closed';
 
-    /**
-     * Атрибуты, которые можно массово назначать
-     */
     protected $fillable = [
         'name',
         'status',
         'inventory_date',
-        'warehouse_id',
         'created_by',
         'completed_by'
-    ];
+        // Убрали warehouse_id
+    ];  
 
-    /**
-     * Атрибуты, которые должны быть преобразованы
-     */
     protected $casts = [
         'inventory_date' => 'datetime',
     ];
 
-    /**
-     * Значения по умолчанию для атрибутов
-     */
     protected $attributes = [
         'status' => self::STATUS_CREATED,
     ];
 
-    /**
-     * Обработчики событий модели
-     */
     protected static function booted(): void
     {
-        // Автоматическое заполнение имени и даты при создании
         static::creating(function (Inventory $inventory) {
             if (empty($inventory->name)) {
                 $inventory->name = 'Инвентаризация от ' . now()->format('d.m.Y H:i');
@@ -59,13 +44,11 @@ class Inventory extends Model
                 $inventory->inventory_date = now();
             }
             
-            // Автоматически устанавливаем created_by если пользователь авторизован
             if (auth()->check() && empty($inventory->created_by)) {
                 $inventory->created_by = auth()->id();
             }
         });
 
-        // Автоматическое обновление остатков при закрытии инвентаризации
         static::updated(function (Inventory $inventory) {
             if ($inventory->isDirty('status') && $inventory->status === self::STATUS_CLOSED) {
                 $inventory->applyStockAdjustments();
@@ -73,12 +56,15 @@ class Inventory extends Model
         });
     }
 
+    // =========== ОТНОШЕНИЯ ===========
+
     /**
-     * Отношение к складу
+     * Все склады, участвующие в инвентаризации
      */
-    public function warehouse(): BelongsTo
+    public function warehouses(): BelongsToMany
     {
-        return $this->belongsTo(Warehouse::class);
+        return $this->belongsToMany(Warehouse::class, 'inventory_warehouse')
+                    ->withTimestamps();
     }
 
     /**
@@ -105,8 +91,26 @@ class Inventory extends Model
         return $this->hasMany(InventoryItem::class);
     }
 
+    // =========== МЕТОДЫ ===========
+
     /**
-     * Проверка, создана ли инвентаризация (можно редактировать)
+     * Привязать несколько складов к инвентаризации
+     */
+    public function attachWarehouses(array $warehouseIds): void
+    {
+        $this->warehouses()->sync($warehouseIds);
+    }
+
+    /**
+     * Получить первый склад (для обратной совместимости)
+     */
+    public function getFirstWarehouseAttribute()
+    {
+        return $this->warehouses->first();
+    }
+
+    /**
+     * Проверка, создана ли инвентаризация
      */
     public function isCreated(): bool
     {
@@ -114,7 +118,7 @@ class Inventory extends Model
     }
 
     /**
-     * Проверка, закрыта ли инвентаризация (нельзя редактировать)
+     * Проверка, закрыта ли инвентаризация
      */
     public function isClosed(): bool
     {
@@ -141,8 +145,31 @@ class Inventory extends Model
     public function applyStockAdjustments(): void
     {
         foreach ($this->items as $item) {
-            $item->adjustStock();
+            if ($item->hasDifference()) {
+                // Для каждого склада в инвентаризации обновляем остатки
+                foreach ($this->warehouses as $warehouse) {
+                    $stock = Stock::where('warehouse_id', $warehouse->id)
+                        ->where('product_id', $item->product_id)
+                        ->first();
+                    
+                    if ($stock) {
+                        // Обновляем количество на складе
+                        $stock->quantity = $item->actual_quantity;
+                        $stock->save();
+                    }
+                }
+            }
         }
+    }
+
+    /**
+     * Scope для фильтрации по складу
+     */
+    public function scopeFilterByWarehouse($query, $warehouseId)
+    {
+        return $query->whereHas('warehouses', function ($q) use ($warehouseId) {
+            $q->where('warehouses.id', $warehouseId);
+        });
     }
 
     /**
@@ -154,7 +181,7 @@ class Inventory extends Model
     }
 
     /**
-     * Получить количество товаров в инвентаризации
+     * Получить количество товаров
      */
     public function getItemsCountAttribute(): int
     {
@@ -162,7 +189,7 @@ class Inventory extends Model
     }
 
     /**
-     * Проверка, есть ли различия в инвентаризации
+     * Проверка, есть ли различия
      */
     public function hasDifferences(): bool
     {

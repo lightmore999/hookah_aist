@@ -13,14 +13,22 @@
             <p class="text-muted mb-0 small">Управление клиентами</p>
         </div>
         
-        <div>
+        <div class="d-flex gap-2">
+            <!-- Кнопка экспорта в Excel -->
+            <a href="{{ route('clients.export-excel') }}" 
+            class="btn btn-success"
+            title="Экспорт в Excel">
+                <i class="bi bi-file-earmark-excel me-1"></i> Excel
+            </a>
+            
             <button type="button" 
                     class="btn btn-primary"
                     data-bs-toggle="modal"
                     data-bs-target="#createClientModal">
                 <i class="bi bi-plus-circle me-1"></i> Добавить клиента
             </button>
-            <a href="{{ route('bonus-cards.index') }}" class="btn btn-outline-primary ms-2">
+            
+            <a href="{{ route('bonus-cards.index') }}" class="btn btn-outline-primary">
                 <i class="bi bi-credit-card me-1"></i> Бонусные карты
             </a>
         </div>

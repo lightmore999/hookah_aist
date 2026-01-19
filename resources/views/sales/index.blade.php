@@ -104,10 +104,10 @@
                             <tr>
                                 <th>ID</th>
                                 <th>Клиент</th>
-                                <th>Склад</th>
                                 <th>Стол</th>
                                 <th>Сумма</th>
-                                <th>Скидки</th> <!-- Изменяем название столбца -->
+                                <th>Скидки</th>
+                                <th>Способ оплаты</th> <!-- НОВЫЙ СТОЛБЕЦ -->
                                 <th>Статус</th>
                                 <th>Дата</th>
                                 <th class="text-end">Действия</th>
@@ -124,13 +124,6 @@
                                         {{ $sale->client->name }}
                                     @else
                                         <span class="text-muted">Гость</span>
-                                    @endif
-                                </td>
-                                <td>
-                                    @if($sale->warehouse)
-                                        <span class="badge bg-secondary">{{ $sale->warehouse->name }}</span>
-                                    @else
-                                        <span class="text-muted">—</span>
                                     @endif
                                 </td>
                                 <td>
@@ -172,6 +165,21 @@
                                     @endif
                                 </td>
                                 <td>
+                                    @if($sale->paymentMethod && $sale->status === 'completed')
+                                        <span class="badge bg-primary" title="Способ оплаты">
+                                            <i class="bi bi-credit-card me-1"></i>
+                                            {{ $sale->paymentMethod->Name }}
+                                        </span>
+                                    @elseif($sale->status !== 'completed')
+                                        <span class="badge bg-secondary" title="Будет выбран при завершении">
+                                            <i class="bi bi-clock me-1"></i>
+                                            Не выбран
+                                        </span>
+                                    @else
+                                        <span class="text-muted small">—</span>
+                                    @endif
+                                </td>
+                                <td>
                                     @php
                                         $statusColors = [
                                             'new' => 'primary',
@@ -198,30 +206,17 @@
                                     class="btn btn-outline-primary btn-sm"
                                     title="Просмотр">
                                         <i class="bi bi-eye"></i>
-                                    </a>
-                                    <!-- <button type="button" 
-                                            class="btn btn-outline-warning btn-sm edit-sale-btn"
-                                            data-bs-toggle="modal"
-                                            data-bs-target="#editSaleModal"
-                                            data-id="{{ $sale->id }}"
-                                            data-status="{{ $sale->status }}"
-                                            data-client="{{ $sale->client_id }}"
-                                            data-warehouse="{{ $sale->warehouse_id }}"
-                                            data-total="{{ $sale->total }}"
-                                            data-discount="{{ $sale->discount }}"
-                                            data-used-bonus-points="{{ $sale->used_bonus_points }}"
-                                            data-payment-method="{{ $sale->payment_method }}"
-                                            data-comment="{{ $sale->comment }}">
-                                        <i class="bi bi-pencil"></i>
-                                    </button> -->
-                                    <button type="button" 
-                                            class="btn btn-outline-danger btn-sm delete-sale-btn"
-                                            data-bs-toggle="modal"
-                                            data-bs-target="#deleteSaleModal"
-                                            data-id="{{ $sale->id }}"
-                                            data-number="#{{ $sale->id }}">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
+                                    </a>                                         
+                                    @if($sale->status !== 'completed')
+                                        <button type="button" 
+                                                class="btn btn-outline-danger btn-sm delete-sale-btn"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#deleteSaleModal"
+                                                data-id="{{ $sale->id }}"
+                                                data-number="#{{ $sale->id }}">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    @endif
                                 </td>
                             </tr>
                             @endforeach
@@ -259,81 +254,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Редактирование продажи
-    const editSaleModal = document.getElementById('editSaleModal');
-    if (editSaleModal) {
-        editSaleModal.addEventListener('show.bs.modal', function(event) {
-            const button = event.relatedTarget;
-            if (button && button.classList.contains('edit-sale-btn')) {
-                console.log('Opening edit modal for sale:', button.dataset.id);
-                
-                // 1. Устанавливаем action формы
-                const form = document.getElementById('editSaleForm');
-                const saleId = button.dataset.id;
-                form.action = `/sales/${saleId}`;
-                
-                // 2. Заполняем hidden поле
-                document.getElementById('edit_sale_id').value = saleId;
-                
-                // 3. Заполняем статус
-                const statusSelect = document.getElementById('edit_status');
-                if (statusSelect && button.dataset.status) {
-                    statusSelect.value = button.dataset.status;
-                }
-                
-                // 4. Заполняем клиента
-                const clientSelect = document.getElementById('edit_client_id');
-                if (clientSelect && button.dataset.client) {
-                    const clientId = button.dataset.client;
-                    clientSelect.value = clientId;
-                    
-                    // Проверяем, есть ли такой option
-                    const optionExists = Array.from(clientSelect.options).some(opt => opt.value === clientId);
-                    if (!optionExists && clientId) {
-                        console.warn('Client ID', clientId, 'not found in select options');
-                    }
-                }
-                
-                // 5. Заполняем склад
-                const warehouseSelect = document.getElementById('edit_warehouse_id');
-                if (warehouseSelect && button.dataset.warehouse) {
-                    const warehouseId = button.dataset.warehouse;
-                    warehouseSelect.value = warehouseId;
-                    
-                    // Если не нашли option, берем первый
-                    if (!warehouseSelect.value && warehouseSelect.options.length > 0) {
-                        warehouseSelect.value = warehouseSelect.options[0].value;
-                    }
-                }
-                
-                // 6. Заполняем скидку
-                const discountInput = document.getElementById('edit_discount');
-                if (discountInput && button.dataset.discount) {
-                    discountInput.value = parseFloat(button.dataset.discount) || 0;
-                }
-                
-                // 7. Заполняем способ оплаты
-                const paymentSelect = document.getElementById('edit_payment_method');
-                if (paymentSelect && button.dataset.paymentMethod) {
-                    paymentSelect.value = button.dataset.paymentMethod;
-                }
-                
-                // 8. Заполняем комментарий
-                const commentInput = document.getElementById('edit_comment');
-                if (commentInput && button.dataset.comment) {
-                    commentInput.value = button.dataset.comment;
-                }
-                
-                console.log('Form configured:', {
-                    action: form.action,
-                    client: button.dataset.client,
-                    warehouse: button.dataset.warehouse,
-                    status: button.dataset.status
-                });
-            }
-        });
-    }
-    
     // Удаление продажи
     const deleteSaleModal = document.getElementById('deleteSaleModal');
     if (deleteSaleModal) {
@@ -348,7 +268,6 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-@include('sales.modals.edit', ['clients' => $clients, 'warehouses' => $warehouses])
 @include('sales.modals.delete')
 
 @endsection

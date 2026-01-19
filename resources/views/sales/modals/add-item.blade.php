@@ -71,32 +71,28 @@
                             <option value="">-- Выберите товар --</option>
                             @foreach($products as $product)
                             @php
-                                // Получаем доступное количество с учетом склада
-                                $stock = \App\Models\Stock::where('warehouse_id', $sale->warehouse_id)
-                                    ->where('product_id', $product->id)
-                                    ->first();
-                                $available = $stock ? $stock->quantity : 0;
+                                // Получаем доступное количество ВО ВСЕХ СКЛАДАХ
+                                $available = \App\Models\Stock::where('product_id', $product->id)->sum('quantity');
                                 
                                 // Для составных товаров рассчитываем доступное количество
                                 if ($product->is_composite) {
                                     $minAvailable = PHP_INT_MAX;
                                     foreach ($product->recipeComponents as $component) {
-                                        $componentStock = \App\Models\Stock::where('warehouse_id', $sale->warehouse_id)
-                                            ->where('product_id', $component->component_product_id)
-                                            ->first();
+                                        $totalComponentQuantity = \App\Models\Stock::where('product_id', $component->component_product_id)
+                                            ->sum('quantity');
                                         
-                                        if (!$componentStock || $componentStock->quantity <= 0) {
+                                        if ($totalComponentQuantity <= 0) {
                                             $available = 0;
                                             break;
                                         }
                                         
-                                        $availableForComponent = floor($componentStock->quantity / $component->quantity);
+                                        $availableForComponent = floor($totalComponentQuantity / $component->quantity);
                                         $minAvailable = min($minAvailable, $availableForComponent);
                                     }
                                     $available = ($minAvailable !== PHP_INT_MAX) ? $minAvailable : 0;
                                 }
                                 
-                                // Категория товара - ИСПРАВЛЕНО: используем product_category_id
+                                // Категория товара
                                 $categoryName = $product->category ? $product->category->name : 'Без категории';
                                 $categoryId = $product->product_category_id ? (string)$product->product_category_id : 'null';
                             @endphp
@@ -150,7 +146,7 @@
                                         <strong id="productUnitPrice" class="text-success">0.00 ₽</strong>
                                     </div>
                                     <div class="mb-2">
-                                        <small class="text-muted d-block">Доступно на складе:</small>
+                                        <small class="text-muted d-block">Доступно в системе:</small>
                                         <strong id="productAvailable" class="text-success">0</strong>
                                         <span id="productAvailableUnit"></span>
                                     </div>

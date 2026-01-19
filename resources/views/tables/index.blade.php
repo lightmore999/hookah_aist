@@ -555,7 +555,6 @@
 window.tableProducts = window.tableProducts || {
     currentTableId: null,
     currentSaleId: null,
-    currentWarehouseId: {{ \App\Models\Warehouse::first()->id ?? 1 }}
 };
 
 // Обновленный обработчик модального окна товаров:
@@ -1440,13 +1439,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Способ оплаты
         const paymentMethod = document.getElementById('viewPaymentMethod');
         if (paymentMethod && data.paymentMethod) {
-            const paymentMethods = {
-                'cash': 'Наличные',
-                'card': 'Карта',
-                'online': 'Онлайн',
-                'terminal': 'Терминал'
-            };
-            paymentMethod.textContent = paymentMethods[data.paymentMethod] || data.paymentMethod;
+            paymentMethod.textContent = data.paymentMethod; // Просто показываем имя способа оплаты
         } else if (paymentMethod) {
             paymentMethod.textContent = 'Не указано';
         }
@@ -1834,11 +1827,20 @@ document.addEventListener('DOMContentLoaded', function() {
         // Обновляем расчет доступных бонусов
         setTimeout(calculateBonusAward, 50);
         updateBonusCalculation();
-        if (document.getElementById('closePaymentMethod').value === 'cash') {
-            setTimeout(() => {
-                updateCalculatorTotal();
-                calculateChange();
-            }, 50);
+        const paymentSelect = document.getElementById('closePaymentMethod');
+        if (paymentSelect && paymentSelect.value) {
+            const selectedOption = paymentSelect.options[paymentSelect.selectedIndex];
+            const isCash = isCashPayment(paymentSelect.value, selectedOption?.text || '');
+            if (isCash) {
+                setTimeout(() => {
+                    if (typeof window.updateCalculatorTotal === 'function') {
+                        window.updateCalculatorTotal();
+                    }
+                    if (typeof window.calculateChange === 'function') {
+                        window.calculateChange();
+                    }
+                }, 50);
+            }
         }
     }
 
@@ -2287,7 +2289,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 discount_type: discountTypeHidden?.value,
                 use_bonuses: useBonusesCheckbox.checked ? '1' : '0',
                 bonus_points_to_use: bonusPointsInput?.value,
-                payment_method: document.getElementById('closePaymentMethod').value
+                payment_method_id: document.getElementById('closePaymentMethod').value, // ✅ новое поле
+                payment_method: document.getElementById('paymentMethodAlias').value // ✅ для совместимости
             });
         });
     }
@@ -2396,6 +2399,69 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // =============== ПРОСТОЙ КАЛЬКУЛЯТОР СДАЧИ ===============
 
+    // Глобальные функции калькулятора (ДОБАВЬТЕ ЭТОТ КОД)
+    window.updateCalculatorTotal = function() {
+        console.log('🔄 updateCalculatorTotal вызвана');
+        const calcTotalElement = document.getElementById('calcTotalAmount');
+        if (!calcTotalElement) return;
+        
+        try {
+            const finalTotalElement = document.getElementById('closeFinalTotal');
+            if (!finalTotalElement) {
+                console.error('❌ Элемент closeFinalTotal не найден');
+                return;
+            }
+            
+            const totalText = finalTotalElement.textContent || '0.00 ₽';
+            const number = parseFloat(totalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
+            calcTotalElement.textContent = number.toFixed(2) + ' ₽';
+            
+            // Если способ оплаты "наличные", обновляем расчет
+            const paymentSelect = document.getElementById('closePaymentMethod');
+            if (paymentSelect && paymentSelect.value === 'cash') {
+                window.calculateChange();
+            }
+        } catch (err) {
+            console.log('❌ Ошибка в updateCalculatorTotal:', err);
+        }
+    };
+
+    window.calculateChange = function() {
+        console.log('🔄 calculateChange вызвана');
+        const cashReceivedInput = document.getElementById('cashReceived');
+        const calcResult = document.getElementById('calcResult');
+        const insufficientCash = document.getElementById('insufficientCash');
+        
+        if (!cashReceivedInput || !calcResult || !insufficientCash) return;
+        
+        try {
+            const totalText = document.getElementById('closeFinalTotal')?.textContent || '0.00 ₽';
+            const total = parseFloat(totalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
+            const received = parseFloat(cashReceivedInput.value) || 0;
+            
+            // Очищаем предыдущие результаты
+            calcResult.style.display = 'none';
+            insufficientCash.style.display = 'none';
+            
+            if (received === 0) return;
+            
+            if (received >= total) {
+                // Хватает денег
+                const change = received - total;
+                document.getElementById('changeAmount').textContent = change.toFixed(2) + ' ₽';
+                calcResult.style.display = 'block';
+            } else {
+                // Не хватает денег
+                const missing = total - received;
+                document.getElementById('missingAmount').textContent = missing.toFixed(2) + ' ₽';
+                insufficientCash.style.display = 'block';
+            }
+        } catch (err) {
+            console.log('❌ Ошибка в calculateChange:', err);
+        }
+    };
+
+
     // Инициализация калькулятора при загрузке
     function initCashCalculator() {
         console.log('🔄 Инициализация калькулятора сдачи');
@@ -2418,7 +2484,10 @@ document.addEventListener('DOMContentLoaded', function() {
         function getCurrentTotal() {
             try {
                 const finalTotalElement = document.getElementById('closeFinalTotal');
-                if (!finalTotalElement) return 0;
+                if (!finalTotalElement) {
+                    console.error('❌ Элемент closeFinalTotal не найден');
+                    return 0;
+                }
                 
                 const totalText = finalTotalElement.textContent || '0.00 ₽';
                 const number = parseFloat(totalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
@@ -2469,11 +2538,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // 1. Обработчик изменения способа оплаты
-        paymentSelect.addEventListener('change', function() {
-            const isCash = this.value === 'cash';
+       paymentSelect.addEventListener('change', function() {
+            const selectedOption = this.options[this.selectedIndex];
+            const paymentMethodName = selectedOption ? selectedOption.text : '';
+            const isCash = isCashPayment(this.value, paymentMethodName);
+            
+            console.log('💰 Изменение способа оплаты в калькуляторе:', {
+                value: this.value,
+                name: paymentMethodName,
+                isCash: isCash
+            });
             
             if (cashCalculator) {
                 cashCalculator.style.display = isCash ? 'block' : 'none';
+                console.log(`💰 Калькулятор: ${isCash ? 'показан' : 'скрыт'}`);
             }
             
             if (calcResult) calcResult.style.display = 'none';
@@ -2484,18 +2562,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 const total = getCurrentTotal();
                 if (cashReceivedInput) {
                     cashReceivedInput.value = Math.ceil(total); // Округляем вверх для удобства
+                    console.log(`💰 Автозаполнение: ${cashReceivedInput.value} ₽`);
                 }
                 
                 // Обновляем отображение и рассчитываем сдачу
-                updateCalculatorTotal();
-                setTimeout(calculateChange, 100);
+                setTimeout(() => {
+                    updateCalculatorTotal();
+                    calculateChange();
+                }, 100);
             }
         });
         
         // 2. Обработчик ввода суммы в поле "Получено"
-        if (cashReceivedInput) {
-            cashReceivedInput.addEventListener('input', calculateChange);
-            cashReceivedInput.addEventListener('change', calculateChange);
+       if (cashReceivedInput) {
+            cashReceivedInput.addEventListener('input', window.calculateChange);
+            cashReceivedInput.addEventListener('change', window.calculateChange);
             
             // Кнопки быстрого ввода (опционально, но удобно)
             cashReceivedInput.addEventListener('focus', function() {
@@ -2541,12 +2622,171 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('✅ Калькулятор сдачи инициализирован');
     }
 
+    // =============== СПОСОБ ОПЛАТЫ ИЗ БАЗЫ ДАННЫХ ===============
+
+    function isCashPayment(paymentMethodId, paymentMethodName = '') {
+        if (!paymentMethodId && !paymentMethodName) return false;
+        
+        // Если передано ID, проверяем по нему
+        if (paymentMethodId) {
+            const paymentSelect = document.getElementById('closePaymentMethod');
+            if (paymentSelect && paymentSelect.value) {
+                const selectedOption = paymentSelect.options[paymentSelect.selectedIndex];
+                paymentMethodName = selectedOption.text || '';
+            }
+        }
+        
+        // Проверяем по названию
+        if (paymentMethodName) {
+            const cashKeywords = ['нал', 'cash', 'налич', 'наличк', 'руб', '₽', 'деньг'];
+            const lowerName = paymentMethodName.toLowerCase();
+            
+            // Проверяем все ключевые слова
+            for (const keyword of cashKeywords) {
+                if (lowerName.includes(keyword)) {
+                    console.log(`💰 Наличные определены по ключевому слову: "${keyword}"`);
+                    return true;
+                }
+            }
+        }
+        
+        // Если есть конкретный ID для наличных (предположим, что ID=1 это "Наличные")
+        const cashPaymentIds = [1];
+        if (paymentMethodId && cashPaymentIds.includes(parseInt(paymentMethodId))) {
+            console.log(`💰 Наличные определены по ID: ${paymentMethodId}`);
+            return true;
+        }
+        
+        return false;
+    }
+
+    function updatePaymentMethodInModal(paymentMethodId) {
+        const paymentSelect = document.getElementById('closePaymentMethod');
+        
+        if (!paymentSelect) return;
+        
+        // Если передан ID способа оплаты
+        if (paymentMethodId) {
+            paymentSelect.value = paymentMethodId;
+        } else {
+            paymentSelect.value = '';
+        }
+        
+        // Обновляем скрытое поле для обратной совместимости
+        const paymentMethodAlias = document.getElementById('paymentMethodAlias');
+        if (paymentMethodAlias && paymentSelect.value) {
+            // Получаем текстовое значение для обратной совместимости
+            const selectedOption = paymentSelect.options[paymentSelect.selectedIndex];
+            paymentMethodAlias.value = selectedOption.text || '';
+        }
+        
+        // Обновляем калькулятор сдачи если выбран наличный расчет
+        if (typeof initCashCalculator === 'function') {
+            setTimeout(() => {
+                const event = new Event('change');
+                paymentSelect.dispatchEvent(event);
+            }, 50);
+        }
+    }
+
+    // Обновляем функцию updateCloseModalData
+    function updateCloseModalData(data) {
+        console.log('📊 updateCloseModalData вызвана с данными:', data);
+        
+        // Обновляем информацию о клиенте и бонусах
+        updateClientBonusInfo(data);
+        
+        // Обновляем суммы
+        document.getElementById('closeItemsTotal').textContent = formatPrice(data.productsTotal);
+        document.getElementById('closeHookahsTotal').textContent = formatPrice(data.hookahsTotal);
+        document.getElementById('closeSubtotal').textContent = formatPrice(data.subtotal);
+        document.getElementById('closeFinalTotal').textContent = formatPrice(data.finalTotal);
+        
+        // ✅ ОБНОВЛЯЕМ СПОСОБ ОПЛАТЫ
+        updatePaymentMethodInModal(data.paymentMethodId);
+        
+        // Устанавливаем скидку и отображаем ее
+        const discountInput = document.getElementById('closeDiscount');
+        const discountDisplay = document.getElementById('closeDiscountDisplay');
+        
+        if (discountInput) {
+            discountInput.value = data.discount || 0;
+        }
+
+        if (discountDisplay) {
+            discountDisplay.textContent = formatPrice(data.discount || 0);
+        }
+        setTimeout(() => {
+            calculateCloseTotal();
+        }, 100);
+
+        // Заполняем списки товаров и кальянов
+        fillProductsList(data.products || []);
+        fillHookahsList(data.hookahs || []);
+        
+        if (document.getElementById('cashCalculator').style.display !== 'none') {
+            updateCalculatorTotal();
+            calculateChange();
+        }
+    }
+
+    // Инициализация обработчика для способа оплаты
+    function initPaymentMethodHandler() {
+        const paymentSelect = document.getElementById('closePaymentMethod');
+        if (!paymentSelect) return;
+        
+        console.log('💰 Инициализация обработчика способов оплаты');
+        
+        paymentSelect.addEventListener('change', function() {
+            const selectedOption = this.options[this.selectedIndex];
+            const paymentMethodId = this.value;
+            const paymentMethodName = selectedOption ? selectedOption.text : '';
+            
+            console.log('💰 Способ оплаты изменен:', {
+                id: paymentMethodId,
+                name: paymentMethodName
+            });
+            
+            // ✅ УБЕРИТЕ ПОВТОРНОЕ ОБЪЯВЛЕНИЕ isCash ЗДЕСЬ
+            // ВМЕСТО ЭТОГО:
+            // const isCash = isCashPayment(paymentMethodId, paymentMethodName);
+            // const paymentMethodAlias = document.getElementById('paymentMethodAlias');
+            // const isCash = this.value && this.options[this.selectedIndex].text.toLowerCase().includes('нал');
+            
+            // ✅ ИСПРАВЛЕННЫЙ КОД:
+            const isCash = isCashPayment(paymentMethodId, paymentMethodName);
+            
+            // Обновляем скрытое поле для обратной совместимости
+            const paymentMethodAlias = document.getElementById('paymentMethodAlias');
+            if (paymentMethodAlias) {
+                paymentMethodAlias.value = paymentMethodName || '';
+            }
+            
+            // Показываем/скрываем калькулятор сдачи
+            const cashCalculator = document.getElementById('cashCalculator');
+            if (cashCalculator) {
+                cashCalculator.style.display = isCash ? 'block' : 'none';
+                console.log(`💰 Калькулятор сдачи: ${isCash ? 'ПОКАЗАН' : 'СКРЫТ'}`);
+            }
+            
+            // Если это наличные, обновляем калькулятор
+            if (isCash) {
+                setTimeout(() => {
+                    if (typeof updateCalculatorTotal === 'function') {
+                        updateCalculatorTotal();
+                        calculateChange();
+                    }
+                }, 100);
+            }
+        });
+    }
 
     // =============== ИНИЦИАЛИЗАЦИЯ ВСЕГО ===============
 
-    // Инициализация скидки
+    initPaymentMethodHandler();
     initDiscountLogic();
     setTimeout(initCashCalculator, 500);
+
     // Инициализация обработчиков бонусов
     document.addEventListener('DOMContentLoaded', function() {
         // Инициализация обработчиков для чекбокса бонусов

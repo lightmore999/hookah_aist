@@ -148,7 +148,7 @@
                                         </div>
                                         <div class="mb-2">
                                             <small class="text-muted">Способ оплаты:</small>
-                                            <div class="fw-bold" id="viewPaymentMethod"></div>
+                                            <div id="viewPaymentMethod" class="fw-bold">Не указано</div>
                                         </div>
                                         <div class="mb-2" id="viewBonusEarnedContainer" style="display: none;">
                                             <small class="text-muted">Начислено бонусов:</small>

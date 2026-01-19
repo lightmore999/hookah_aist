@@ -107,21 +107,22 @@ class ShiftController extends Controller
      * Автоматическое закрытие просроченных смен
      * Смены автоматически закрываются в 12:00 следующего дня
      */
+
     private function autoCloseExpiredShifts()
     {
         $now = now();
         
         // Проверяем, что сейчас уже после 12:00
-        if ($now->format('H:i') < '12:13') {
+        if ($now->hour < 12) {
             return 0; // Еще рано, до 12:00
         }
         
-        // Дата вчера
-        $yesterday = $now->copy()->subDay()->toDateString();
+        // Закрываем смены за ВЧЕРА и СТАРШЕ
+        $cutoffDate = $now->copy()->subDay()->toDateString();
         
-        // Находим все открытые смены на ВЧЕРА
+        // Находим все открытые смены за вчера и старше
         $expiredShifts = Shift::where('status', 'open')
-            ->whereDate('date', $yesterday)
+            ->whereDate('date', '<=', $cutoffDate)
             ->get();
         
         $closedCount = 0;
@@ -132,18 +133,15 @@ class ShiftController extends Controller
             $shift->closed_at = $now;
             
             // Добавляем автоматический комментарий
-            $comment = "Смена автоматически закрыта системой " . 
-                    $now->format('d.m.Y H:i:s') . 
-                    " (смена не была закрыта вручную до 12:00 следующего дня)";
-            
             $shift->addAutoCloseNote();
+            
             $shift->save();
             
             $closedCount++;
         }
         
         if ($closedCount > 0) {
-            \Log::info("Автоматически закрыто $closedCount просроченных смен (вчерашние смены)");
+            \Log::info("Автоматически закрыто $closedCount просроченных смен");
         }
         
         return $closedCount;

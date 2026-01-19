@@ -48,7 +48,7 @@
                         data-bs-target="#editSaleModal"
                         data-id="{{ $sale->id }}"
                         data-client="{{ $sale->client_id }}"
-                        data-warehouse="{{ $sale->warehouse_id }}"
+                        data-payment-method-id="{{ $sale->payment_method_id }}"
                         data-comment="{{ $sale->comment }}">
                     <i class="bi bi-pencil me-1"></i> Изменить
                 </button>
@@ -62,7 +62,7 @@
                         data-items-total="{{ $sale->items->sum(function($item) { return $item->quantity * $item->unit_price; }) }}"
                         data-hookahs-total="{{ $sale->hookahs->sum('price') }}"
                         data-discount="{{ $sale->discount }}"
-                        data-payment-method="{{ $sale->payment_method }}"
+                        data-payment-method-id="{{ $sale->payment_method_id }}"
                         data-comment="{{ $sale->comment }}"
                         data-client-id="{{ $sale->client_id }}"
                         data-client-name="{{ $sale->client->name ?? '' }}"
@@ -196,6 +196,7 @@
                     @endif
                 </div>
             </div>
+            
             @if($sale->table_id)
             <div class="card border-info border-0 shadow-sm mb-4">
                 <div class="card-header bg-info bg-opacity-10">
@@ -281,26 +282,15 @@
                         <small class="text-muted d-block">Клиент</small>
                         <strong>{{ $sale->client->name ?? 'Гость' }}</strong>
                     </div>
-                    
-                    <div class="mb-3">
-                        <small class="text-muted d-block">Склад</small>
-                        <strong>{{ $sale->warehouse->name ?? 'Не указан' }}</strong>
-                    </div>
 
                     <div class="mb-3">
                         <small class="text-muted d-block">Способ оплаты</small>
-                        @if($sale->payment_method)
-                            @php
-                                $paymentMethods = [
-                                    'cash' => 'Наличные',
-                                    'card' => 'Карта',
-                                    'online' => 'Онлайн',
-                                    'terminal' => 'Терминал'
-                                ];
-                            @endphp
-                            <strong>{{ $paymentMethods[$sale->payment_method] ?? $sale->payment_method }}</strong>
+                        @if($sale->paymentMethod)
+                            <strong>{{ $sale->paymentMethod->Name }}</strong>
+                        @elseif($sale->status === 'completed')
+                            <span class="text-danger">Не указан</span>
                         @else
-                            <span class="text-muted">Не указан</span>
+                            <span class="text-muted">Будет выбран при завершении</span>
                         @endif
                     </div>
                     
@@ -400,9 +390,9 @@
     </div>
 </div>
 
-<!-- Модальные окна -->ы
-@include('sales.modals.edit')
-@include('sales.modals.close')
+<!-- Модальные окна -->
+@include('sales.modals.edit', ['clients' => $clients, 'paymentMethods' => $paymentMethods])
+@include('sales.modals.close', ['paymentMethods' => $paymentMethods])
 @include('sales.modals.add-item')
 @include('sales.modals.edit-item')
 @include('sales.modals.remove-item')
@@ -417,10 +407,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const button = event.relatedTarget;
             if (button && button.classList.contains('edit-sale-btn')) {
                 document.getElementById('edit_sale_id').value = button.dataset.id;
-                document.getElementById('edit_client_id').value = button.dataset.client;
-                document.getElementById('edit_warehouse_id').value = button.dataset.warehouse;
-                document.getElementById('edit_comment').value = button.dataset.comment;
-                document.getElementById('editSaleForm').action = `/sales/${button.dataset.id}`;
+                document.getElementById('edit_client_id').value = button.dataset.client || '';
+                document.getElementById('edit_payment_method_id').value = button.dataset.paymentMethodId || '';
+                document.getElementById('edit_comment').value = button.dataset.comment || '';
+                
+                const form = document.getElementById('editSaleForm');
+                if (form) {
+                    form.action = `/sales/${button.dataset.id}`;
+                }
             }
         });
     }
@@ -431,23 +425,32 @@ document.addEventListener('DOMContentLoaded', function() {
         editItemModal.addEventListener('show.bs.modal', function(event) {
             const button = event.relatedTarget;
             if (button && button.classList.contains('edit-item-btn')) {
-                const saleId = {{ $sale->id }};
-                const itemId = button.dataset.itemId;
+                // Получаем saleId из URL или из data-атрибута
+                const currentUrl = window.location.pathname;
+                const saleIdMatch = currentUrl.match(/\/sales\/(\d+)/);
+                const saleId = saleIdMatch ? saleIdMatch[1] : null;
                 
-                document.getElementById('editItemProductName').textContent = button.dataset.productName;
-                document.getElementById('editQuantity').value = button.dataset.quantity;
-                document.getElementById('editUnitPrice').value = button.dataset.unitPrice;
-                
-                // Устанавливаем unit если есть в data-атрибутах
-                if (button.dataset.unit) {
-                    const unitLabel = document.getElementById('editQuantityUnit');
-                    if (unitLabel) {
-                        unitLabel.textContent = button.dataset.unit;
+                if (saleId) {
+                    const itemId = button.dataset.itemId;
+                    
+                    document.getElementById('editItemProductName').textContent = button.dataset.productName || 'Товар';
+                    document.getElementById('editQuantity').value = button.dataset.quantity || 0;
+                    document.getElementById('editUnitPrice').value = button.dataset.unitPrice || 0;
+                    
+                    // Устанавливаем unit если есть в data-атрибутах
+                    if (button.dataset.unit) {
+                        const unitLabel = document.getElementById('editQuantityUnit');
+                        if (unitLabel) {
+                            unitLabel.textContent = button.dataset.unit;
+                        }
+                    }
+                    
+                    // Устанавливаем action с правильными параметрами
+                    const form = document.getElementById('editItemForm');
+                    if (form) {
+                        form.action = `/sales/${saleId}/items/${itemId}`;
                     }
                 }
-                
-                // Устанавливаем action с правильными параметрами
-                document.getElementById('editItemForm').action = `/sales/${saleId}/items/${itemId}`;
             }
         });
     }
@@ -458,11 +461,21 @@ document.addEventListener('DOMContentLoaded', function() {
         removeItemModal.addEventListener('show.bs.modal', function(event) {
             const button = event.relatedTarget;
             if (button && button.classList.contains('remove-item-btn')) {
-                const saleId = {{ $sale->id }};
-                const itemId = button.dataset.itemId;
+                // Получаем saleId из URL или из data-атрибута
+                const currentUrl = window.location.pathname;
+                const saleIdMatch = currentUrl.match(/\/sales\/(\d+)/);
+                const saleId = saleIdMatch ? saleIdMatch[1] : null;
                 
-                document.getElementById('removeItemName').textContent = button.dataset.itemName;
-                document.getElementById('removeItemForm').action = `/sales/${saleId}/items/${itemId}`;
+                if (saleId) {
+                    const itemId = button.dataset.itemId;
+                    
+                    document.getElementById('removeItemName').textContent = button.dataset.itemName || 'Товар';
+                    
+                    const form = document.getElementById('removeItemForm');
+                    if (form) {
+                        form.action = `/sales/${saleId}/items/${itemId}`;
+                    }
+                }
             }
         });
     }
@@ -471,8 +484,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const editQuantityInput = document.getElementById('editQuantity');
     if (editQuantityInput) {
         editQuantityInput.addEventListener('input', function() {
-            const unit = document.getElementById('editQuantityUnit').textContent;
-            if (unit === 'шт' && this.value.includes('.')) {
+            const unit = document.getElementById('editQuantityUnit');
+            if (unit && unit.textContent === 'шт' && this.value.includes('.')) {
                 // Для штучных товаров нельзя вводить дробные
                 this.value = Math.floor(this.value);
             }

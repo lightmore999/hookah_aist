@@ -12,25 +12,23 @@ use Illuminate\Support\Facades\DB;
 
 class InventoryController extends Controller
 {
+
     public function index(Request $request)
     {
         $warehouses = Warehouse::orderBy('name')->get();
         
-        $query = Inventory::with(['warehouse', 'creator', 'completer'])->latest();
+        $query = Inventory::with(['warehouses', 'creator', 'completer'])->latest();
         
         // Фильтр по названию
         if ($request->filled('name')) {
             $query->where('name', 'like', '%' . $request->name . '%');
         }
         
-        // Фильтр по дате начала
-        if ($request->filled('date_from')) {
-            $query->whereDate('inventory_date', '>=', $request->date_from);
-        }
-        
-        // Фильтр по дате окончания
-        if ($request->filled('date_to')) {
-            $query->whereDate('inventory_date', '<=', $request->date_to);
+        // Фильтр по складу
+        if ($request->filled('warehouse_id')) {
+            $query->whereHas('warehouses', function ($q) use ($request) {
+                $q->where('warehouses.id', $request->warehouse_id);
+            });
         }
         
         $inventories = $query->paginate(20);
@@ -38,96 +36,66 @@ class InventoryController extends Controller
         return view('inventories.index', compact('inventories', 'warehouses'));
     }
 
-    public function create()
-    {
-        $warehouses = Warehouse::orderBy('name')->get();
-        
-        return view('inventories.create', compact('warehouses'));
-    }
-
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'warehouse_id' => 'required|exists:warehouses,id',
+            'warehouse_ids' => 'required|array|min:1',
+            'warehouse_ids.*' => 'exists:warehouses,id',
             'name' => 'nullable|string|max:255',
             'inventory_date' => 'nullable|date',
         ]);
         
-        try {
-            DB::beginTransaction();
-            
-            // Создаем инвентаризацию
-            $inventory = Inventory::create($validated);
-            
-            // Получаем все товары на складе
-            $stockItems = Stock::where('warehouse_id', $inventory->warehouse_id)
+        // Создаем инвентаризацию
+        $inventoryData = [
+            'name' => $validated['name'] ?? null,
+            'inventory_date' => $validated['inventory_date'] ?? now(),
+        ];
+        
+        $inventory = Inventory::create($inventoryData);
+        
+        // Привязываем несколько складов
+        $inventory->warehouses()->sync($validated['warehouse_ids']);
+        
+        // Собираем уникальные товары со всех складов
+        $productQuantities = [];
+        
+        foreach ($validated['warehouse_ids'] as $warehouseId) {
+            $stockItems = Stock::where('warehouse_id', $warehouseId)
                 ->with('product')
                 ->get();
             
-            // Добавляем все товары в инвентаризацию
             foreach ($stockItems as $stock) {
                 if ($stock->product) {
-                    InventoryItem::create([
-                        'inventory_id' => $inventory->id,
-                        'product_id' => $stock->product_id,
-                        'system_quantity' => (int)$stock->quantity,
-                        'actual_quantity' => (int)$stock->quantity, // По умолчанию фактическое = системному
-                    ]);
+                    $productId = $stock->product_id;
+                    
+                    if (!isset($productQuantities[$productId])) {
+                        $productQuantities[$productId] = [
+                            'product_id' => $productId,
+                            'system_quantity' => 0,
+                        ];
+                    }
+                    
+                    $productQuantities[$productId]['system_quantity'] += (int)$stock->quantity;
                 }
             }
-            
-            DB::commit();
-            
-            return redirect()->route('inventories.show', $inventory)
-                ->with('success', 'Инвентаризация успешно создана! Все товары со склада добавлены.');
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return redirect()->back()
-                ->withInput()
-                ->with('error', 'Ошибка при создании инвентаризации: ' . $e->getMessage());
-        }
-    }
-
-    public function show(Inventory $inventory)
-    {
-        $inventory->load(['warehouse', 'creator', 'completer', 'items.product']);
-        
-        // Получаем только те товары, которые еще не добавлены
-        $stockItems = Stock::where('warehouse_id', $inventory->warehouse_id)
-            ->with('product')
-            ->get();
-        
-        $addedProductIds = $inventory->items->pluck('product_id')->toArray();
-        
-        $availableProducts = $stockItems->filter(function ($stock) use ($addedProductIds) {
-            return !in_array($stock->product_id, $addedProductIds) && $stock->product;
-        })->map(function ($stock) {
-            return [
-                'id' => $stock->product_id,
-                'name' => $stock->product->name,
-                'unit' => $stock->product->unit,
-                'system_quantity' => (int)$stock->quantity,
-                'current_stock' => (int)$stock->quantity,
-            ];
-        })->values();
-        
-        return view('inventories.show', compact('inventory', 'availableProducts'));
-    }
-
-    public function edit(Inventory $inventory)
-    {
-        // Можно редактировать только название, если инвентаризация не закрыта
-        if ($inventory->isClosed()) {
-            return redirect()->route('inventories.show', $inventory)
-                ->with('error', 'Закрытую инвентаризацию можно редактировать только в особых случаях.');
         }
         
-        return view('inventories.edit', compact('inventory'));
+        // Добавляем все товары в инвентаризацию
+        foreach ($productQuantities as $productData) {
+            InventoryItem::create([
+                'inventory_id' => $inventory->id,
+                'product_id' => $productData['product_id'],
+                'system_quantity' => $productData['system_quantity'],
+                'actual_quantity' => $productData['system_quantity'],
+            ]);
+        }
+        
+        return redirect()->route('inventories.show', $inventory)
+            ->with('success', 'Инвентаризация успешно создана! Все товары со складов добавлены.');
     }
 
     public function update(Request $request, Inventory $inventory)
     {
-        // Если инвентаризация закрыта, можно менять только название
         if ($inventory->isClosed()) {
             $validated = $request->validate([
                 'name' => 'required|string|max:255',
@@ -142,19 +110,109 @@ class InventoryController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'inventory_date' => 'required|date',
+            'warehouse_ids' => 'nullable|array',
+            'warehouse_ids.*' => 'exists:warehouses,id',
         ]);
         
-        $inventory->update($validated);
+        $inventory->update([
+            'name' => $validated['name'],
+            'inventory_date' => $validated['inventory_date'],
+        ]);
+        
+        // Обновляем склады если переданы
+        if (isset($validated['warehouse_ids']) && !empty($validated['warehouse_ids'])) {
+            $inventory->warehouses()->sync($validated['warehouse_ids']);
+        }
         
         return redirect()->route('inventories.show', $inventory)
             ->with('success', 'Инвентаризация обновлена!');
     }
 
+    public function close(Inventory $inventory)
+    {
+        if ($inventory->isClosed()) {
+            return redirect()->route('inventories.show', $inventory)
+                ->with('error', 'Эта инвентаризация уже закрыта');
+        }
+        
+        if ($inventory->items()->count() === 0) {
+            return redirect()->route('inventories.show', $inventory)
+                ->with('error', 'Нельзя закрыть пустую инвентаризацию. Добавьте хотя бы один товар.');
+        }
+        
+        $inventory->close();
+        
+        return redirect()->route('inventories.show', $inventory)
+            ->with('success', 'Инвентаризация успешно закрыта! Остатки на складах обновлены.');
+    }
+
+    public function show(Inventory $inventory)
+    {
+        $inventory->load(['warehouses', 'creator', 'completer', 'items.product']);
+        
+        // Получаем все склады инвентаризации
+        $warehouseIds = $inventory->warehouses->pluck('id')->toArray();
+        
+        // Получаем товары со всех складов инвентаризации, которые еще не добавлены
+        $stockItems = Stock::whereIn('warehouse_id', $warehouseIds)
+            ->with('product')
+            ->get();
+        
+        // Группируем по product_id для уникальности
+        $uniqueProducts = [];
+        foreach ($stockItems as $stock) {
+            if ($stock->product) {
+                $productId = $stock->product_id;
+                
+                if (!isset($uniqueProducts[$productId])) {
+                    $uniqueProducts[$productId] = [
+                        'product_id' => $productId,
+                        'product' => $stock->product,
+                        'total_quantity' => 0,
+                    ];
+                }
+                
+                $uniqueProducts[$productId]['total_quantity'] += (int)$stock->quantity;
+            }
+        }
+        
+        $addedProductIds = $inventory->items->pluck('product_id')->toArray();
+        
+        $availableProducts = collect($uniqueProducts)
+            ->filter(function ($productData) use ($addedProductIds) {
+                return !in_array($productData['product_id'], $addedProductIds);
+            })
+            ->map(function ($productData) {
+                return [
+                    'id' => $productData['product_id'],
+                    'name' => $productData['product']->name,
+                    'unit' => $productData['product']->unit,
+                    'system_quantity' => $productData['total_quantity'],
+                    'current_stock' => $productData['total_quantity'],
+                ];
+            })
+            ->values();
+        
+        return view('inventories.show', compact('inventory', 'availableProducts'));
+    }
+
+    public function edit(Inventory $inventory)
+    {
+        if ($inventory->isClosed()) {
+            return redirect()->route('inventories.show', $inventory)
+                ->with('error', 'Закрытую инвентаризацию нельзя редактировать.');
+        }
+        
+        $warehouses = Warehouse::orderBy('name')->get();
+        $selectedWarehouses = $inventory->warehouses->pluck('id')->toArray();
+        
+        return view('inventories.edit', compact('inventory', 'warehouses', 'selectedWarehouses'));
+    }
+
+
     public function destroy(Inventory $inventory)
     {
         try {
-            // Всегда можно удалить инвентаризацию, даже закрытую
-            // Но нужно предупредить пользователя
             $inventory->delete();
             
             return redirect()->route('inventories.index')
@@ -182,11 +240,14 @@ class InventoryController extends Controller
                 ->with('error', 'Этот товар уже добавлен в инвентаризацию');
         }
         
-        $stock = Stock::where('warehouse_id', $inventory->warehouse_id)
-            ->where('product_id', $validated['product_id'])
-            ->first();
+        // Получаем общее количество товара на всех складах инвентаризации
+        $warehouseIds = $inventory->warehouses->pluck('id')->toArray();
         
-        $systemQuantity = $stock ? (int)$stock->quantity : 0;
+        $totalStock = Stock::whereIn('warehouse_id', $warehouseIds)
+            ->where('product_id', $validated['product_id'])
+            ->sum('quantity');
+        
+        $systemQuantity = (int)$totalStock;
         
         try {
             InventoryItem::create([
@@ -272,28 +333,4 @@ class InventoryController extends Controller
         }
     }
 
-    public function close(Inventory $inventory)
-    {
-        if ($inventory->isClosed()) {
-            return redirect()->route('inventories.show', $inventory)
-                ->with('error', 'Эта инвентаризация уже закрыта');
-        }
-        
-        if ($inventory->items()->count() === 0) {
-            return redirect()->route('inventories.show', $inventory)
-                ->with('error', 'Нельзя закрыть пустую инвентаризацию. Добавьте хотя бы один товар.');
-        }
-        
-        try {
-            DB::transaction(function () use ($inventory) {
-                $inventory->close();
-            });
-            
-            return redirect()->route('inventories.show', $inventory)
-                ->with('success', 'Инвентаризация успешно закрыта! Остатки на складе обновлены.');
-        } catch (\Exception $e) {
-            return redirect()->route('inventories.show', $inventory)
-                ->with('error', 'Ошибка при закрытии инвентаризации: ' . $e->getMessage());
-        }
-    }
 }

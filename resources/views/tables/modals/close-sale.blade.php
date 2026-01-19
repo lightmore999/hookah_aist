@@ -159,14 +159,15 @@
                                 <label for="closePaymentMethod" class="form-label fw-bold">Способ оплаты *</label>
                                 <select class="form-select" 
                                         id="closePaymentMethod" 
-                                        name="payment_method" 
+                                        name="payment_method_id"  
                                         required>
                                     <option value="">Выберите способ оплаты</option>
-                                    <option value="cash">Наличные</option>
-                                    <option value="card">Карта</option>
-                                    <option value="online">Онлайн</option>
-                                    <option value="terminal">Терминал</option>
+                                    @foreach($paymentMethods as $method)
+                                        <option value="{{ $method->IDPaymentMethod }}">{{ $method->Name }}</option>
+                                    @endforeach
                                 </select>
+                                <!-- ✅ Добавляем скрытое поле для старого API -->
+                                <input type="hidden" name="payment_method" id="paymentMethodAlias" value="">
                             </div>
                             
                             <!-- Комментарий -->

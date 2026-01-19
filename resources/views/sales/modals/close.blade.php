@@ -193,16 +193,15 @@
                             
                             <!-- Способ оплаты -->
                             <div class="mb-4">
-                                <label for="closePaymentMethod" class="form-label fw-bold">Способ оплаты *</label>
+                                <label for="closePaymentMethodId" class="form-label fw-bold">Способ оплаты *</label>
                                 <select class="form-select" 
-                                        id="closePaymentMethod" 
-                                        name="payment_method" 
+                                        id="closePaymentMethodId" 
+                                        name="payment_method_id" 
                                         required>
                                     <option value="">Выберите способ оплаты</option>
-                                    <option value="cash">Наличные</option>
-                                    <option value="card">Карта</option>
-                                    <option value="online">Онлайн</option>
-                                    <option value="terminal">Терминал</option>
+                                    @foreach($paymentMethods as $method)
+                                        <option value="{{ $method->IDPaymentMethod }}">{{ $method->Name }}</option>
+                                    @endforeach
                                 </select>
                             </div>
                             
@@ -278,7 +277,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const changeAmount = document.getElementById('changeAmount');
     const insufficientCash = document.getElementById('insufficientCash');
     const missingAmount = document.getElementById('missingAmount');
-    const paymentMethodSelect = document.getElementById('closePaymentMethod');
+    const paymentMethodSelect = document.getElementById('closePaymentMethodId');
     
     // Переменные состояния
     let currentItemsTotal = 0;
@@ -356,9 +355,23 @@ document.addEventListener('DOMContentLoaded', function() {
             calcTotalAmount.textContent = currentFinalTotal.toFixed(2) + ' ₽';
         }
         
-        // Если выбраны наличные, пересчитываем сдачу
-        if (paymentMethodSelect && paymentMethodSelect.value === 'cash' && cashReceivedInput) {
-            calculateChange();
+        // Если выбран способ оплаты "Наличные", показываем калькулятор
+        if (paymentMethodSelect && paymentMethodSelect.value) {
+            const selectedOption = paymentMethodSelect.options[paymentMethodSelect.selectedIndex];
+            const paymentMethodName = selectedOption.text.toLowerCase();
+            
+            if (paymentMethodName.includes('налич')) {
+                cashCalculator.style.display = 'block';
+                // Устанавливаем значение в поле полученной суммы
+                if (cashReceivedInput) {
+                    cashReceivedInput.value = currentFinalTotal.toFixed(2);
+                }
+                calculateChange();
+            } else {
+                cashCalculator.style.display = 'none';
+                calcResult.style.display = 'none';
+                insufficientCash.style.display = 'none';
+            }
         }
         
         return currentFinalTotal;
@@ -496,7 +509,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Обработчик изменения способа оплаты
     if (paymentMethodSelect) {
         paymentMethodSelect.addEventListener('change', function() {
-            if (this.value === 'cash') {
+            const selectedOption = this.options[this.selectedIndex];
+            const paymentMethodName = selectedOption.text.toLowerCase();
+            
+            if (paymentMethodName.includes('налич')) {
                 cashCalculator.style.display = 'block';
                 // Устанавливаем значение в поле полученной суммы
                 if (cashReceivedInput) {
@@ -547,12 +563,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 
                 if (paymentMethodSelect) {
-                    paymentMethodSelect.value = button.dataset.paymentMethod || '';
-                    // Сразу показываем/скрываем калькулятор сдачи
-                    if (paymentMethodSelect.value === 'cash') {
-                        cashCalculator.style.display = 'block';
-                    } else {
-                        cashCalculator.style.display = 'none';
+                    paymentMethodSelect.value = button.dataset.paymentMethodId || '';
+                    // Определяем, показывать ли калькулятор сдачи
+                    if (paymentMethodSelect.value) {
+                        const selectedOption = paymentMethodSelect.options[paymentMethodSelect.selectedIndex];
+                        if (selectedOption && selectedOption.text.toLowerCase().includes('налич')) {
+                            cashCalculator.style.display = 'block';
+                        }
                     }
                 }
                 
@@ -677,7 +694,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     closeDiscountInput.disabled = true;
                 }
             }
-            
             // Убедимся, что поле с бонусами заполнено правильно
             if (useBonusesCheckbox && !useBonusesCheckbox.checked) {
                 const bonusField = document.getElementById('bonusPointsToUse');

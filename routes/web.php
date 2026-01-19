@@ -20,6 +20,7 @@ use App\Http\Controllers\ExpenditureTypeController;
 use App\Http\Controllers\ExpenditureController;
 use App\Http\Controllers\AccountingController;
 use App\Http\Controllers\BonusHistoryController;
+use App\Http\Controllers\PaymentMethodController;
 
 /*
 |--------------------------------------------------------------------------
@@ -55,6 +56,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/available', [ProductController::class, 'getAvailableComponents'])->name('products.components.available');
     });
 
+    Route::get('/clients/export-excel', [ClientController::class, 'exportExcel'])
+        ->name('clients.export-excel');
+
     Route::resource('clients', ClientController::class);
         Route::post('/clients/{client}/add-bonus', [ClientController::class, 'addBonus'])
         ->name('clients.add-bonus')
@@ -67,6 +71,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/clients/{client}/bonus-history', [BonusHistoryController::class, 'index'])
         ->name('clients.bonus-history')
         ->middleware('auth');
+    
 
     Route::resource('warehouses', WarehouseController::class);
     Route::resource('purchases', PurchaseController::class)->except(['index', 'show']);
@@ -212,6 +217,8 @@ Route::middleware('auth')->group(function () {
         ->name('bonus-history.index')
         ->middleware('auth');
 
+    // Payment Methods Routes
+    Route::resource('payment-methods', PaymentMethodController::class);
     
 });
 
