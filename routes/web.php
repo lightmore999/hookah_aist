@@ -21,6 +21,8 @@ use App\Http\Controllers\ExpenditureController;
 use App\Http\Controllers\AccountingController;
 use App\Http\Controllers\BonusHistoryController;
 use App\Http\Controllers\PaymentMethodController;
+use App\Http\Controllers\OperationHistoryController;
+use App\Http\Controllers\StatisticsController;
 
 /*
 |--------------------------------------------------------------------------
@@ -71,7 +73,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/clients/{client}/bonus-history', [BonusHistoryController::class, 'index'])
         ->name('clients.bonus-history')
         ->middleware('auth');
-    
+    Route::get('/clients/{client}/total-spent', [SaleController::class, 'getClientTotalSpent']);
 
     Route::resource('warehouses', WarehouseController::class);
     Route::resource('purchases', PurchaseController::class)->except(['index', 'show']);
@@ -168,6 +170,8 @@ Route::middleware('auth')->group(function () {
     });
     Route::get('/shifts/{shift}/json-data', [ShiftController::class, 'jsonData'])->name('shifts.json-data');
     Route::post('/shifts/{shift}/note', [ShiftController::class, 'updateNote'])->name('shifts.update-note');
+    Route::post('/shifts/manage-or-create', [ShiftController::class, 'manageOrCreate'])
+        ->name('shifts.manage-or-create');
 
     Route::resource('bonus-cards', BonusCardController::class);
     Route::resource('fines', FineController::class);
@@ -193,6 +197,11 @@ Route::middleware('auth')->group(function () {
     });
 
     Route::resource('expenditure-types', ExpenditureTypeController::class);
+    Route::get('expenditures/{expenditure}/confirm-delete', [ExpenditureController::class, 'confirmDelete'])->name('expenditures.confirm-delete');
+    Route::get('expenditures/{expenditure}/history', [ExpenditureController::class, 'history'])->name('expenditures.history');
+    Route::post('expenditures/{expenditure}/quick-delete', [ExpenditureController::class, 'quickDestroy'])->name('expenditures.quick-destroy');
+
+    // Основные маршруты (если еще нет)
     Route::resource('expenditures', ExpenditureController::class);
 
     Route::prefix('accounting')->name('accounting.')->group(function () {
@@ -219,7 +228,36 @@ Route::middleware('auth')->group(function () {
 
     // Payment Methods Routes
     Route::resource('payment-methods', PaymentMethodController::class);
+
+    Route::get('operation-history', [OperationHistoryController::class, 'index'])->name('operation-history.index');
+    Route::get('operation-history/{operationHistory}', [OperationHistoryController::class, 'show'])->name('operation-history.show');
     
+    // Статистика
+    Route::get('/statistics', [StatisticsController::class, 'index'])->name('statistics.index');
+    Route::get('/statistics/accounting', [StatisticsController::class, 'accounting'])->name('statistics.accounting');
+
+    // API маршруты для статистики
+    Route::get('/statistics/visit-dynamics', [StatisticsController::class, 'visitDynamics']);
+    Route::get('/statistics/popular-tables', [StatisticsController::class, 'popularTables']);
+    Route::get('/statistics/popular-hours', [StatisticsController::class, 'popularHours']);
+    Route::get('/statistics/popular-weekdays', [StatisticsController::class, 'popularWeekdays']);
+    Route::get('/statistics/payment-methods', [StatisticsController::class, 'paymentMethods']);
+    Route::get('/statistics/summary', [StatisticsController::class, 'summary']);
+
+    // Новые API маршруты для финансовой статистики
+    Route::get('/statistics/revenue-profit', [StatisticsController::class, 'revenueProfitStats']);
+    Route::get('/statistics/average-check', [StatisticsController::class, 'averageCheckStats']);
+    Route::get('/statistics/expenses', [StatisticsController::class, 'expensesStats']);
+
+    Route::get('/statistics/hookah', [StatisticsController::class, 'hookahPage'])->name('statistics.hookah');
+    Route::get('/statistics/hookah/data', [StatisticsController::class, 'hookahStatistics'])->name('statistics.hookah.data');
+
+    Route::get('/statistics/products', [StatisticsController::class, 'productsPage'])->name('statistics.products');
+    Route::get('/statistics/products/data', [StatisticsController::class, 'productsStatistics'])->name('statistics.products.data');
+
+    Route::get('/statistics/expenses/data', [StatisticsController::class, 'expensesStatistics'])->name('statistics.expenses.data');
+    Route::get('/statistics/expenses', [StatisticsController::class, 'expensesPage'])->name('statistics.expenses');
+
 });
 
 require __DIR__.'/auth.php';

@@ -12,7 +12,6 @@
                 Инвентаризация: {{ $inventory->name }}
             </h1>
             <div class="text-muted small">
-                <i class="bi bi-shop me-1"></i> Склад: {{ $inventory->warehouse->name }}
                 <span class="mx-2">•</span>
                 <i class="bi bi-calendar me-1"></i> Дата: {{ $inventory->inventory_date->format('d.m.Y H:i') }}
                 <span class="mx-2">•</span>

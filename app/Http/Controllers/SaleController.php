@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\Client;
-use App\Models\Warehouse;
 use App\Models\Product;
 use App\Models\Stock;
 use App\Models\Table;
@@ -13,12 +12,13 @@ use App\Models\Hookah;
 use App\Models\PaymentMethod; 
 use Illuminate\Http\Request;
 use App\Models\BonusHistory;
+use App\Models\OperationHistory;
 
 class SaleController extends Controller
 {
     public function index()
     {
-        $sales = Sale::with(['client', 'table', 'hookahs', 'paymentMethod']) // Убрано warehouse
+        $sales = Sale::with(['client', 'table', 'hookahs', 'paymentMethod'])
             ->latest('sale_date')
             ->paginate(20);
         
@@ -27,7 +27,7 @@ class SaleController extends Controller
         return view('sales.index', compact('sales', 'clients'));
     }
 
-     public function create()
+    public function create()
     {
         $sale = Sale::create([
             'client_id' => null,
@@ -136,24 +136,34 @@ class SaleController extends Controller
             ->with('success', 'Продажа обновлена успешно!');
     }
 
+    /**
+     * Завершить продажу с логированием
+     */
     public function complete(Request $request, Sale $sale)
     {
         if ($sale->status === 'completed') {
             return back()->with('error', 'Продажа уже завершена');
         }
 
-        $paymentMethods = PaymentMethod::pluck('Name', 'IDPaymentMethod')->toArray();
-        $paymentMethodIds = array_keys($paymentMethods);
-        
         $validated = $request->validate([
             'discount' => 'numeric|min:0',
             'use_bonuses' => 'boolean',
             'bonus_points_to_use' => 'nullable|integer|min:0',
             'payment_method_id' => 'required|exists:payment_methods,IDPaymentMethod',
             'comment' => 'nullable|string|max:1000',
+            'complete_comment' => 'nullable|string|max:500',
         ]);
 
-        // Обработка бонусов
+        // Сначала обновляем скидку
+        $sale->update([
+            'discount' => $validated['discount'] ?? 0,
+        ]);
+
+        // Пересчитываем сумму с учетом скидки (но без учета бонусов)
+        $this->recalculateSaleTotal($sale);
+        $sale->refresh();
+
+        // Обработка бонусов (ПОСЛЕ пересчета суммы)
         if (isset($validated['use_bonuses']) && $validated['use_bonuses'] && !empty($validated['bonus_points_to_use'])) {
             if (!$sale->client_id) {
                 return back()->with('error', 'Для использования бонусов необходимо указать клиента');
@@ -170,9 +180,7 @@ class SaleController extends Controller
             $product = $item->product;
             
             if ($product->is_composite) {
-                // Для составных товаров проверяем компоненты на всех складах
                 foreach ($product->recipeComponents as $component) {
-                    // Суммируем количество компонента на всех складах
                     $totalComponentQuantity = Stock::where('product_id', $component->component_product_id)
                         ->sum('quantity');
                     
@@ -194,7 +202,6 @@ class SaleController extends Controller
                     }
                 }
             } else {
-                // Для обычных товаров суммируем количество на всех складах
                 $totalProductQuantity = Stock::where('product_id', $item->product_id)
                     ->sum('quantity');
 
@@ -212,22 +219,19 @@ class SaleController extends Controller
             }
         }
 
-        // Списываем товары со складов (по принципу FIFO - сначала со складов, где больше всего товара)
+        // Списываем товары со складов
         foreach ($sale->items as $item) {
             $product = $item->product;
             
             if ($product->is_composite) {
-                // Для составных товаров списываем компоненты
                 foreach ($product->recipeComponents as $component) {
                     $requiredComponentQuantity = $item->quantity * $component->quantity;
                     
-                    // Ищем склады, где есть этот компонент, отсортированные по убыванию количества
                     $stocks = Stock::where('product_id', $component->component_product_id)
                         ->where('quantity', '>', 0)
                         ->orderByDesc('quantity')
                         ->get();
                     
-                    // Списываем по очереди с каждого склада
                     $remainingQuantity = $requiredComponentQuantity;
                     foreach ($stocks as $stock) {
                         if ($remainingQuantity <= 0) break;
@@ -240,16 +244,13 @@ class SaleController extends Controller
                     }
                 }
             } else {
-                // Для обычных товаров списываем с любого склада
                 $requiredQuantity = $item->quantity;
                 
-                // Ищем склады, где есть этот товар, отсортированные по убыванию количества
                 $stocks = Stock::where('product_id', $item->product_id)
                     ->where('quantity', '>', 0)
                     ->orderByDesc('quantity')
                     ->get();
                 
-                // Списываем по очереди с каждого склада
                 $remainingQuantity = $requiredQuantity;
                 foreach ($stocks as $stock) {
                     if ($remainingQuantity <= 0) break;
@@ -273,36 +274,86 @@ class SaleController extends Controller
             }
         }
 
-        // Сначала обновляем скидку
-        $sale->update([
-            'discount' => $validated['discount'] ?? 0,
-        ]);
-
-        // Затем пересчитываем сумму с учетом скидки
-        $this->recalculateSaleTotal($sale);
-        $sale->refresh();
-
-        // Обновляем статус продажи на "completed" ПЕРЕД начислением бонусов
+        // Обновляем статус продажи
         $sale->update([
             'status' => 'completed',
             'payment_method_id' => $validated['payment_method_id'],
             'comment' => $validated['comment'] ?? $sale->comment,
         ]);
 
-        // Перезагружаем модель, чтобы получить обновленный статус
+        // Перезагружаем модель
         $sale->refresh();
 
         // Начисляем бонусы клиенту по правилам карты
         $bonusMessage = '';
+        $pointsAwarded = 0;
         
         if ($sale->client_id) {
-            $pointsAwarded = $sale->awardBonusPoints();
-            if ($pointsAwarded > 0) {
-                $bonusMessage = " Начислено {$pointsAwarded} бонусов.";
-            }
+            $client = Client::with('bonusCard')->find($sale->client_id);
             
-            $client = Client::find($sale->client_id);
             if ($client) {
+                if ($client->bonusCard) {
+                    // У клиента ЕСТЬ бонусная карта
+                    $bonusPercent = $client->bonusCard->BonusPercent;
+                    
+                    // Рассчитываем сумму для начисления бонусов
+                    // Бонусы начисляются от суммы ПОСЛЕ применения скидки, но ПЕРЕД вычетом бонусов
+                    
+                    // Сумма товаров
+                    $productsTotal = $sale->items->sum(function($item) {
+                        return $item->quantity * $item->unit_price;
+                    });
+                    
+                    // Сумма кальянов
+                    $hookahsTotal = $sale->hookahs->sum('price');
+                    
+                    // Итоговая сумма для расчета бонусов
+                    $bonusableAmount = $productsTotal + $hookahsTotal - (float) $sale->discount;
+                    
+                    // Не даем уйти в минус
+                    $bonusableAmount = max(0, $bonusableAmount);
+                    
+                    // Рассчитываем бонусы
+                    $pointsAwarded = floor($bonusableAmount * ($bonusPercent / 100));
+                    
+                    if ($pointsAwarded > 0) {
+                        $oldBalance = $client->bonus_points;
+                        $client->bonus_points += $pointsAwarded;
+                        $client->save();
+                        
+                        // Сохраняем в историю начисление бонусов
+                        BonusHistory::create([
+                            'client_id' => $client->id,
+                            'amount' => $pointsAwarded,
+                            'operation_type' => 'credit',
+                            'balance_after' => $client->bonus_points,
+                            'reason' => "Начисление {$bonusPercent}% бонусов за продажу #" . $sale->id,
+                            'sale_id' => $sale->id,
+                        ]);
+                        
+                        $bonusMessage = " Начислено {$pointsAwarded} бонусов ({$bonusPercent}% от суммы после скидки).";
+                    }
+                } else {
+                    // У клиента НЕТ бонусной карты
+                    // Проверяем, достиг ли клиент необходимой суммы для получения карты
+                    $requiredSpend = $client->bonusCard ? $client->bonusCard->RequiredSpendAmount : 0;
+                    
+                    if ($requiredSpend > 0) {
+                        // Сумма ВСЕХ покупок клиента (включая текущую)
+                        $clientTotalSpent = Sale::where('client_id', $sale->client_id)
+                            ->where('status', 'completed')
+                            ->sum('total');
+                        
+                        // Прибавляем текущую продажу
+                        $totalSpentAfterThis = $clientTotalSpent + $sale->total;
+                        
+                        if ($totalSpentAfterThis >= $requiredSpend) {
+                            $bonusMessage .= " Клиент достиг необходимой суммы для получения бонусной карты!";
+                        }
+                    }
+                }
+                
+                // Добавляем покупку клиенту
                 $client->addPurchase($sale->total);
             }
         }
@@ -318,7 +369,34 @@ class SaleController extends Controller
             $successMessage .= " Использовано {$sale->used_bonus_points} бонусов.";
         }
 
-        if ($sale->table_id && $tableClosed) {
+        // === ЛОГИРУЕМ ЗАВЕРШЕНИЕ ПРОДАЖИ ===
+        $completeComment = $validated['complete_comment'] ?? null;
+        $logComment = "Продажа #{$sale->id} завершена. ";
+        $logComment .= "Сумма: {$sale->total} руб. ";
+        $logComment .= "Скидка: {$sale->discount} руб. ";
+        $logComment .= "Способ оплаты: {$paymentMethodName}. ";
+        
+        if ($sale->used_bonus_points > 0) {
+            $logComment .= "Использовано бонусов: {$sale->used_bonus_points}. ";
+        }
+        
+        if ($pointsAwarded > 0) {
+            $logComment .= "Начислено бонусов: {$pointsAwarded}. ";
+        }
+        
+        if ($completeComment) {
+            $logComment .= "Комментарий: {$completeComment}";
+        }
+        
+        OperationHistory::create([
+            'user_id' => auth()->id(),
+            'action_type' => OperationHistory::ACTION_CLOSE,
+            'entity_type' => OperationHistory::ENTITY_SALE,
+            'entity_id' => $sale->id,
+            'comment' => $logComment,
+        ]);
+
+        if ($tableClosed) {
             $tableDate = $sale->created_at->format('Y-m-d');
             return redirect()->route('tables.index', ['date' => $tableDate])
                 ->with('success', $successMessage . ' Стол закрыт.');
@@ -328,12 +406,29 @@ class SaleController extends Controller
         }
     }
 
-    public function destroy(Sale $sale)
+    /**
+     * Удалить продажу с комментарием
+     */
+    public function destroy(Request $request, Sale $sale)
     {
         if ($sale->status === 'completed') {
             return back()->with('error', 'Нельзя удалить завершенную продажу!');
         }
 
+        $request->validate([
+            'delete_comment' => 'required|string|min:5|max:500',
+        ]);
+
+        // === ЛОГИРУЕМ УДАЛЕНИЕ ПРОДАЖИ ===
+        OperationHistory::create([
+            'user_id' => auth()->id(),
+            'action_type' => OperationHistory::ACTION_DELETE,
+            'entity_type' => OperationHistory::ENTITY_SALE,
+            'entity_id' => $sale->id,
+            'comment' => $request->delete_comment . 
+                        " (Удалена продажа #{$sale->id}, сумма: {$sale->total} руб.)",
+        ]);
+        
         $sale->delete();
         
         return redirect()->route('sales.index')
@@ -394,11 +489,11 @@ class SaleController extends Controller
             'unit_price' => $validated['unit_price'],
         ]);
 
-        $this->recalculateSaleTotal($sale);
+        // Пересчитываем сумму (без логирования)
+        $sale->recalculateTotal();
 
         return back()->with('success', 'Товар добавлен в продажу');
     }
-
 
     public function updateItem(Request $request, Sale $sale, SaleItem $item)
     {
@@ -413,12 +508,13 @@ class SaleController extends Controller
 
         $item->update($validated);
         
+        // Пересчитываем сумму (без логирования)
         $this->recalculateSaleTotal($sale);
 
         return back()->with('success', 'Товар обновлен');
     }
 
-    public function removeItem(Sale $sale, SaleItem $item)
+    public function removeItem(Request $request, Sale $sale, SaleItem $item)
     {
         if ($sale->status === 'completed') {
             return back()->with('error', 'Нельзя удалять товары из завершенной продажи');
@@ -426,12 +522,11 @@ class SaleController extends Controller
 
         $item->delete();
         
-        $this->recalculateSaleTotal($sale);
+        // Пересчитываем сумму (без логирования)
+        $sale->recalculateTotal();
 
         return back()->with('success', 'Товар удален из продажи');
     }
-
-    
 
     // Методы для работы с кальянами
     public function addHookah(Request $request, Sale $sale)
@@ -446,51 +541,116 @@ class SaleController extends Controller
 
         $validated = $request->validate([
             'hookah_id' => 'required|exists:hookahs,id',
+            'comment' => 'nullable|string|max:500',
         ]);
 
-        $sale->hookahs()->attach($validated['hookah_id']);
+        $hookah = Hookah::find($validated['hookah_id']);
+        
+        // Проверяем, не добавлен ли уже этот кальян
+        if ($sale->hookahs()->where('hookah_id', $hookah->id)->exists()) {
+            return back()->with('error', 'Этот кальян уже добавлен к продаже');
+        }
+        
+        $sale->hookahs()->attach($hookah->id);
+        
+        // Пересчитываем сумму (без логирования)
+        $sale->recalculateTotal();
 
-        $this->recalculateSaleTotal($sale);
-
-        return back()->with('success', 'Кальян добавлен в заказ');
+        return back()->with('success', 'Кальян успешно добавлен');
     }
 
-    public function removeHookah(Sale $sale, Hookah $hookah)
+    public function removeHookah(Request $request, Sale $sale, Hookah $hookah)
     {
         if ($sale->status === 'completed') {
             return back()->with('error', 'Нельзя удалять кальяны из завершенного заказа');
         }
 
+        // Проверяем, есть ли этот кальян в продаже
+        if (!$sale->hookahs()->where('hookah_id', $hookah->id)->exists()) {
+            return back()->with('error', 'Этот кальян не найден в продаже');
+        }
+        
         $sale->hookahs()->detach($hookah->id);
         
-        $this->recalculateSaleTotal($sale);
+        // Пересчитываем сумму (без логирования)
+        $sale->recalculateTotal();
 
-        return back()->with('success', 'Кальян удален из заказа');
+        return back()->with('success', 'Кальян успешно удален');
+    }
+
+    /**
+     * Отменить продажу с комментарием
+     */
+    public function cancel(Request $request, Sale $sale)
+    {
+        $request->validate([
+            'cancel_comment' => 'required|string|min:5|max:500',
+        ]);
+
+        // Используем метод модели для отмены (без логирования внутри)
+        $result = $sale->cancelSale($request->cancel_comment);
+        
+        if ($result['success']) {
+            // === ЛОГИРУЕМ ОТМЕНУ ПРОДАЖИ ===
+            OperationHistory::create([
+                'user_id' => auth()->id(),
+                'action_type' => OperationHistory::ACTION_DELETE,
+                'entity_type' => OperationHistory::ENTITY_SALE,
+                'entity_id' => $sale->id,
+                'comment' => $request->cancel_comment . 
+                            " (Продажа #{$sale->id} отменена, сумма: {$sale->total} руб.)",
+            ]);
+            
+            return redirect()->route('sales.index')
+                ->with('success', $result['message']);
+        } else {
+            return back()->with('error', $result['message']);
+        }
+    }
+
+    /**
+     * Изменить статус продажи с комментарием
+     */
+    public function changeStatus(Request $request, Sale $sale)
+    {
+        $request->validate([
+            'status' => 'required|in:new,in_progress,completed,cancelled',
+            'status_comment' => 'nullable|string|max:500',
+        ]);
+
+        // Используем метод модели для изменения статуса (без логирования внутри)
+        $result = $sale->changeStatus($request->status, $request->status_comment);
+        
+        if ($result['success']) {
+            // Логируем только изменение статуса на "completed" или "cancelled"
+            if (in_array($request->status, ['completed', 'cancelled'])) {
+                $newStatus = $sale->fresh()->status_text ?? $request->status;
+                $oldStatus = $sale->status_text ?? $sale->status;
+                
+                OperationHistory::create([
+                    'user_id' => auth()->id(),
+                    'action_type' => OperationHistory::ACTION_UPDATE,
+                    'entity_type' => OperationHistory::ENTITY_SALE,
+                    'entity_id' => $sale->id,
+                    'comment' => ($request->status_comment ? $request->status_comment . ". " : "") . 
+                                "Статус продажи #{$sale->id} изменен с '{$oldStatus}' на '{$newStatus}'",
+                ]);
+            }
+            
+            return back()->with('success', $result['message']);
+        } else {
+            return back()->with('error', 'Ошибка при изменении статуса');
+        }
     }
 
     // Приватные методы
-     private function recalculateSaleTotal(Sale $sale)
+    private function recalculateSaleTotal(Sale $sale)
     {
-        // Сумма товаров
-        $productsTotal = $sale->items->sum(function($item) {
-            return $item->quantity * $item->unit_price;
-        });
-        
-        // Сумма кальянов
-        $hookahsTotal = $sale->hookahs->sum('price');
-        
-        $total = $productsTotal + $hookahsTotal;
-        
-        // Вычитаем скидку и бонусы
-        $finalTotal = $total - $sale->discount - ($sale->used_bonus_points ?? 0);
-        
-        // Не даем уйти в минус
-        $finalTotal = max(0, $finalTotal);
-        
-        $sale->update(['total' => $finalTotal]);
+        // Используем метод модели
+        $sale->recalculateTotal();
     }
 
-     private function checkStockAvailability(Product $product, $requestedQuantity)
+    private function checkStockAvailability(Product $product, $requestedQuantity)
     {
         if ($product->is_composite) {
             // Проверка для составных товаров - суммарно по всем складам
@@ -576,7 +736,7 @@ class SaleController extends Controller
         return $details;
     }
 
-     public function checkStock(Request $request, Sale $sale)
+    public function checkStock(Request $request, Sale $sale)
     {
         $validated = $request->validate([
             'product_id' => 'required|exists:products,id',
@@ -617,4 +777,14 @@ class SaleController extends Controller
         ]);
     }
 
+    public function getClientTotalSpent($clientId)
+    {
+        $totalSpent = Sale::where('client_id', $clientId)
+            ->where('status', 'completed')
+            ->sum('total');
+        
+        return response()->json([
+            'totalSpent' => (float) $totalSpent
+        ]);
+    }
 }

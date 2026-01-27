@@ -2781,6 +2781,566 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // =============== ВЫДЕЛЕНИЕ ЯЧЕЕК ДЛЯ СОЗДАНИЯ СТОЛА ===============
+
+    let selectionState = {
+        isSelecting: false,
+        startCell: null,
+        startTable: null,
+        startTime: null,
+        endTime: null,
+        selectedGrid: [],
+        virtualGrid: [],
+        tempHighlighted: [] // Для временного выделения при перетаскивании
+    };
+
+    // Создаем виртуальное представление таблицы
+    function createVirtualGrid() {
+        const virtualGrid = [];
+        const rows = document.querySelectorAll('table.table-bordered tbody tr');
+        
+        // Получаем количество столбцов из заголовка
+        const headerRow = document.querySelector('table.table-bordered thead tr');
+        const columnCount = headerRow ? headerRow.cells.length - 2 : 0;
+        
+        if (rows.length === 0 || columnCount === 0) return virtualGrid;
+        
+        // Инициализируем сетку
+        for (let i = 0; i < rows.length; i++) {
+            virtualGrid[i] = new Array(columnCount).fill(null);
+        }
+        
+        // Заполняем сетку данными о ячейках
+        rows.forEach((row, rowIndex) => {
+            const cells = Array.from(row.cells);
+            let virtualCol = 0;
+            let realCol = 1;
+            
+            while (virtualCol < columnCount && realCol < cells.length - 1) {
+                const cell = cells[realCol];
+                
+                if (cell) {
+                    // Если ячейка уже заполнена в сетке (часть rowspan), пропускаем
+                    if (virtualGrid[rowIndex][virtualCol] !== null) {
+                        virtualCol++;
+                        continue;
+                    }
+                    
+                    const rowspan = parseInt(cell.getAttribute('rowspan')) || 1;
+                    const colspan = parseInt(cell.getAttribute('colspan')) || 1;
+                    
+                    // Получаем номер стола из заголовка
+                    const tableHeader = document.querySelector(`table.table-bordered thead th:nth-child(${realCol + 1})`);
+                    const tableNumber = tableHeader ? extractTableNumber(tableHeader.textContent) : virtualCol;
+                    
+                    // Определяем, пустая ли ячейка и доступна для выделения
+                    const isEmpty = cell.textContent.trim() === '' && !cell.hasAttribute('rowspan') && colspan === 1;
+                    const isOccupied = cell.hasAttribute('rowspan') || cell.textContent.trim() !== '';
+                    
+                    // Создаем объект ячейки
+                    const cellData = {
+                        element: cell,
+                        tableNumber: tableNumber,
+                        time: getCellTime(rowIndex),
+                        row: rowIndex,
+                        col: virtualCol,
+                        realCol: realCol,
+                        rowspan: rowspan,
+                        colspan: colspan,
+                        isEmpty: isEmpty,
+                        isOccupied: isOccupied,
+                        isSelectable: isEmpty && !isOccupied
+                    };
+                    
+                    // Заполняем ячейку в сетке
+                    virtualGrid[rowIndex][virtualCol] = cellData;
+                    
+                    // Если есть rowspan, заполняем ячейки ниже
+                    for (let r = 1; r < rowspan; r++) {
+                        if (rowIndex + r < virtualGrid.length) {
+                            virtualGrid[rowIndex + r][virtualCol] = {
+                                ...cellData,
+                                isCovered: true,
+                                element: null,
+                                isEmpty: false,
+                                isSelectable: false,
+                                isOccupied: true
+                            };
+                        }
+                    }
+                    
+                    // Если есть colspan, заполняем ячейки справа
+                    for (let c = 1; c < colspan; c++) {
+                        if (virtualCol + c < columnCount) {
+                            virtualGrid[rowIndex][virtualCol + c] = {
+                                ...cellData,
+                                isCovered: true,
+                                element: null,
+                                isEmpty: false,
+                                isSelectable: false,
+                                isOccupied: true
+                            };
+                        }
+                    }
+                    
+                    virtualCol += colspan;
+                    realCol += colspan;
+                } else {
+                    virtualCol++;
+                    realCol++;
+                }
+            }
+        });
+        
+        return virtualGrid;
+    }
+
+    // Извлекаем номер стола из текста заголовка
+    function extractTableNumber(headerText) {
+        if (headerText.includes('Барная стойка')) {
+            return 'Барная стойка';
+        }
+        
+        const match = headerText.match(/\d+/);
+        return match ? match[0] : headerText.trim();
+    }
+
+    // Получаем время для строки
+    function getCellTime(rowIndex) {
+        const row = document.querySelector(`table.table-bordered tbody tr:nth-child(${rowIndex + 1})`);
+        if (!row) return '';
+        
+        const timeCell = row.cells[0];
+        return timeCell ? timeCell.textContent.trim() : '';
+    }
+
+    // Инициализация выделения ячеек
+    function initCellSelection() {
+        // Создаем виртуальную сетку
+        selectionState.virtualGrid = createVirtualGrid();
+        
+        // Очищаем предыдущие классы
+        document.querySelectorAll('.table-cell-selectable, .table-cell-selected, .table-cell-selecting')
+            .forEach(cell => {
+                cell.classList.remove('table-cell-selectable', 'table-cell-selected', 'table-cell-selecting');
+            });
+        
+        // Удаляем старые обработчики
+        const table = document.querySelector('table.table-bordered tbody');
+        if (table) {
+            table.removeEventListener('mousedown', handleTableMouseDown);
+            table.removeEventListener('mouseenter', handleTableMouseEnter);
+            table.removeEventListener('mouseup', handleTableMouseUp);
+            
+            // Добавляем новые обработчики
+            table.addEventListener('mousedown', handleTableMouseDown);
+            table.addEventListener('mouseenter', handleTableMouseEnter);
+            table.addEventListener('mouseup', handleTableMouseUp);
+        }
+        
+        // Применяем класс selectable к пустым ячейкам
+        selectionState.virtualGrid.forEach(row => {
+            row.forEach(cell => {
+                if (cell && cell.element && cell.isSelectable) {
+                    cell.element.classList.add('table-cell-selectable');
+                }
+            });
+        });
+    }
+
+    // Находим ячейку в виртуальной сетке
+    function findCellInGrid(cellElement) {
+        for (let row = 0; row < selectionState.virtualGrid.length; row++) {
+            for (let col = 0; col < selectionState.virtualGrid[row].length; col++) {
+                const cell = selectionState.virtualGrid[row][col];
+                if (cell && cell.element === cellElement) {
+                    return cell;
+                }
+            }
+        }
+        return null;
+    }
+
+    // Очистка временных выделений
+    function clearTempHighlight() {
+        selectionState.tempHighlighted.forEach(cellData => {
+            if (cellData.element) {
+                cellData.element.classList.remove('table-cell-selecting');
+            }
+        });
+        selectionState.tempHighlighted = [];
+    }
+
+    // Выделение диапазона ячеек
+    function highlightRange(startRow, endRow, col) {
+        clearTempHighlight();
+        
+        const minRow = Math.min(startRow, endRow);
+        const maxRow = Math.max(startRow, endRow);
+        
+        for (let row = minRow; row <= maxRow; row++) {
+            const cell = selectionState.virtualGrid[row][col];
+            if (cell && cell.element && cell.isSelectable) {
+                cell.element.classList.add('table-cell-selecting');
+                selectionState.tempHighlighted.push(cell);
+            }
+        }
+    }
+
+    // Обработчик нажатия мыши на таблице
+    function handleTableMouseDown(e) {
+        if (!e.target.closest('td')) return;
+        
+        const cellElement = e.target.closest('td');
+        if (!cellElement || !cellElement.classList.contains('table-cell-selectable')) {
+            return;
+        }
+        
+        e.preventDefault();
+        
+        const cellData = findCellInGrid(cellElement);
+        if (!cellData || !cellData.isSelectable) return;
+        
+        selectionState.isSelecting = true;
+        selectionState.startCell = cellData;
+        selectionState.startTable = cellData.tableNumber;
+        selectionState.startTime = cellData.time;
+        selectionState.selectedGrid = [];
+        selectionState.tempHighlighted = [];
+        
+        // Сбрасываем предыдущие выделения
+        clearSelection();
+        clearTempHighlight();
+        
+        // Начинаем выделение
+        cellData.element.classList.add('table-cell-selected');
+        selectionState.selectedGrid.push(cellData);
+    }
+
+    // Обработчик перемещения мыши по таблице
+    function handleTableMouseEnter(e) {
+        if (!selectionState.isSelecting) return;
+        
+        const cellElement = e.target.closest('td');
+        if (!cellElement || !cellElement.classList.contains('table-cell-selectable')) {
+            return;
+        }
+        
+        const cellData = findCellInGrid(cellElement);
+        if (!cellData || !cellData.isSelectable) return;
+        
+        // Проверяем, что выделение происходит в том же столбце
+        if (cellData.tableNumber !== selectionState.startTable) {
+            return;
+        }
+        
+        // Выделяем диапазон
+        highlightRange(selectionState.startCell.row, cellData.row, selectionState.startCell.col);
+    }
+
+    // Обработчик отпускания мыши
+    function handleTableMouseUp(e) {
+        if (!selectionState.isSelecting) return;
+        
+        const cellElement = e.target.closest('td');
+        if (cellElement && cellElement.classList.contains('table-cell-selectable')) {
+            const cellData = findCellInGrid(cellElement);
+            if (cellData && cellData.isSelectable) {
+                // Собираем все выделенные ячейки
+                const startRow = selectionState.startCell.row;
+                const endRow = cellData.row;
+                const col = selectionState.startCell.col;
+                
+                const minRow = Math.min(startRow, endRow);
+                const maxRow = Math.max(startRow, endRow);
+                
+                // Преобразуем временные выделения в постоянные
+                selectionState.tempHighlighted.forEach(cell => {
+                    if (cell.element) {
+                        cell.element.classList.remove('table-cell-selecting');
+                        cell.element.classList.add('table-cell-selected');
+                    }
+                });
+                
+                // Собираем данные о выделенных ячейках
+                selectionState.selectedGrid = [];
+                for (let row = minRow; row <= maxRow; row++) {
+                    const targetCell = selectionState.virtualGrid[row][col];
+                    if (targetCell && targetCell.element && targetCell.isSelectable) {
+                        selectionState.selectedGrid.push(targetCell);
+                    }
+                }
+                
+                // Определяем время окончания
+                if (selectionState.selectedGrid.length > 0) {
+                    const lastCell = selectionState.selectedGrid[selectionState.selectedGrid.length - 1];
+                    selectionState.endTime = lastCell.time;
+                    
+                    // Показываем модальное окно
+                    showCreateModalWithSelection();
+                }
+            }
+        }
+        
+        // Очищаем временные выделения
+        clearTempHighlight();
+        selectionState.isSelecting = false;
+    }
+
+    // Очистка выделения
+    function clearSelection() {
+        document.querySelectorAll('.table-cell-selected, .table-cell-selecting').forEach(cell => {
+            cell.classList.remove('table-cell-selected', 'table-cell-selecting');
+        });
+        selectionState.selectedGrid = [];
+    }
+
+    // Показ модального окна с предзаполненными данными
+    function showCreateModalWithSelection() {
+        if (selectionState.selectedGrid.length === 0) return;
+        
+        const tableNumber = selectionState.startTable;
+        
+        // Сортируем ячейки по времени
+        const sortedCells = [...selectionState.selectedGrid].sort((a, b) => a.row - b.row);
+        
+        const startTime = sortedCells[0].time;
+        const endCell = sortedCells[sortedCells.length - 1];
+        
+        // Вычисляем время окончания
+        const endTime = calculateEndTime(endCell.time);
+        
+        // Вычисляем длительность
+        const startMinutes = timeToMinutes(startTime);
+        const endMinutes = timeToMinutes(endTime);
+        let durationMinutes;
+        
+        if (endMinutes < startMinutes) {
+            durationMinutes = (24 * 60 - startMinutes) + endMinutes;
+        } else {
+            durationMinutes = endMinutes - startMinutes;
+        }
+        
+        // Находим ближайший вариант в селекте длительности
+        const durationOptions = [60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360];
+        let closestDuration = 120;
+        
+        for (const option of durationOptions) {
+            if (Math.abs(option - durationMinutes) < Math.abs(closestDuration - durationMinutes)) {
+                closestDuration = option;
+            }
+        }
+        
+        // Форматируем время для формы
+        const formattedStartTime = formatTimeForInput(startTime);
+        
+        // Предзаполняем форму
+        const tableNumberSelect = document.getElementById('table_number');
+        if (tableNumberSelect) {
+            let found = false;
+            for (let i = 0; i < tableNumberSelect.options.length; i++) {
+                if (tableNumberSelect.options[i].value === tableNumber.toString()) {
+                    tableNumberSelect.selectedIndex = i;
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                for (let i = 0; i < tableNumberSelect.options.length; i++) {
+                    if (tableNumberSelect.options[i].text.includes(tableNumber)) {
+                        tableNumberSelect.selectedIndex = i;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        const bookingTimeSelect = document.getElementById('booking_time');
+        if (bookingTimeSelect) {
+            for (let i = 0; i < bookingTimeSelect.options.length; i++) {
+                if (bookingTimeSelect.options[i].value === formattedStartTime) {
+                    bookingTimeSelect.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+        
+        const durationSelect = document.getElementById('duration');
+        if (durationSelect) {
+            durationSelect.value = closestDuration;
+        }
+        
+        // Показываем модальное окно
+        const modal = new bootstrap.Modal(document.getElementById('createTableModal'));
+        modal.show();
+        
+        // Показываем информацию о выбранном диапазоне
+        showSelectionInfo(tableNumber, startTime, endTime, durationMinutes);
+    }
+
+    // Вычисляем время окончания (время ячейки + 30 минут)
+    function calculateEndTime(cellTime) {
+        const [hours, minutes] = cellTime.split(':').map(Number);
+        let newHours = hours;
+        let newMinutes = minutes + 30;
+        
+        if (newMinutes >= 60) {
+            newHours += Math.floor(newMinutes / 60);
+            newMinutes = newMinutes % 60;
+        }
+        
+        if (newHours >= 24) {
+            newHours = newHours % 24;
+        }
+        
+        return `${newHours.toString().padStart(2, '0')}:${newMinutes.toString().padStart(2, '0')}`;
+    }
+
+    // Конвертация времени в минуты
+    function timeToMinutes(timeStr) {
+        if (!timeStr) return 0;
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours * 60 + minutes;
+    }
+
+    // Форматирование времени для input
+    function formatTimeForInput(timeStr) {
+        if (!timeStr) return '';
+        const [hours, minutes] = timeStr.split(':');
+        return `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`;
+    }
+
+    // Показ информации о выбранном диапазоне
+    function showSelectionInfo(tableNumber, startTime, endTime, durationMinutes) {
+        const oldInfo = document.getElementById('selectionInfo');
+        if (oldInfo) {
+            oldInfo.remove();
+        }
+        
+        const infoDiv = document.createElement('div');
+        infoDiv.id = 'selectionInfo';
+        infoDiv.className = 'alert alert-info mb-3';
+        
+        const hours = Math.floor(durationMinutes / 60);
+        const minutes = durationMinutes % 60;
+        let durationText = `${hours} час`;
+        
+        if (hours === 1) {
+            durationText = '1 час';
+        } else if (hours >= 2 && hours <= 4) {
+            durationText = `${hours} часа`;
+        } else if (hours >= 5) {
+            durationText = `${hours} часов`;
+        }
+        
+        if (minutes > 0) {
+            durationText += ` ${minutes} минут`;
+        }
+        
+        infoDiv.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>Выбрано:</strong> Стол ${tableNumber}, время: ${startTime}-${endTime} (${durationText})
+                </div>
+                <button type="button" class="btn-close" onclick="this.parentElement.parentElement.remove()"></button>
+            </div>
+        `;
+        
+        const modalBody = document.querySelector('#createTableModal .modal-body');
+        if (modalBody) {
+            modalBody.insertBefore(infoDiv, modalBody.firstChild);
+        }
+    }
+
+    // Обработчик двойного клика для быстрого создания
+    function handleDoubleClick(e) {
+        const cellElement = e.target.closest('td.table-cell-selectable');
+        if (!cellElement) return;
+        
+        const cellData = findCellInGrid(cellElement);
+        if (!cellData || !cellData.isSelectable) return;
+        
+        // Выделяем одну ячейку
+        clearSelection();
+        cellElement.classList.add('table-cell-selected');
+        
+        selectionState.selectedGrid = [cellData];
+        selectionState.startCell = cellData;
+        selectionState.startTable = cellData.tableNumber;
+        selectionState.startTime = cellData.time;
+        selectionState.endTime = cellData.time;
+        
+        // Показываем модальное окно
+        showCreateModalWithSelection();
+    }
+
+    // Инициализация
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(() => {
+            initCellSelection();
+        }, 300);
+        
+        document.addEventListener('dblclick', handleDoubleClick);
+        
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('table.table-bordered tbody td') && 
+                selectionState.selectedGrid.length > 0) {
+                clearSelection();
+            }
+        });
+        
+        const createTableModal = document.getElementById('createTableModal');
+        if (createTableModal) {
+            createTableModal.addEventListener('hidden.bs.modal', function() {
+                clearSelection();
+            });
+        }
+    });
+
+    // Наблюдатель за изменениями таблицы
+    function initTableObserver() {
+        const table = document.querySelector('table.table-bordered tbody');
+        if (!table) return;
+        
+        const observer = new MutationObserver(function(mutations) {
+            let shouldUpdate = false;
+            
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'childList') {
+                    shouldUpdate = true;
+                }
+                
+                if (mutation.type === 'attributes' && 
+                    (mutation.attributeName === 'rowspan' || 
+                    mutation.attributeName === 'class')) {
+                    shouldUpdate = true;
+                }
+            });
+            
+            if (shouldUpdate) {
+                setTimeout(() => {
+                    initCellSelection();
+                }, 50);
+            }
+        });
+        
+        observer.observe(table, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['rowspan', 'class']
+        });
+    }
+
+    window.addEventListener('load', function() {
+        initCellSelection();
+        initTableObserver();
+    });
+
+    // =============== КОНЕЦ БЛОКА ВЫДЕЛЕНИЯ ЯЧЕЕК ===============
+
     // =============== ИНИЦИАЛИЗАЦИЯ ВСЕГО ===============
 
     initPaymentMethodHandler();
@@ -2873,4 +3433,26 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 </script>
+
+<style>
+    .table-cell-selectable {
+        cursor: pointer;
+        position: relative;
+        transition: background-color 0.2s;
+    }
+    
+    .table-cell-selectable:hover {
+        background-color: rgba(0, 123, 255, 0.1) !important;
+    }
+    
+    .table-cell-selected {
+        background-color: rgba(0, 123, 255, 0.3) !important;
+        border: 2px solid #007bff !important;
+    }
+    
+    .table-cell-selecting {
+        background-color: rgba(0, 123, 255, 0.2) !important;
+    }
+</style>
+
 @endsection

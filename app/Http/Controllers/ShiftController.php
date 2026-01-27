@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Shift;
-use App\Models\Employee;
+use App\Models\User; // Меняем Employee на User
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -56,7 +56,7 @@ class ShiftController extends Controller
         }
         
         // Получаем все смены за месяц с сотрудниками
-        $shifts = Shift::with(['employees'])
+        $shifts = Shift::with(['employees']) // employees() - это связь с User где role='employee'
             ->whereBetween('date', [
                 $currentMonth->format('Y-m-01'),
                 $currentMonth->endOfMonth()->format('Y-m-d')
@@ -89,8 +89,8 @@ class ShiftController extends Controller
             $weeks[] = $week;
         }
         
-        // Все сотрудники для добавления
-        $allEmployees = Employee::all();
+        // Все сотрудники для добавления (только с ролью employee)
+        $allEmployees = User::where('role', 'employee')->get();
         
         return view('shifts.index', compact(
             'shifts', 
@@ -107,37 +107,45 @@ class ShiftController extends Controller
      * Автоматическое закрытие просроченных смен
      * Смены автоматически закрываются в 12:00 следующего дня
      */
-
     private function autoCloseExpiredShifts()
     {
         $now = now();
+        $today = $now->toDateString();
         
-        // Проверяем, что сейчас уже после 12:00
-        if ($now->hour < 12) {
-            return 0; // Еще рано, до 12:00
-        }
+        // Определяем дату "позавчера" (два дня назад)
+        $dayBeforeYesterday = $now->copy()->subDays(2)->toDateString();
         
-        // Закрываем смены за ВЧЕРА и СТАРШЕ
-        $cutoffDate = $now->copy()->subDay()->toDateString();
-        
-        // Находим все открытые смены за вчера и старше
-        $expiredShifts = Shift::where('status', 'open')
-            ->whereDate('date', '<=', $cutoffDate)
+        // Закрываем ВСЕ открытые смены до позавчерашнего дня включительно
+        $oldShifts = Shift::where('status', 'open')
+            ->whereDate('date', '<=', $dayBeforeYesterday)
             ->get();
         
         $closedCount = 0;
         
-        foreach ($expiredShifts as $shift) {
-            // Закрываем смену
+        foreach ($oldShifts as $shift) {
             $shift->status = 'closed';
             $shift->closed_at = $now;
-            
-            // Добавляем автоматический комментарий
             $shift->addAutoCloseNote();
-            
             $shift->save();
-            
             $closedCount++;
+        }
+        
+        // Обработка вчерашней смены
+        $yesterday = $now->copy()->subDay()->toDateString();
+        
+        // Если сейчас после 12:00, закрываем вчерашнюю смену
+        if ($now->hour >= 12) {
+            $yesterdayShifts = Shift::where('status', 'open')
+                ->whereDate('date', $yesterday)
+                ->get();
+            
+            foreach ($yesterdayShifts as $shift) {
+                $shift->status = 'closed';
+                $shift->closed_at = $now;
+                $shift->addAutoCloseNote();
+                $shift->save();
+                $closedCount++;
+            }
         }
         
         if ($closedCount > 0) {
@@ -216,20 +224,17 @@ class ShiftController extends Controller
             return redirect()->route('shifts.index')->with('error', 'Нельзя открыть закрытую смену.');
         }
 
+        // Проверяем, есть ли сотрудники в смене
+        $employeesCount = $shift->employees()->count();
+        
+        if ($employeesCount === 0) {
+            return redirect()->route('shifts.index')
+                ->with('error', 'Нельзя открыть смену без сотрудников. Добавьте хотя бы одного сотрудника.');
+        }
+
         $shift->open();
 
         return redirect()->route('shifts.index')->with('success', 'Смена открыта.');
-    }
-
-    public function close(Shift $shift)
-    {
-        if ($shift->isClosed()) {
-            return redirect()->route('shifts.index')->with('error', 'Смена уже закрыта.');
-        }
-
-        $shift->close();
-
-        return redirect()->route('shifts.index')->with('success', 'Смена закрыта.');
     }
 
     /**
@@ -238,15 +243,20 @@ class ShiftController extends Controller
     public function addEmployee(Request $request, Shift $shift)
     {
         $request->validate([
-            'employee_id' => 'required|exists:employees,id',
+            'employee_id' => 'required|exists:users,id', // Меняем employees на users
         ]);
 
+        // Проверяем, что это действительно сотрудник
+        $user = User::where('id', $request->employee_id)
+                   ->where('role', 'employee')
+                   ->firstOrFail();
+
         // Проверяем, не добавлен ли уже сотрудник
-        if ($shift->employees()->where('employees.id', $request->employee_id)->exists()) {
+        if ($shift->employees()->where('users.id', $user->id)->exists()) {
             return back()->with('error', 'Сотрудник уже добавлен в смену.');
         }
 
-        $shift->employees()->attach($request->employee_id);
+        $shift->employees()->attach($user->id);
 
         return back()->with('success', 'Сотрудник добавлен в смену.');
     }
@@ -254,8 +264,13 @@ class ShiftController extends Controller
     /**
      * Remove employee from shift.
      */
-    public function removeEmployee(Shift $shift, Employee $employee)
+    public function removeEmployee(Shift $shift, User $employee) // Меняем тип Employee на User
     {
+        // Проверяем, что это действительно сотрудник
+        if ($employee->role !== 'employee') {
+            abort(404, 'Пользователь не является сотрудником');
+        }
+        
         $shift->employees()->detach($employee->id);
 
         return back()->with('success', 'Сотрудник удален из смены.');
@@ -268,14 +283,23 @@ class ShiftController extends Controller
     {
         $request->validate([
             'employee_ids' => 'required|array',
-            'employee_ids.*' => 'exists:employees,id',
+            'employee_ids.*' => 'exists:users,id', // Меняем employees на users
         ]);
 
         $added = 0;
         $skipped = 0;
 
         foreach ($request->employee_ids as $employeeId) {
-            if (!$shift->employees()->where('employees.id', $employeeId)->exists()) {
+            // Проверяем, что это сотрудник
+            $user = User::where('id', $employeeId)
+                       ->where('role', 'employee')
+                       ->first();
+            
+            if (!$user) {
+                continue; // Пропускаем, если не сотрудник
+            }
+            
+            if (!$shift->employees()->where('users.id', $employeeId)->exists()) {
                 $shift->employees()->attach($employeeId);
                 $added++;
             } else {
@@ -295,6 +319,7 @@ class ShiftController extends Controller
         
         return back()->with('success', 'Все сотрудники удалены из смены.');
     }
+
     /**
      * Обновить сотрудников в смене
      */
@@ -302,11 +327,17 @@ class ShiftController extends Controller
     {
         $request->validate([
             'employee_ids' => 'nullable|array',
-            'employee_ids.*' => 'exists:employees,id',
+            'employee_ids.*' => 'exists:users,id', // Меняем employees на users
         ]);
 
         // Получаем выбранных сотрудников (или пустой массив если ничего не выбрано)
         $employeeIds = $request->input('employee_ids', []);
+        
+        // Фильтруем - оставляем только ID сотрудников
+        $employeeIds = User::whereIn('id', $employeeIds)
+                          ->where('role', 'employee')
+                          ->pluck('id')
+                          ->toArray();
         
         // Синхронизируем сотрудников
         $shift->employees()->sync($employeeIds);
@@ -316,8 +347,8 @@ class ShiftController extends Controller
 
     public function getEmployeesData(Shift $shift)
     {
-        $allEmployees = Employee::all();
-        $shiftEmployees = $shift->employees()->pluck('employees.id')->toArray();
+        $allEmployees = User::where('role', 'employee')->get();
+        $shiftEmployees = $shift->employees()->pluck('users.id')->toArray();
         
         return view('shifts.partials.employees-list', compact('allEmployees', 'shiftEmployees', 'shift'));
     }
@@ -325,14 +356,19 @@ class ShiftController extends Controller
     // В ShiftController.php
     public function jsonData(Shift $shift)
     {
-        $allEmployees = Employee::select(['id', 'name', 'position'])->get();
-        $shiftEmployees = $shift->employees()->select(['employees.id', 'name', 'position'])->get();
+        $allEmployees = User::where('role', 'employee')
+                          ->select(['id', 'name', 'position'])
+                          ->get();
+        $shiftEmployees = $shift->employees()
+                              ->select(['users.id', 'name', 'position'])
+                              ->get();
         
         return response()->json([
             'employees' => $allEmployees,
             'shiftEmployees' => $shiftEmployees,
         ]);
     }
+
     /**
      * Получить текущую смену для хедера
      */
@@ -355,4 +391,33 @@ class ShiftController extends Controller
         return back()->with('success', 'Комментарий обновлен.');
     }
 
+    public function manageOrCreate(Request $request)
+    {
+        $request->validate([
+            'date' => 'required|date',
+        ]);
+
+        $date = $request->input('date');
+        
+        // Ищем существующую смену
+        $shift = Shift::whereDate('date', $date)->first();
+        
+        // Если смены нет - создаем
+        if (!$shift) {
+            $shift = Shift::create([
+                'date' => $date,
+                'status' => 'planned',
+                'created_by' => auth()->id(),
+            ]);
+            
+            // Можно добавить флаг в сессию, что смена создана автоматически
+            session()->flash('info', 'Смена на ' . Carbon::parse($date)->format('d.m.Y') . ' создана автоматически');
+        }
+        
+        // Возвращаем на календарь с фокусом на эту дату
+        return redirect()->route('shifts.index', [
+            'month' => Carbon::parse($date)->format('Y-m'),
+            'focus' => $date
+        ]);
+    }
 }

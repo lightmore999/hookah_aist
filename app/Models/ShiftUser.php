@@ -25,10 +25,10 @@ class ShiftUser extends Model
     }
 
     /**
-     * Сотрудник
+     * Пользователь (бывший employee)
      */
-    public function employee()
+    public function user()
     {
-        return $this->belongsTo(Employee::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

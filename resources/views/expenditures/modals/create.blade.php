@@ -82,16 +82,19 @@
                         </div>
 
                         <div class="col-md-6">
-                            <label for="payment_method" class="form-label fw-bold">Способ оплаты *</label>
-                            <select class="form-select @error('payment_method') is-invalid @enderror" 
-                                    id="payment_method" 
-                                    name="payment_method" 
+                            <label for="payment_method_id" class="form-label fw-bold">Способ оплаты *</label>
+                            <select class="form-select @error('payment_method_id') is-invalid @enderror" 
+                                    id="payment_method_id" 
+                                    name="payment_method_id" 
                                     required>
                                 <option value="">Выберите способ</option>
-                                <option value="cash" {{ old('payment_method') == 'cash' ? 'selected' : '' }}>Наличные</option>
-                                <option value="card" {{ old('payment_method') == 'card' ? 'selected' : '' }}>Карта</option>
+                                @foreach($paymentMethods as $method)
+                                    <option value="{{ $method->IDPaymentMethod }}" {{ old('payment_method_id') == $method->IDPaymentMethod ? 'selected' : '' }}>
+                                        {{ $method->Name }}
+                                    </option>
+                                @endforeach
                             </select>
-                            @error('payment_method')
+                            @error('payment_method_id')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
                         </div>
@@ -116,7 +119,7 @@
                                        type="checkbox" 
                                        id="is_hidden_admin" 
                                        name="is_hidden_admin"
-                                       value="1"  <!-- Добавлено value="1" -->
+                                       value="1"
                                        {{ old('is_hidden_admin') ? 'checked' : '' }}>
                                 <label class="form-check-label fw-bold" for="is_hidden_admin">
                                     Скрыть от администратора
@@ -131,7 +134,7 @@
                                        type="checkbox" 
                                        id="is_monthly_expense" 
                                        name="is_monthly_expense"
-                                       value="1"  <!-- Добавлено value="1" -->
+                                       value="1"
                                        {{ old('is_monthly_expense') ? 'checked' : '' }}>
                                 <label class="form-check-label fw-bold" for="is_monthly_expense">
                                     Ежемесячный расход

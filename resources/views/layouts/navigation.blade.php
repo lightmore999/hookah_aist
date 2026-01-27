@@ -107,6 +107,9 @@
                             <x-dropdown-link :href="route('payment-methods.index')">
                                 Способы оплаты
                             </x-dropdown-link>
+                            <x-dropdown-link :href="route('operation-history.index')">
+                                История операций
+                            </x-dropdown-link>
                         </div>
                     </div>
                 </div>
@@ -114,6 +117,69 @@
 
             <!-- Правая часть навигации -->
             <div class="flex items-center space-x-4">
+                <!-- Меню статистики -->
+                <div class="relative" x-data="{ openStatisticsDropdown: false }">
+                    <button @click="openStatisticsDropdown = !openStatisticsDropdown" 
+                            @click.away="openStatisticsDropdown = false"
+                            :class="{
+                                'text-gray-900 border-b-2 border-indigo-500': request()->routeIs('statistics.*'),
+                                'text-gray-500 hover:text-gray-700 hover:border-gray-300': !request()->routeIs('statistics.*')
+                            }"
+                            class="inline-flex items-center px-3 py-2 text-sm font-medium leading-5 transition duration-150 ease-in-out focus:outline-none focus:text-gray-700 focus:border-gray-300">
+                        <span>Статистика</span>
+                        <svg class="ml-1 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                    
+                    <div x-show="openStatisticsDropdown" 
+                         x-transition:enter="transition ease-out duration-200"
+                         x-transition:enter-start="opacity-0 transform scale-95"
+                         x-transition:enter-end="opacity-100 transform scale-100"
+                         x-transition:leave="transition ease-in duration-75"
+                         x-transition:leave-start="opacity-100 transform scale-100"
+                         x-transition:leave-end="opacity-0 transform scale-95"
+                         class="absolute left-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                        <div class="py-1">
+                            <a href="{{ route('statistics.index') }}" 
+                               class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.index') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                <div class="flex items-center">
+                                    <i class="bi bi-people mr-2"></i>
+                                    <span>Посещения и продажи</span>
+                                </div>
+                            </a>
+                            <a href="{{ route('statistics.accounting') }}" 
+                               class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                <div class="flex items-center">
+                                    <i class="bi bi-cash-coin mr-2"></i>
+                                    <span>Финансовая статистика</span>
+                                </div>
+                            </a>
+                            <a href="{{ route('statistics.hookah') }}" 
+                               class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                <div class="flex items-center">
+                                    <i class="bi bi-cash-coin mr-2"></i>
+                                    <span>Статистика по кальянам</span>
+                                </div>
+                            </a>
+                             <a href="{{ route('statistics.products') }}" 
+                               class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                <div class="flex items-center">
+                                    <i class="bi bi-cash-coin mr-2"></i>
+                                    <span>Статистика по товарам</span>
+                                </div>
+                            </a>
+                            <a href="{{ route('statistics.expenses') }}" 
+                               class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                <div class="flex items-center">
+                                    <i class="bi bi-cash-coin mr-2"></i>
+                                    <span>Статистика по расходам</span>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Индикатор текущей смены -->
                 @php
                     use App\Models\Shift;
@@ -266,6 +332,25 @@
             <x-dropdown-link :href="route('bonus-history.index')">
                 История бонусов
             </x-dropdown-link>
+            
+            <!-- Мобильная версия меню статистики -->
+            <div class="px-4 py-2">
+                <div class="font-medium text-sm text-gray-700 mb-1">Статистика</div>
+                <div class="space-y-1 pl-4">
+                    <a href="{{ route('statistics.index') }}" 
+                       class="block text-sm text-gray-700 hover:text-indigo-600 {{ request()->routeIs('statistics.index') ? 'text-indigo-600 font-medium' : '' }}">
+                        Посещения и продажи
+                    </a>
+                    <a href="{{ route('statistics.accounting') }}" 
+                       class="block text-sm text-gray-700 hover:text-indigo-600 {{ request()->routeIs('statistics.accounting') ? 'text-indigo-600 font-medium' : '' }}">
+                        Финансовая статистика
+                    </a>
+                    <a href="{{ route('statistics.hookah') }}" 
+                       class="block text-sm text-gray-700 hover:text-indigo-600 {{ request()->routeIs('statistics.accounting') ? 'text-indigo-600 font-medium' : '' }}">
+                        Статистика по кальянам
+                    </a>
+                </div>
+            </div>
         </div>
 
         <!-- Responsive Settings Options -->

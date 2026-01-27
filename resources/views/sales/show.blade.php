@@ -67,7 +67,11 @@
                         data-client-id="{{ $sale->client_id }}"
                         data-client-name="{{ $sale->client->name ?? '' }}"
                         data-client-bonus-points="{{ $sale->client->bonus_points ?? 0 }}"
-                        data-client-max-spend-percent="{{ $sale->client && $sale->client->bonusCard ? $sale->client->bonusCard->MaxSpendPercent : 50 }}">
+                        data-client-max-spend-percent="{{ $sale->client && $sale->client->bonusCard ? $sale->client->bonusCard->MaxSpendPercent : 50 }}"
+                        data-client-bonus-percent="{{ $sale->client && $sale->client->bonusCard ? $sale->client->bonusCard->BonusPercent : 5 }}"
+                        data-client-required-spend="{{ $sale->client && $sale->client->bonusCard ? $sale->client->bonusCard->RequiredSpendAmount : 0 }}"
+                        data-client-bonus-card-name="{{ $sale->client && $sale->client->bonusCard ? $sale->client->bonusCard->Name : '' }}"
+                        data-has-bonus-card="{{ $sale->client && $sale->client->bonusCard ? 'true' : 'false' }}">
                     <i class="bi bi-check-circle me-1"></i> Завершить продажу 
                 </button>
             @else

@@ -26,12 +26,13 @@ class Shift extends Model
     /**
      * Сотрудники на смене
      */
-    public function employees()
+   public function employees()
     {
-        return $this->belongsToMany(Employee::class, 'shift_user', 'shift_id', 'user_id')
+        return $this->belongsToMany(User::class, 'shift_user', 'shift_id', 'user_id')
+                    ->where('role', 'employee') // Только сотрудники!
                     ->withTimestamps();
+                    // Убрали ->withPivot(['start_time', 'end_time'])
     }
-
     /**
      * Проверить, запланирована ли смена
      */

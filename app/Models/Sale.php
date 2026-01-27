@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use App\Traits\LogsOperations;
 
 class Sale extends Model
 {
-    use HasFactory;
+    use HasFactory; // Добавляем трейт
 
     protected $fillable = [
         'client_id',
@@ -30,6 +31,11 @@ class Sale extends Model
         'sale_date' => 'datetime',
         'used_bonus_points' => 'integer',
     ];
+
+    /**
+     * Временное свойство для хранения комментария удаления
+     */
+    public $delete_comment;
 
     // =========== ОТНОШЕНИЯ ===========
 
@@ -181,11 +187,16 @@ class Sale extends Model
         $bonusCard = $this->client->bonusCard;
         $maxPercent = $bonusCard ? $bonusCard->MaxSpendPercent : 50; // 50% по умолчанию
         
-        // Можно использовать не более X% суммы заказа
-        $maxBonusesByTotal = floor((float) $this->total * ($maxPercent / 100));
+        // Используем реальную сумму продажи для расчета
+        $totalForBonus = $this->getTotalForBonusCalculation();
+        
+        // Можно использовать не более X% суммы заказа (без учета бонусов)
+        $maxBonusesByTotal = floor($totalForBonus * ($maxPercent / 100));
         
         // Но не больше, чем есть у клиента
-        return min($this->client->bonus_points, (int) $maxBonusesByTotal);
+        $clientBonusPoints = $this->client->bonus_points;
+        
+        return min($clientBonusPoints, (int) $maxBonusesByTotal);
     }
 
     /**
@@ -201,12 +212,37 @@ class Sale extends Model
         }
 
         $client = $this->client;
+        if (!$client) {
+            return [
+                'success' => false,
+                'message' => 'Клиент не найден'
+            ];
+        }
+        
+        // Пересчитываем сумму перед проверкой максимального количества бонусов
+        $this->recalculateTotal();
+        $this->refresh();
+        
         $maxUsable = $this->getMaxUsableBonuses();
+        
+        if ($maxUsable <= 0) {
+            return [
+                'success' => false,
+                'message' => "Можно использовать не более 0 бонусов"
+            ];
+        }
         
         if ($pointsToUse > $maxUsable) {
             return [
                 'success' => false,
                 'message' => "Можно использовать не более {$maxUsable} бонусов"
+            ];
+        }
+
+        if ($client->bonus_points < $pointsToUse) {
+            return [
+                'success' => false,
+                'message' => "Недостаточно бонусов у клиента. Доступно: {$client->bonus_points}"
             ];
         }
 
@@ -236,6 +272,20 @@ class Sale extends Model
             'message' => "Использовано {$pointsToUse} бонусов",
             'bonus_discount' => $pointsToUse,
         ];
+    }
+
+    public function getTotalForBonusCalculation(): float
+    {
+        $productsTotal = $this->items->sum(function($item) {
+            return $item->quantity * $item->unit_price;
+        });
+        
+        $hookahsTotal = $this->hookahs->sum('price');
+        
+        $subtotal = $productsTotal + $hookahsTotal;
+        $total = $subtotal - (float) $this->discount;
+        
+        return max(0, $total);
     }
 
     /**
@@ -276,15 +326,28 @@ class Sale extends Model
         $client = $this->client;
         
         // Рассчитываем сумму для начисления бонусов
-        // Берем итоговую сумму продажи (без вычета скидки бонусами)
-        $bonusableAmount = (float) $this->total + (float) ($this->used_bonus_points ?? 0);
+        // Бонусы начисляются от суммы ПОСЛЕ применения скидки, но ПЕРЕД вычетом бонусов
+        // То есть: сумма товаров + кальяны - обычная скидка
+        
+        // Сумма товаров
+        $productsTotal = $this->items->sum(function($item) {
+            return $item->quantity * $item->unit_price;
+        });
+        
+        // Сумма кальянов
+        $hookahsTotal = $this->hookahs->sum('price');
+        
+        // Итоговая сумма для расчета бонусов
+        $bonusableAmount = $productsTotal + $hookahsTotal - (float) $this->discount;
+        
+        // Не даем уйти в минус
+        $bonusableAmount = max(0, $bonusableAmount);
         
         // Используем BonusPercent из бонусной карты
         $percent = $client->bonusCard->BonusPercent;
         
         // Расчет бонусов
-        $pointsToAward = $bonusableAmount * ($percent / 100);
-        $pointsToAward = floor($pointsToAward);
+        $pointsToAward = floor($bonusableAmount * ($percent / 100));
 
         if ($pointsToAward > 0) {
             // Начисляем бонусы
@@ -297,18 +360,31 @@ class Sale extends Model
                 'amount' => $pointsToAward,
                 'operation_type' => 'credit',
                 'balance_after' => $client->bonus_points,
-                'reason' => 'Начисление бонусов за продажу #' . $this->id,
+                'reason' => "Начисление {$percent}% бонусов за продажу #{$this->id}",
                 'sale_id' => $this->id,
+            ]);
+            
+            // Для отладки можно сохранить сумму, от которой считали бонусы
+            \Log::info("Бонусы начислены за продажу #{$this->id}", [
+                'sale_id' => $this->id,
+                'client_id' => $this->client_id,
+                'bonusable_amount' => $bonusableAmount,
+                'percent' => $percent,
+                'points_awarded' => $pointsToAward,
+                'items_total' => $productsTotal,
+                'hookahs_total' => $hookahsTotal,
+                'discount' => $this->discount,
+                'used_bonuses' => $this->used_bonus_points
             ]);
         }
 
         return (int) $pointsToAward;
     }
 
-    // =========== МЕТОДЫ ДЛЯ ПРОДАЖ ===========
+    // =========== МЕТОДЫ ДЛЯ ПРОДАЖ С ЛОГИРОВАНИЕМ ===========
 
     /**
-     * Пересчитать итоговую сумму
+     * Пересчитать итоговую сумму с логированием
      */
     public function recalculateTotal(): float
     {
@@ -327,6 +403,7 @@ class Sale extends Model
         $finalTotal = max(0, $finalTotal); // Не даем уйти в минус
 
         if ((float) $this->total != $finalTotal) {
+            $oldTotal = $this->total;
             $this->update(['total' => $finalTotal]);
         }
 
@@ -334,9 +411,9 @@ class Sale extends Model
     }
 
     /**
-     * Завершить продажу
+     * Завершить продажу с логированием
      */
-    public function completeSale(): array
+    public function completeSale(?string $comment = null): array
     {
         // Проверяем наличие всех товаров
         foreach ($this->items as $item) {
@@ -367,6 +444,7 @@ class Sale extends Model
             $bonusAwarded = $this->awardBonusPoints();
         }
 
+        $oldStatus = $this->status;
         $this->status = 'completed';
         $this->save();
 
@@ -374,6 +452,202 @@ class Sale extends Model
             'success' => true,
             'message' => 'Продажа завершена успешно' . ($bonusAwarded ? " (+{$bonusAwarded} бонусов)" : ""),
             'bonus_awarded' => $bonusAwarded,
+        ];
+    }
+
+    /**
+     * Добавить кальян к продаже с логированием
+     */
+    public function addHookah($hookah, ?string $comment = null): array
+    {
+        $hookahId = is_object($hookah) ? $hookah->id : $hookah;
+        $hookahName = is_object($hookah) ? $hookah->name : 'Кальян #' . $hookahId;
+        
+        // Проверяем, не добавлен ли уже этот кальян
+        if ($this->hookahs()->where('hookah_id', $hookahId)->exists()) {
+            return [
+                'success' => false,
+                'message' => 'Этот кальян уже добавлен к продаже'
+            ];
+        }
+        
+        $this->hookahs()->attach($hookahId);
+        
+        // Пересчитываем сумму
+        $this->recalculateTotal();
+
+        return [
+            'success' => true,
+            'message' => 'Кальян успешно добавлен',
+            'hookah_name' => $hookahName
+        ];
+    }
+
+    /**
+     * Удалить кальян из продажи с логированием
+     */
+    public function removeHookah($hookah, ?string $comment = null): array
+    {
+        $hookahId = is_object($hookah) ? $hookah->id : $hookah;
+        $hookahName = is_object($hookah) ? $hookah->name : 'Кальян #' . $hookahId;
+        
+        // Проверяем, есть ли этот кальян в продаже
+        if (!$this->hookahs()->where('hookah_id', $hookahId)->exists()) {
+            return [
+                'success' => false,
+                'message' => 'Этот кальян не найден в продаже'
+            ];
+        }
+        
+        $this->hookahs()->detach($hookahId);
+        
+        // Пересчитываем сумму
+        $this->recalculateTotal();
+
+        return [
+            'success' => true,
+            'message' => 'Кальян успешно удален',
+            'hookah_name' => $hookahName
+        ];
+    }
+
+    /**
+     * Добавить товар к продаже с логированием
+     */
+    public function addItem($product, int $quantity = 1, ?float $unitPrice = null, ?string $comment = null): array
+    {
+        $productId = is_object($product) ? $product->id : $product;
+        $productObj = is_object($product) ? $product : Product::find($productId);
+        
+        if (!$productObj) {
+            return [
+                'success' => false,
+                'message' => 'Товар не найден'
+            ];
+        }
+        
+        $unitPrice = $unitPrice ?? $productObj->price;
+        
+        // Проверяем наличие товара
+        if ($productObj->total_quantity < $quantity) {
+            return [
+                'success' => false,
+                'message' => "Недостаточно товара: {$productObj->name}. Доступно: {$productObj->total_quantity}"
+            ];
+        }
+        
+        // Добавляем товар
+        SaleItem::create([
+            'sale_id' => $this->id,
+            'product_id' => $productId,
+            'quantity' => $quantity,
+            'unit_price' => $unitPrice,
+        ]);
+        
+        // Пересчитываем сумму
+        $this->recalculateTotal();
+
+        return [
+            'success' => true,
+            'message' => 'Товар успешно добавлен',
+            'product_name' => $productObj->name,
+            'quantity' => $quantity,
+            'unit_price' => $unitPrice
+        ];
+    }
+
+    /**
+     * Удалить товар из продажи с логированием
+     */
+    public function removeItem($saleItem, ?string $comment = null): array
+    {
+        $saleItemId = is_object($saleItem) ? $saleItem->id : $saleItem;
+        $saleItemObj = is_object($saleItem) ? $saleItem : SaleItem::find($saleItemId);
+        
+        if (!$saleItemObj || $saleItemObj->sale_id != $this->id) {
+            return [
+                'success' => false,
+                'message' => 'Товар не найден в продаже'
+            ];
+        }
+        
+        $productName = $saleItemObj->product->name ?? 'Товар #' . $saleItemObj->product_id;
+        $quantity = $saleItemObj->quantity;
+        
+        // Удаляем товар
+        $saleItemObj->delete();
+        
+        
+        // Пересчитываем сумму
+        $this->recalculateTotal();
+
+        return [
+            'success' => true,
+            'message' => 'Товар успешно удален',
+            'product_name' => $productName,
+            'quantity' => $quantity
+        ];
+    }
+
+    /**
+     * Отменить продажу с логированием
+     */
+    public function cancelSale(?string $comment = null): array
+    {
+        if ($this->status === 'completed') {
+            return [
+                'success' => false,
+                'message' => 'Нельзя отменить завершенную продажу'
+            ];
+        }
+
+        $oldStatus = $this->status;
+        
+        // Возвращаем бонусы если они были использованы
+        if ($this->used_bonus_points > 0 && $this->client) {
+            $this->cancelBonuses();
+        }
+        
+        // Возвращаем товары на склад
+        foreach ($this->items as $item) {
+            $product = $item->product;
+            if ($product) {
+                $product->total_quantity += $item->quantity;
+                $product->save();
+            }
+        }
+
+        $this->status = 'cancelled';
+        $this->save();
+
+        return [
+            'success' => true,
+            'message' => 'Продажа успешно отменена'
+        ];
+    }
+
+    /**
+     * Изменить статус продажи с логированием
+     */
+    public function changeStatus(string $newStatus, ?string $comment = null): array
+    {
+        $oldStatus = $this->status;
+        $statusText = [
+            'new' => 'Новый',
+            'in_progress' => 'В работе',
+            'completed' => 'Завершен',
+            'cancelled' => 'Отменен'
+        ];
+        
+        $oldStatusText = $statusText[$oldStatus] ?? $oldStatus;
+        $newStatusText = $statusText[$newStatus] ?? $newStatus;
+        
+        $this->status = $newStatus;
+        $this->save();
+
+        return [
+            'success' => true,
+            'message' => "Статус изменен на '{$newStatusText}'"
         ];
     }
 

@@ -11,7 +11,16 @@
                 <i class="bi bi-calendar-check text-primary me-2"></i>
                 Календарь смен
             </h1>
-            <p class="text-muted mb-0 small">{{ $currentMonth->translatedFormat('F Y') }}</p>
+             <p class="text-dark mb-0 fw-bold fs-5">
+                @php
+                    $months = [
+                        1 => 'Январь', 2 => 'Февраль', 3 => 'Март', 4 => 'Апрель',
+                        5 => 'Май', 6 => 'Июнь', 7 => 'Июль', 8 => 'Август',
+                        9 => 'Сентябрь', 10 => 'Октябрь', 11 => 'Ноябрь', 12 => 'Декабрь'
+                    ];
+                    echo $months[$currentMonth->month] . ' ' . $currentMonth->year;
+                @endphp
+            </p>
         </div>
         
         <div class="d-flex align-items-center gap-2">
@@ -51,6 +60,13 @@
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
     @endif
+    
+    @if(session('info'))
+        <div class="alert alert-info alert-dismissible fade show mb-3" role="alert">
+            <i class="bi bi-info-circle me-2"></i>{{ session('info') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    @endif
 
     <!-- Календарь на всю ширину -->
     <div class="px-4">
@@ -83,8 +99,6 @@
                 } else {
                     $cellBgClass = 'bg-white'; // Для нечетных дней
                 }
-                
-
             @endphp
             
             <div class="col border-end p-2 position-relative d-flex flex-column {{ $cellBgClass }}" style="min-height: 160px;">
@@ -110,90 +124,92 @@
                 <!-- Контент дня -->
                 <div class="day-content mt-2 flex-grow-1 d-flex flex-column">
                     @if(isset($shifts[$date->format('Y-m-d')]))
-                    @php $shift = $shifts[$date->format('Y-m-d')]; @endphp
-                    
-                    <!-- Карточка смены -->
-                    <div class="p-3 mb-2 rounded border d-flex flex-column flex-grow-1
-                        @if($shift->status === 'open') bg-success bg-opacity-10 border-success border-opacity-25
-                        @elseif($shift->status === 'closed') bg-light
-                        @endif">
-                                        
-                        <!-- Информация о смене -->
-                        <div class="mb-3 flex-grow-1">
-                            <!-- Сотрудники -->
-                            @if($shift->employees->count() > 0)
-                            <div class="mb-3">
-                                <div class="d-flex align-items-center justify-content-between mb-2">
-                                    <small class="text-muted fw-bold">
-                                        <i class="bi bi-people-fill me-1"></i> Сотрудники ({{ $shift->employees->count() }})
-                                    </small>
-                                    @if($shift->employees->count() > 3)
-                                    <small class="badge bg-secondary">+{{ $shift->employees->count() - 3 }}</small>
-                                    @endif
-                                </div>
-                                <div class="employee-list">
-                                    @foreach($shift->employees->take(3) as $employee)
-                                    <div class="d-flex align-items-center mb-1">
-                                        <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" 
-                                            style="width: 28px; height: 28px; font-size: 0.8rem;">
-                                            {{ strtoupper(substr($employee->name, 0, 1)) }}
-                                        </div>
-                                        <div class="flex-grow-1">
-                                            <div class="small fw-medium">{{ $employee->name }}</div>
-                                            @if($employee->position)
-                                            <div class="x-small text-muted">{{ $employee->position }}</div>
-                                            @endif
-                                        </div>
-                                    </div>
-                                    @endforeach
-                                </div>
-                            </div>
-                            @else
-                            <div class="text-center py-2 d-flex flex-column justify-content-center flex-grow-1">
-                                <i class="bi bi-person-x text-muted fs-4"></i>
-                                <div class="small text-muted mt-1">Нет сотрудников</div>
-                            </div>
-                            @endif
-                            
-                        </div>
+                        @php $shift = $shifts[$date->format('Y-m-d')]; @endphp
                         
-                        <!-- Кнопки управления -->
-                        <div class="mt-2 mt-auto">
-                            <button type="button" 
-                                    class="btn btn-sm btn-outline-primary w-100"
-                                    data-bs-toggle="modal"
-                                    data-bs-target="#manageShiftModal"
-                                    data-shift-id="{{ $shift->id }}"
-                                    data-date="{{ $shift->date->format('d.m.Y') }}"
-                                    data-status="{{ $shift->status }}"
-                                    data-status-text="{{ $shift->status_text }}"
-                                    data-status-color="{{ $shift->status_color }}"
-                                    data-employees="{{ $shift->employees->pluck('name')->implode(', ') }}"
-                                    data-employees-count="{{ $shift->employees->count() }}"
-                                    data-opened-at="{{ $shift->opened_at ? $shift->opened_at->format('d.m.Y H:i') : '' }}"
-                                    data-closed-at="{{ $shift->closed_at ? $shift->closed_at->format('d.m.Y H:i') : '' }}"
-                                    data-notes="{{ $shift->notes }}">
-                                <i class="bi bi-gear me-1"></i> Управление
-                            </button>
+                        <!-- Карточка смены -->
+                        <div class="p-3 mb-2 rounded border d-flex flex-column flex-grow-1
+                            @if($shift->status === 'open') bg-success bg-opacity-10 border-success border-opacity-25
+                            @elseif($shift->status === 'closed') bg-light
+                            @endif">
+                                            
+                            <!-- Информация о смене -->
+                            <div class="mb-3 flex-grow-1">
+                                <!-- Сотрудники -->
+                                @if($shift->employees->count() > 0)
+                                <div class="mb-3">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <small class="text-muted fw-bold">
+                                            <i class="bi bi-people-fill me-1"></i> Сотрудники ({{ $shift->employees->count() }})
+                                        </small>
+                                        @if($shift->employees->count() > 3)
+                                        <small class="badge bg-secondary">+{{ $shift->employees->count() - 3 }}</small>
+                                        @endif
+                                    </div>
+                                    <div class="employee-list">
+                                        @foreach($shift->employees->take(3) as $employee)
+                                        <div class="d-flex align-items-center mb-1">
+                                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" 
+                                                style="width: 28px; height: 28px; font-size: 0.8rem;">
+                                                {{ strtoupper(substr($employee->name, 0, 1)) }}
+                                            </div>
+                                            <div class="flex-grow-1">
+                                                <div class="small fw-medium">{{ $employee->name }}</div>
+                                                @if($employee->position)
+                                                <div class="x-small text-muted">{{ $employee->position }}</div>
+                                                @endif
+                                            </div>
+                                        </div>
+                                        @endforeach
+                                    </div>
+                                </div>
+                                @else
+                                <div class="text-center py-2 d-flex flex-column justify-content-center flex-grow-1">
+                                    <i class="bi bi-person-x text-muted fs-4"></i>
+                                    <div class="small text-muted mt-1">Нет сотрудников</div>
+                                </div>
+                                @endif
+                            </div>
+                            
+                            <!-- Кнопка Управлять (ДЛЯ ВСЕХ СМЕН) -->
+                            <div class="mt-2 mt-auto">
+                                <button type="button" 
+                                        class="btn btn-sm btn-outline-primary w-100"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#manageShiftModal"
+                                        data-shift-id="{{ $shift->id }}"
+                                        data-date="{{ $shift->date->format('d.m.Y') }}"
+                                        data-status="{{ $shift->status }}"
+                                        data-status-text="{{ $shift->status_text }}"
+                                        data-status-color="{{ $shift->status_color }}"
+                                        data-employees="{{ $shift->employees->pluck('name')->implode(', ') }}"
+                                        data-employees-count="{{ $shift->employees->count() }}"
+                                        data-opened-at="{{ $shift->opened_at ? $shift->opened_at->format('d.m.Y H:i') : '' }}"
+                                        data-closed-at="{{ $shift->closed_at ? $shift->closed_at->format('d.m.Y H:i') : '' }}"
+                                        data-notes="{{ $shift->notes }}">
+                                    <i class="bi bi-gear me-1"></i> Управлять
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                    
                     @else
-                    <!-- Нет смены - форма для создания -->
-                    <div class="no-shift text-center py-4 d-flex flex-column justify-content-center flex-grow-1">
-                        <i class="bi bi-calendar-x text-muted fs-1"></i>
-                        <p class="small text-muted mb-3 mt-2">Смены нет</p>
-                        @if($date->month == $currentMonth->month)
-                        <form action="{{ route('shifts.store') }}" method="POST" class="d-inline">
-                            @csrf
-                            <input type="hidden" name="date" value="{{ $date->format('Y-m-d') }}">
-                            <button type="submit" 
-                                    class="btn btn-outline-secondary btn-sm px-3">
-                                <i class="bi bi-plus me-1"></i> Создать смену
-                            </button>
-                        </form>
-                        @endif
-                    </div>
+                        <!-- День без смены -->
+                        <div class="no-shift text-center py-4 d-flex flex-column justify-content-center flex-grow-1">
+                            <i class="bi bi-calendar-x text-muted fs-1"></i>
+                            <p class="small text-muted mb-3 mt-2">Смены нет</p>
+                            
+                            <!-- Кнопка Управлять (для создания смены) -->
+                            <!-- Теперь показывается ВСЕГДА, если дата существует -->
+                            @if($date)
+                                <!-- Определяем, в каком месяце должна быть ссылка -->
+                                @php
+                                    $targetMonth = $date->copy()->format('Y-m');
+                                @endphp
+                                
+                                <a href="{{ route('shifts.index', ['focus' => $date->format('Y-m-d'), 'month' => $targetMonth]) }}" 
+                                   class="btn btn-outline-secondary btn-sm px-3">
+                                    <i class="bi bi-gear me-1"></i> Управлять
+                                </a>
+                            @endif
+                        </div>
                     @endif
                 </div>
                 
@@ -224,6 +240,33 @@
 .calendar-cell > :last-child {
     margin-top: auto;
 }
+
+/* Анимация для выделения дня */
+.day-highlight {
+    animation: highlight-pulse 2s ease;
+}
+
+@keyframes highlight-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    }
+}
+
+/* Стили для дней вне текущего месяца */
+.text-muted-day {
+    color: #6c757d !important;
+}
+
+.bg-out-of-month {
+    background-color: #f8f9fa !important;
+    opacity: 0.7;
+}
 </style>
 
 <script>
@@ -251,7 +294,7 @@ document.addEventListener('DOMContentLoaded', function() {
     @if($focusDate)
         // Ждем полной загрузки DOM
         setTimeout(function() {
-            // Ищем кнопку управления для фокусируемой даты
+            // Ищем день для фокусируемой даты
             const focusDate = '{{ $focusDate }}';
             const formattedDate = new Date(focusDate + 'T00:00:00')
                 .toLocaleDateString('ru-RU', { 
@@ -261,55 +304,69 @@ document.addEventListener('DOMContentLoaded', function() {
                 })
                 .replace(/(\d{2})\.(\d{2})\.(\d{4})/, '$1.$2.$3');
             
-            // Ищем все кнопки управления и ищем нужную
-            const manageButtons = document.querySelectorAll('[data-bs-target="#manageShiftModal"]');
+            console.log('Ищем дату:', formattedDate, 'в фокусе');
             
-            manageButtons.forEach(button => {
-                const buttonDate = button.getAttribute('data-date');
-                if (buttonDate === formattedDate) {
-                    console.log('Найдена кнопка для даты:', formattedDate);
+            // Ищем все ячейки с днями
+            const dayCells = document.querySelectorAll('.col.border-end');
+            
+            dayCells.forEach(cell => {
+                const dayNumber = cell.querySelector('.fw-bold, .text-muted');
+                if (dayNumber) {
+                    const dayText = dayNumber.textContent.trim();
+                    const dayNum = parseInt(dayText.replace('Сегодня', '').replace(/\D/g, '').trim());
                     
-                    // 1. Прокручиваем к элементу
-                    const dayCell = button.closest('.col');
-                    if (dayCell) {
-                        dayCell.scrollIntoView({ 
-                            behavior: 'smooth', 
-                            block: 'center',
-                            inline: 'center' 
-                        });
+                    if (!isNaN(dayNum)) {
+                        // Определяем месяц для этой ячейки
+                        const isCurrentMonth = !dayNumber.classList.contains('text-muted');
+                        const cellMonth = isCurrentMonth ? 
+                            '{{ $currentMonth->format("Y-m") }}' : 
+                            (dayNum > 20 ? '{{ $prevMonth->format("Y-m") }}' : '{{ $nextMonth->format("Y-m") }}');
                         
-                        // Добавляем временное выделение
-                        dayCell.style.transition = 'all 0.5s ease';
-                        dayCell.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.5)';
-                        dayCell.style.backgroundColor = 'rgba(59, 130, 246, 0.1)';
+                        const cellDateStr = cellMonth + '-' + dayNum.toString().padStart(2, '0');
+                        const cellDate = new Date(cellDateStr + 'T00:00:00');
                         
-                        setTimeout(() => {
-                            dayCell.style.boxShadow = '';
-                            dayCell.style.backgroundColor = '';
-                        }, 2000);
+                        if (cellDateStr === focusDate) {
+                            console.log('Найдена ячейка для даты:', cellDateStr);
+                            
+                            // Прокручиваем к элементу
+                            cell.scrollIntoView({ 
+                                behavior: 'smooth', 
+                                block: 'center',
+                                inline: 'center' 
+                            });
+                            
+                            // Добавляем выделение
+                            cell.classList.add('day-highlight');
+                            cell.style.border = '2px solid #3b82f6';
+                            
+                            // Ищем кнопку управления в этой ячейке
+                            const manageButton = cell.querySelector('button[data-bs-target="#manageShiftModal"]');
+                            if (manageButton) {
+                                // Открываем модалку управления
+                                setTimeout(() => {
+                                    manageButton.click();
+                                    console.log('Модалка открыта для смены', manageButton.getAttribute('data-shift-id'));
+                                }, 1000);
+                            } else {
+                                // Если кнопки нет (смены нет), но мы уже создали смену через focus параметр
+                                // Обновляем страницу через секунду, чтобы показать новую смену
+                                setTimeout(() => {
+                                    console.log('Смена должна была создаться, обновляем страницу');
+                                    window.location.reload();
+                                }, 1500);
+                            }
+                            
+                            // Убираем выделение через 3 секунды
+                            setTimeout(() => {
+                                cell.classList.remove('day-highlight');
+                                cell.style.border = '';
+                            }, 3000);
+                        }
                     }
-                    
-                    // 2. Ждем немного и открываем модалку
-                    setTimeout(() => {
-                        button.click();
-                        console.log('Модалка открыта для смены', button.getAttribute('data-shift-id'));
-                    }, 800);
                 }
             });
             
-            // Если не нашли кнопку (смены нет), показываем сообщение
-            setTimeout(() => {
-                const foundButton = Array.from(manageButtons).some(btn => 
-                    btn.getAttribute('data-date') === formattedDate
-                );
-                
-                if (!foundButton) {
-                    console.log('Смена для даты', formattedDate, 'не найдена');
-                    // Можно показать тост или создать смену автоматически
-                }
-            }, 1000);
-            
-        }, 500); // Задержка для полной загрузки
+        }, 800); // Увеличил задержку для полной загрузки
     @endif
     
     // Заполнение модалки управления сменой
@@ -356,9 +413,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Устанавливаем формы открытия/закрытия смены
                 const openForm = document.getElementById('openShiftForm');
                 const closeForm = document.getElementById('closeShiftForm');
-
-                if (openForm) openForm.action = `/shifts/${shiftId}/open?_no_focus=1`;
-                if (closeForm) closeForm.action = `/shifts/${shiftId}/close?_no_focus=1`;
                 
                 if (openForm) openForm.action = `/shifts/${shiftId}/open`;
                 if (closeForm) closeForm.action = `/shifts/${shiftId}/close`;
@@ -422,6 +476,16 @@ document.addEventListener('DOMContentLoaded', function() {
             this.style.transition = 'all 0.2s ease';
         });
     });
+    
+    // Обработка успешного закрытия смены с перенаправлением
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('shift_closed')) {
+        setTimeout(() => {
+            alert('Смена успешно закрыта!');
+            // Убираем параметр из URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }, 500);
+    }
 });
 </script>
 @endsection

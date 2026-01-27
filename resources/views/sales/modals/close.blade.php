@@ -22,11 +22,32 @@
                                         <i class="bi bi-person-circle me-2"></i>
                                         <strong id="clientName"></strong>
                                         <div class="small mt-1">Доступно бонусов: <span id="clientBonusPoints" class="badge bg-primary"></span></div>
+                                        <div class="small mt-1" id="clientCardInfo">
+                                            <!-- Информация о карте будет здесь -->
+                                        </div>
                                     </div>
                                     <div class="text-end">
                                         <div class="small text-muted">Можно использовать:</div>
                                         <div><strong id="maxUsableBonuses" class="text-success"></strong> бонусов</div>
+                                        <div class="small text-muted">Лимит: <span id="maxSpendPercentText">50%</span></div>
                                     </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Информация о начисляемых бонусах -->
+                            <div class="alert alert-warning mb-3" id="bonusAwardInfo" style="display: none;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <i class="bi bi-gift text-warning me-2"></i>
+                                        <strong>Начисляемые бонусы:</strong>
+                                    </div>
+                                    <div class="text-end">
+                                        <span id="bonusAwardAmount" class="h5 mb-0 text-success">0</span>
+                                        <span class="text-muted small d-block" id="bonusAwardPercent">0% от суммы</span>
+                                    </div>
+                                </div>
+                                <div class="mt-2 small" id="bonusAwardDetails">
+                                    <!-- Детали расчета будут здесь -->
                                 </div>
                             </div>
                             
@@ -260,7 +281,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const clientBonusInfo = document.getElementById('clientBonusInfo');
     const clientNameElem = document.getElementById('clientName');
     const clientBonusPointsElem = document.getElementById('clientBonusPoints');
+    const clientCardInfoElem = document.getElementById('clientCardInfo');
     const maxUsableBonusesElem = document.getElementById('maxUsableBonuses');
+    const maxSpendPercentText = document.getElementById('maxSpendPercentText');
     const bonusSection = document.getElementById('bonusSection');
     const useBonusesCheckbox = document.getElementById('useBonuses');
     const bonusPointsToUseInput = document.getElementById('bonusPointsToUse');
@@ -268,6 +291,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const useMaxBonusesBtn = document.getElementById('useMaxBonusesBtn');
     const bonusWarning = document.getElementById('bonusWarning');
     const bonusWarningText = document.getElementById('bonusWarningText');
+    
+    // Элементы начисляемых бонусов (НОВЫЕ)
+    const bonusAwardInfo = document.getElementById('bonusAwardInfo');
+    const bonusAwardAmount = document.getElementById('bonusAwardAmount');
+    const bonusAwardPercent = document.getElementById('bonusAwardPercent');
+    const bonusAwardDetails = document.getElementById('bonusAwardDetails');
     
     // Элементы калькулятора сдачи
     const cashCalculator = document.getElementById('cashCalculator');
@@ -289,6 +318,10 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentBonusDiscount = 0;
     let currentDiscountType = 'fixed';
     let maxSpendPercent = 50;
+    let bonusPercent = 5; // Процент начисления бонусов
+    let bonusCardName = '';
+    let requiredSpend = 0; // Минимальная сумма для начисления
+    let hasBonusCard = false;
     let currentFinalTotal = 0;
     
     // Функция для получения скидки в рублях
@@ -309,6 +342,8 @@ document.addEventListener('DOMContentLoaded', function() {
     function calculateFinalTotal() {
         const discountInRubles = getDiscountInRubles();
         const subtotal = currentItemsTotal + currentHookahsTotal;
+        
+        // Итоговая сумма с учетом ВСЕХ скидок (включая бонусы)
         currentFinalTotal = Math.max(0, subtotal - discountInRubles - currentBonusDiscount);
         
         // Обновляем отображение
@@ -374,7 +409,104 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
+        // Обновляем информацию о начисляемых бонусах
+        updateBonusAwardInfo();
+        
         return currentFinalTotal;
+    }
+    
+    // Функция для обновления информации о начисляемых бонусах
+    function updateBonusAwardInfo() {
+        if (!currentClientId) {
+            // Нет клиента - скрываем информацию о начисляемых бонусах
+            if (bonusAwardInfo) bonusAwardInfo.style.display = 'none';
+            return;
+        }
+        
+        // Рассчитываем сумму для начисления бонусов (после скидки, до бонусов)
+        const discountInRubles = getDiscountInRubles();
+        const subtotal = currentItemsTotal + currentHookahsTotal;
+        const amountAfterDiscount = Math.max(0, subtotal - discountInRubles);
+        
+        if (hasBonusCard) {
+            // У клиента есть бонусная карта
+            const bonusAmount = Math.floor(amountAfterDiscount * (bonusPercent / 100));
+            
+            if (bonusAmount > 0) {
+                if (bonusAwardInfo) bonusAwardInfo.style.display = 'block';
+                if (bonusAwardAmount) bonusAwardAmount.textContent = bonusAmount.toLocaleString();
+                if (bonusAwardPercent) bonusAwardPercent.textContent = `${bonusPercent}% от суммы после скидки`;
+                if (bonusAwardDetails) {
+                    bonusAwardDetails.innerHTML = `
+                        <div class="small">
+                            <strong>Расчет:</strong><br>
+                            Товары: ${currentItemsTotal.toFixed(2)} ₽<br>
+                            Кальяны: ${currentHookahsTotal.toFixed(2)} ₽<br>
+                            Скидка: -${discountInRubles.toFixed(2)} ₽<br>
+                            <strong>Сумма для начисления: ${amountAfterDiscount.toFixed(2)} ₽</strong><br>
+                            ${bonusPercent}% × ${amountAfterDiscount.toFixed(2)} ₽ = ${bonusAmount} бонусов
+                        </div>
+                    `;
+                }
+            } else {
+                if (bonusAwardInfo) bonusAwardInfo.style.display = 'none';
+            }
+        } else {
+            // У клиента нет бонусной карты
+            if (requiredSpend > 0) {
+                // Рассчитываем общую сумму покупок клиента
+                calculateClientTotalSpent().then(totalSpent => {
+                    const totalAfterThis = totalSpent + amountAfterDiscount;
+                    
+                    if (bonusAwardInfo) bonusAwardInfo.style.display = 'block';
+                    if (bonusAwardAmount) bonusAwardAmount.textContent = '0';
+                    if (bonusAwardPercent) bonusAwardPercent.textContent = 'Без карты';
+                    
+                    if (totalAfterThis >= requiredSpend) {
+                        if (bonusAwardDetails) {
+                            bonusAwardDetails.innerHTML = `
+                                <div class="small">
+                                    <strong class="text-success">🎉 Клиент достиг порога для получения карты!</strong><br>
+                                    Общая сумма покупок: ${totalAfterThis.toFixed(2)} ₽<br>
+                                    Минимальный порог: ${requiredSpend} ₽<br>
+                                    <em>После этой покупки клиент может получить бонусную карту</em>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        const remaining = requiredSpend - totalAfterThis;
+                        if (bonusAwardDetails) {
+                            bonusAwardDetails.innerHTML = `
+                                <div class="small">
+                                    <strong class="text-warning">📈 До получения карты: ${remaining.toFixed(2)} ₽</strong><br>
+                                    Общая сумма покупок: ${totalAfterThis.toFixed(2)} ₽<br>
+                                    Минимальный порог: ${requiredSpend} ₽<br>
+                                    <em>После получения карты будет начисляться ${bonusPercent}% от суммы покупок</em>
+                                </div>
+                            `;
+                        }
+                    }
+                });
+            } else {
+                if (bonusAwardInfo) bonusAwardInfo.style.display = 'none';
+            }
+        }
+    }
+    
+    // Функция для расчета общей суммы покупок клиента
+    async function calculateClientTotalSpent() {
+        if (!currentClientId) return 0;
+        
+        try {
+            const response = await fetch(`/api/clients/${currentClientId}/total-spent`);
+            if (response.ok) {
+                const data = await response.json();
+                return data.totalSpent || 0;
+            }
+        } catch (error) {
+            console.error('Ошибка при расчете общей суммы покупок:', error);
+        }
+        return 0;
     }
     
     // Функция для обновления отображения скидки
@@ -429,6 +561,23 @@ document.addEventListener('DOMContentLoaded', function() {
         if (clientNameElem) clientNameElem.textContent = currentClientName;
         if (clientBonusPointsElem) clientBonusPointsElem.textContent = currentClientBonusPoints.toLocaleString();
         
+        // Информация о бонусной карте
+        if (clientCardInfoElem) {
+            if (hasBonusCard) {
+                clientCardInfoElem.innerHTML = `
+                    Карта: <strong>${bonusCardName}</strong><br>
+                    <small>Начисление: ${bonusPercent}%, Лимит: ${maxSpendPercent}%</small>
+                `;
+            } else if (requiredSpend > 0) {
+                clientCardInfoElem.innerHTML = `
+                    <span class="text-warning">Нет бонусной карты</span><br>
+                    <small>Минимум для карты: ${requiredSpend} ₽</small>
+                `;
+            } else {
+                clientCardInfoElem.innerHTML = `<span class="text-muted">Нет бонусной карты</span>`;
+            }
+        }
+        
         // Рассчитываем максимальное количество бонусов
         const discountInRubles = getDiscountInRubles();
         const totalAmount = currentItemsTotal + currentHookahsTotal;
@@ -444,6 +593,10 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (maxUsableBonusesElem) {
             maxUsableBonusesElem.textContent = maxUsableBonuses.toLocaleString() + ' бонусов';
+        }
+        
+        if (maxSpendPercentText) {
+            maxSpendPercentText.textContent = `${maxSpendPercent}%`;
         }
         
         // Обновляем текст в блоке предупреждения
@@ -556,6 +709,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 currentClientName = button.dataset.clientName || '';
                 currentClientBonusPoints = parseInt(button.dataset.clientBonusPoints) || 0;
                 maxSpendPercent = parseInt(button.dataset.clientMaxSpendPercent) || 50;
+                
+                // Дополнительные данные о бонусной карте (нужно добавить в data-атрибуты)
+                hasBonusCard = button.dataset.hasBonusCard === 'true' || false;
+                bonusPercent = parseInt(button.dataset.clientBonusPercent) || 5;
+                bonusCardName = button.dataset.clientBonusCardName || '';
+                requiredSpend = parseFloat(button.dataset.clientRequiredSpend) || 0;
                 
                 // Заполняем существующие значения
                 if (closeDiscountInput) {

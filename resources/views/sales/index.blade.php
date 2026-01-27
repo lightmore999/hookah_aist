@@ -15,6 +15,13 @@
         
         <div class="d-flex gap-2">
             <!-- Фильтры -->
+            <div class="form-check form-check-inline d-flex align-items-center me-3">
+                <input class="form-check-input" type="checkbox" id="showOnlyNoTable" checked>
+                <label class="form-check-label small ms-1" for="showOnlyNoTable">
+                    Только без стола
+                </label>
+            </div>
+            
             <select class="form-select form-select-sm w-auto" id="statusFilter">
                 <option value="">Все статусы</option>
                 <option value="new">Новый</option>
@@ -45,42 +52,6 @@
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
     @endif
-    
-    <!-- Статистика -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card border-0 bg-primary bg-opacity-10">
-                <div class="card-body">
-                    <h6 class="card-subtitle mb-2 text-muted">Всего продаж</h6>
-                    <h3 class="card-title mb-0">{{ $sales->total() }}</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-0 bg-warning bg-opacity-10">
-                <div class="card-body">
-                    <h6 class="card-subtitle mb-2 text-muted">В работе</h6>
-                    <h3 class="card-title mb-0">{{ $sales->where('status', 'in_progress')->count() }}</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-0 bg-success bg-opacity-10">
-                <div class="card-body">
-                    <h6 class="card-subtitle mb-2 text-muted">Завершено</h6>
-                    <h3 class="card-title mb-0">{{ $sales->where('status', 'completed')->count() }}</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-0 bg-info bg-opacity-10">
-                <div class="card-body">
-                    <h6 class="card-subtitle mb-2 text-muted">Общая выручка</h6>
-                    <h3 class="card-title mb-0">{{ number_format($sales->sum('total'), 2) }} ₽</h3>
-                </div>
-            </div>
-        </div>
-    </div>
     
     <!-- Таблица продаж -->
     <div class="card border-0 shadow-sm">
@@ -115,7 +86,7 @@
                         </thead>
                         <tbody>
                             @foreach($sales as $sale)
-                            <tr data-status="{{ $sale->status }}">
+                            <tr data-status="{{ $sale->status }}" data-has-table="{{ $sale->table_id ? 'true' : 'false' }}">
                                 <td>
                                     <strong>#{{ $sale->id }}</strong>
                                 </td>
@@ -239,20 +210,56 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Фильтр по статусу
     const statusFilter = document.getElementById('statusFilter');
-    if (statusFilter) {
-        statusFilter.addEventListener('change', function() {
-            const status = this.value;
-            const rows = document.querySelectorAll('tbody tr');
+    const showOnlyNoTable = document.getElementById('showOnlyNoTable');
+    const totalSalesCount = document.getElementById('totalSalesCount');
+    
+    function filterTable() {
+        const status = statusFilter ? statusFilter.value : '';
+        const onlyNoTable = showOnlyNoTable ? showOnlyNoTable.checked : false;
+        const rows = document.querySelectorAll('tbody tr');
+        let visibleCount = 0;
+        
+        rows.forEach(row => {
+            const rowStatus = row.dataset.status;
+            const hasTable = row.dataset.hasTable === 'true';
             
-            rows.forEach(row => {
-                if (!status || row.dataset.status === status) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
-            });
+            let shouldShow = true;
+            
+            // Фильтр по статусу
+            if (status && rowStatus !== status) {
+                shouldShow = false;
+            }
+            
+            // Фильтр по наличию стола
+            if (onlyNoTable && hasTable) {
+                shouldShow = false;
+            }
+            
+            if (shouldShow) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
         });
+        
+        // Обновляем счетчик видимых продаж
+        if (totalSalesCount) {
+            totalSalesCount.textContent = visibleCount;
+        }
     }
+    
+    // Обработчики событий
+    if (statusFilter) {
+        statusFilter.addEventListener('change', filterTable);
+    }
+    
+    if (showOnlyNoTable) {
+        showOnlyNoTable.addEventListener('change', filterTable);
+    }
+    
+    // Применяем фильтры сразу при загрузке
+    filterTable();
     
     // Удаление продажи
     const deleteSaleModal = document.getElementById('deleteSaleModal');

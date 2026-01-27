@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Employee;
+use App\Models\User; // Меняем Employee на User
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
@@ -13,7 +13,8 @@ class EmployeeController extends Controller
      */
     public function index()
     {
-        $employees = Employee::all();
+        // Берем только пользователей с ролью employee
+        $employees = User::where('role', 'employee')->get();
         return view('employees.index', compact('employees'));
     }
 
@@ -32,7 +33,7 @@ class EmployeeController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:employees,email',
+            'email' => 'required|email|unique:users,email', // Меняем employees на users
             'password' => 'required|string|min:8',
             'position' => 'required|string|max:255',
             'phone' => 'nullable|string|max:20',
@@ -41,10 +42,12 @@ class EmployeeController extends Controller
             'revenue_percentage' => 'nullable|numeric|min:0|max:100',
         ]);
 
-        $employee = Employee::create([
+        // Создаем пользователя с ролью employee
+        $employee = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
+            'role' => 'employee', // Добавляем роль
             'position' => $request->position,
             'social_network' => $request->social_network,
             'phone' => $request->phone,
@@ -62,27 +65,42 @@ class EmployeeController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(Employee $employee)
+    public function show(User $employee) // Меняем тип с Employee на User
     {
+        // Проверяем, что это действительно сотрудник
+        if ($employee->role !== 'employee') {
+            abort(404, 'Пользователь не является сотрудником');
+        }
+        
         return view('employees.show', compact('employee'));
     }
 
     /**
      * Show the form for editing the specified resource.
      */
-    public function edit(Employee $employee)
+    public function edit(User $employee) // Меняем тип с Employee на User
     {
+        // Проверяем, что это действительно сотрудник
+        if ($employee->role !== 'employee') {
+            abort(404, 'Пользователь не является сотрудником');
+        }
+        
         return view('employees.edit', compact('employee'));
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, Employee $employee)
+    public function update(Request $request, User $employee) // Меняем тип
     {
+        // Проверяем, что это действительно сотрудник
+        if ($employee->role !== 'employee') {
+            abort(404, 'Пользователь не является сотрудником');
+        }
+        
         $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:employees,email,' . $employee->id,
+            'email' => 'required|email|unique:users,email,' . $employee->id, // Меняем employees на users
             'position' => 'required|string|max:255',
             'phone' => 'nullable|string|max:20',
             'inn' => 'nullable|string|max:12',
@@ -109,8 +127,13 @@ class EmployeeController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Employee $employee)
+    public function destroy(User $employee) // Меняем тип
     {
+        // Проверяем, что это действительно сотрудник
+        if ($employee->role !== 'employee') {
+            abort(404, 'Пользователь не является сотрудником');
+        }
+        
         $employee->delete();
 
         return redirect()->route('employees.index')

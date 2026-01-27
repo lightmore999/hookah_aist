@@ -40,6 +40,41 @@
         </div>
     @endif
     
+    <!-- Статистика -->
+    <div class="row mb-4">
+        <div class="col-md-3 col-sm-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6 class="text-muted mb-1">Общая сумма</h6>
+                    <h4 class="text-danger fw-bold">{{ number_format($totalAmount, 2) }} ₽</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6 class="text-muted mb-1">Наличные</h6>
+                    <h4 class="text-success fw-bold">{{ number_format($cashAmount, 2) }} ₽</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6 class="text-muted mb-1">Карта</h6>
+                    <h4 class="text-primary fw-bold">{{ number_format($cardAmount, 2) }} ₽</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6 class="text-muted mb-1">Ежемесячные</h6>
+                    <h4 class="text-info fw-bold">{{ number_format($monthlyAmount, 2) }} ₽</h4>
+                </div>
+            </div>
+        </div>
+    </div>
     
     <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
@@ -83,10 +118,12 @@
                                 </td>
                                 <td class="text-danger fw-bold">{{ number_format($expenditure->cost, 2) }} ₽</td>
                                 <td>
-                                    @if($expenditure->payment_method == 'cash')
-                                        <span class="badge bg-success">Наличные</span>
+                                    @if($expenditure->paymentMethod)
+                                        <span class="badge {{ $expenditure->paymentMethod->Name == 'Наличные' ? 'bg-success' : ($expenditure->paymentMethod->Name == 'Карта' ? 'bg-primary' : 'bg-secondary') }}">
+                                            {{ $expenditure->paymentMethod->Name }}
+                                        </span>
                                     @else
-                                        <span class="badge bg-primary">Карта</span>
+                                        <span class="badge bg-warning">Не указано</span>
                                     @endif
                                 </td>
                                 <td>
@@ -108,9 +145,9 @@
                                             data-bs-target="#editExpenditureModal"
                                             data-id="{{ $expenditure->id }}"
                                             data-expenditure-type-id="{{ $expenditure->expenditure_type_id }}"
+                                            data-payment-method-id="{{ $expenditure->payment_method_id }}"
                                             data-name="{{ $expenditure->name }}"
                                             data-cost="{{ $expenditure->cost }}"
-                                            data-payment-method="{{ $expenditure->payment_method }}"
                                             data-comment="{{ $expenditure->comment }}"
                                             data-expenditure-date="{{ $expenditure->expenditure_date->format('Y-m-d\TH:i') }}"
                                             data-is-hidden-admin="{{ $expenditure->is_hidden_admin ? 'true' : 'false' }}"
@@ -123,7 +160,9 @@
                                             data-bs-target="#deleteExpenditureModal"
                                             data-id="{{ $expenditure->id }}"
                                             data-name="{{ $expenditure->name }}"
-                                            data-cost="{{ $expenditure->cost }}">
+                                            data-cost="{{ $expenditure->cost }}"
+                                            data-type="{{ $expenditure->expenditureType->name ?? '' }}"
+                                            data-date="{{ $expenditure->expenditure_date->format('d.m.Y H:i') }}">
                                         <i class="bi bi-trash"></i>
                                     </button>
                                 </td>
@@ -146,17 +185,16 @@ document.addEventListener('DOMContentLoaded', function() {
             if (button && button.classList.contains('edit-expenditure-btn')) {
                 // Основные поля
                 document.getElementById('edit_expenditure_type_id').value = button.dataset.expenditureTypeId;
+                document.getElementById('edit_payment_method_id').value = button.dataset.paymentMethodId; // Изменено
                 document.getElementById('edit_name').value = button.dataset.name;
                 document.getElementById('edit_cost').value = button.dataset.cost;
-                document.getElementById('edit_payment_method').value = button.dataset.paymentMethod;
                 document.getElementById('edit_comment').value = button.dataset.comment;
                 document.getElementById('edit_expenditure_date').value = button.dataset.expenditureDate;
                 
-                // Чекбоксы - исправленная логика
+                // Чекбоксы
                 const isHiddenAdminCheckbox = document.getElementById('edit_is_hidden_admin');
                 const isMonthlyExpenseCheckbox = document.getElementById('edit_is_monthly_expense');
                 
-                // Преобразуем строку в boolean и устанавливаем checked
                 isHiddenAdminCheckbox.checked = button.dataset.isHiddenAdmin === 'true';
                 isMonthlyExpenseCheckbox.checked = button.dataset.isMonthlyExpense === 'true';
                 
@@ -171,11 +209,64 @@ document.addEventListener('DOMContentLoaded', function() {
         deleteModal.addEventListener('show.bs.modal', function(event) {
             const button = event.relatedTarget;
             if (button && button.classList.contains('delete-expenditure-btn')) {
+                // Заполняем данные о расходе
                 document.getElementById('deleteExpenditureName').textContent = button.dataset.name;
-                document.getElementById('deleteExpenditureCost').textContent = button.dataset.cost + ' ₽';
-                document.getElementById('deleteExpenditureForm').action = `/expenditures/${button.dataset.id}`;
+                document.getElementById('deleteExpenditureCost').textContent = numberFormat(button.dataset.cost) + ' ₽';
+                document.getElementById('deleteExpenditureType').textContent = button.dataset.type || '';
+                document.getElementById('deleteExpenditureDate').textContent = button.dataset.date || '';
+                
+                // Устанавливаем action формы с ID
+                const form = document.getElementById('deleteExpenditureForm');
+                form.action = form.action.replace('__ID__', button.dataset.id);
+                
+                // Очищаем поле комментария при открытии новой модалки
+                document.getElementById('delete_comment').value = '';
+                
+                // Сбрасываем валидацию
+                form.classList.remove('was-validated');
             }
         });
+        
+        // Валидация формы перед отправкой
+        const form = document.getElementById('deleteExpenditureForm');
+        const submitBtn = document.getElementById('submitDeleteBtn');
+        
+        form.addEventListener('submit', function(event) {
+            const commentField = document.getElementById('delete_comment');
+            
+            if (!form.checkValidity()) {
+                event.preventDefault();
+                event.stopPropagation();
+                form.classList.add('was-validated');
+                
+                // Прокручиваем к полю с ошибкой
+                commentField.scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'center' 
+                });
+                commentField.focus();
+                
+                // Мигание поля
+                commentField.classList.add('is-invalid');
+                setTimeout(() => {
+                    commentField.classList.remove('is-invalid');
+                }, 2000);
+            } else {
+                // Подтверждение перед отправкой
+                if (!confirm('Вы уверены, что хотите удалить этот расход с указанной причиной?')) {
+                    event.preventDefault();
+                } else {
+                    // Блокируем кнопку на время отправки
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Удаление...';
+                }
+            }
+        }, false);
+    }
+    
+    // Функция для форматирования чисел
+    function numberFormat(number) {
+        return parseFloat(number).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
     }
 });
 </script>
