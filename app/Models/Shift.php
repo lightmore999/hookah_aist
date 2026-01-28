@@ -26,7 +26,7 @@ class Shift extends Model
     /**
      * Сотрудники на смене
      */
-   public function employees()
+    public function employees()
     {
         return $this->belongsToMany(User::class, 'shift_user', 'shift_id', 'user_id')
                     ->where('role', 'employee') // Только сотрудники!
@@ -125,5 +125,55 @@ class Shift extends Model
         $this->update([
             'notes' => $note
         ]);
+    }
+
+    public static function getActiveShift()
+    {
+        $now = now();
+        
+        // Если сейчас утро/ранний день (00:00 - 12:00), ищем вчерашнюю смену
+        if ($now->hour < 12) {
+            $yesterday = $now->copy()->subDay();
+            return Shift::whereDate('date', $yesterday->format('Y-m-d'))
+                ->where('status', 'open')
+                ->whereNull('closed_at')
+                ->first();
+        }
+        
+        // Если сейчас после 12:00 (12:01 - 23:59), ищем сегодняшнюю смену
+        return Shift::whereDate('date', $now->format('Y-m-d'))
+            ->where('status', 'open')
+            ->whereNull('closed_at')
+            ->first();
+    }
+
+    /**
+     * Получить смену для указанного времени продажи
+     */
+    public static function getShiftForSaleTime($saleTime)
+    {
+        $time = \Carbon\Carbon::parse($saleTime);
+        
+        // Если продажа в период 00:00 - 12:00, это вчерашняя смена
+        if ($time->hour < 12) {
+            $date = $time->copy()->subDay()->format('Y-m-d');
+        } else {
+            // Если продажа в период 12:01 - 23:59, это сегодняшняя смена
+            $date = $time->format('Y-m-d');
+        }
+        
+        return Shift::whereDate('date', $date)
+            ->where('status', 'open')
+            ->whereNull('closed_at')
+            ->first();
+    }
+
+    /**
+     * Проверить, можно ли создать продажу в данный момент
+     */
+    public static function canCreateSale()
+    {
+        $activeShift = self::getActiveShift();
+        return !is_null($activeShift);
     }
 }

@@ -9,9 +9,14 @@
         <h1 class="h3 mb-0">
             <i class="bi bi-calculator me-2"></i>Бухгалтерия
         </h1>
+        <div>
+            <a href="{{ route('accounting.salary-report') }}" class="btn btn-outline-primary">
+                <i class="bi bi-cash-coin me-1"></i> Отчет по зарплате
+            </a>
+        </div>
     </div>
 
-    <!-- Общая статистика по способам оплаты -->
+    <!-- Общая статистика -->
     @php
         $colors = ['primary', 'success', 'info', 'warning', 'danger', 'dark'];
     @endphp
@@ -35,7 +40,7 @@
                     </div>
                 </div>
             </div>
-    @endforeach
+        @endforeach
         
         <!-- Общий доход -->
         <div class="col-md-3 mb-3">
@@ -44,6 +49,30 @@
                     <h6 class="text-muted mb-2">Общий доход</h6>
                     <h3 class="text-dark">
                         {{ number_format($totalStats['total_income'], 0) }} ₽
+                    </h3>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Расходы -->
+        <div class="col-md-3 mb-3">
+            <div class="card border-danger">
+                <div class="card-body text-center">
+                    <h6 class="text-muted mb-2">Всего расходов</h6>
+                    <h3 class="text-danger">
+                        {{ number_format($totalStats['expenses'], 0) }} ₽
+                    </h3>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Прибыль -->
+        <div class="col-md-3 mb-3">
+            <div class="card border-success">
+                <div class="card-body text-center">
+                    <h6 class="text-muted mb-2">Чистая прибыль</h6>
+                    <h3 class="text-success">
+                        {{ number_format($totalStats['profit'], 0) }} ₽
                     </h3>
                 </div>
             </div>
@@ -163,11 +192,11 @@
                             <th style="position: sticky; left: 0; background: #f8f9fa;">&nbsp;</th>
                             
                             <!-- СПОСОБЫ ОПЛАТЫ -->
-                           @foreach($paymentMethods as $method)
+                            @foreach($paymentMethods as $method)
                                 <th class="text-end" style="min-width: 100px;">{{ $method->Name }}</th>
                             @endforeach
                             
-                            <!-- ВЫРУЧКА -->ы
+                            <!-- ВЫРУЧКА -->
                             <th class="text-end">Всего</th>
                             
                             <!-- СТОЛЫ -->
@@ -189,6 +218,21 @@
                     </thead>
                     <tbody>
                         @forelse($tableData as $row)
+                        @php
+                            // Для дней: получаем данные о зарплате за конкретный день
+                            $daySalaryData = null;
+                            $dayTotalSalary = 0;
+                            $dayHasShift = false;
+                            
+                            if ($type == 'day' && isset($row['date'])) {
+                                // ИСПРАВЛЕНО: Используем $allSalaries вместо $salaryData
+                                if (isset($allSalaries[$row['date']])) {
+                                    $daySalaryData = $allSalaries[$row['date']];
+                                    $dayTotalSalary = $allSalaries[$row['date']]['total_salary'] ?? 0;
+                                    $dayHasShift = $allSalaries[$row['date']]['shift_exists'] ?? false;
+                                }
+                            }
+                        @endphp
                         <tr class="{{ isset($row['is_today']) && $row['is_today'] ? 'table-primary' : (isset($row['is_current']) && $row['is_current'] ? 'table-primary' : '') }}">
                             <td style="position: sticky; left: 0; background: {{ isset($row['is_today']) && $row['is_today'] ? '#cfe2ff' : (isset($row['is_current']) && $row['is_current'] ? '#cfe2ff' : 'white') }};">
                                 <div class="d-flex align-items-center">
@@ -198,14 +242,22 @@
                                     @elseif(isset($row['is_current']) && $row['is_current'])
                                         <span class="badge bg-primary ms-2">Текущий</span>
                                     @endif
+                                    @if($type == 'day' && $dayHasShift)
+                                        <span class="badge bg-success ms-2">Смена</span>
+                                    @endif
                                 </div>
                                 @if(isset($row['date']))
                                     <br><small class="text-muted">{{ \Carbon\Carbon::parse($row['date'])->translatedFormat('l') }}</small>
                                 @endif
+                                @if($type == 'day' && $dayHasShift && isset($daySalaryData['shift_start']))
+                                    <br><small class="text-muted">
+                                        <i class="bi bi-clock"></i> {{ $daySalaryData['shift_start'] }} - {{ $daySalaryData['shift_end'] }}
+                                    </small>
+                                @endif
                             </td>
                             
                             <!-- СПОСОБЫ ОПЛАТЫ -->
-                           @foreach($paymentMethods as $method)
+                            @foreach($paymentMethods as $method)
                                 @php
                                     $methodId = $method->IDPaymentMethod;
                                     $paymentAmount = $row["payment_{$methodId}"] ?? 0;
@@ -234,10 +286,38 @@
                             
                             <!-- РАСХОДЫ И ПРИБЫЛЬ -->
                             <td class="text-end text-danger">{{ number_format($row['expenses'], 0) }} ₽</td>
-                            <td class="text-end text-danger">{{ number_format($row['salary'], 0) }} ₽</td>
+                            <td class="text-end text-danger">
+                                @if($type == 'day' && isset($row['date']) && isset($allSalaries[$row['date']]))
+                                    @php
+                                        $daySalary = $allSalaries[$row['date']]['total_salary'] ?? 0;
+                                        $dayHasShift = $allSalaries[$row['date']]['shift_exists'] ?? false;
+                                    @endphp
+                                    @if($dayHasShift)
+                                        {{ number_format($daySalary, 0) }} ₽
+                                        <br><small class="text-muted">({{ $allSalaries[$row['date']]['shift_users_count'] ?? 0 }} чел)</small>
+                                    @else
+                                        {{ number_format($row['salary'], 0) }} ₽
+                                    @endif
+                                @else
+                                    {{ number_format($row['salary'], 0) }} ₽
+                                @endif
+                            </td>
                             <td class="text-end text-danger">{{ number_format($row['fines'], 0) }} ₽</td>
                             <td class="text-end fw-bold {{ $row['profit'] >= 0 ? 'text-success' : 'text-danger' }}">
-                                {{ number_format($row['profit'], 0) }} ₽
+                                @php
+                                    $profit = $row['profit'];
+                                    if ($type == 'day' && isset($row['date']) && isset($allSalaries[$row['date']])) {
+                                        $daySalary = $allSalaries[$row['date']]['total_salary'] ?? 0;
+                                        if ($daySalary > 0) {
+                                            $profit = $row['revenue'] 
+                                                - ($row['total_cost'] ?? 0)
+                                                - $row['expenses']
+                                                - $daySalary
+                                                - $row['fines'];
+                                        }
+                                    }
+                                @endphp
+                                {{ number_format($profit, 0) }} ₽
                             </td>
                         </tr>
                         @empty
@@ -259,7 +339,7 @@
                                     @php
                                         $paymentTotal = 0;
                                         foreach ($tableData as $row) {
-                                            $paymentTotal += $row["payment_{$method->id}"] ?? 0;
+                                            $paymentTotal += $row["payment_{$method->IDPaymentMethod}"] ?? 0;
                                         }
                                         $colors = ['primary', 'success', 'info', 'warning', 'danger', 'dark'];
                                         $colorClass = $colors[$loop->index % count($colors)];
@@ -292,10 +372,34 @@
                             
                             <!-- РАСХОДЫ И ПРИБЫЛЬ -->
                             <td class="text-end fw-bold text-danger">{{ number_format(collect($tableData)->sum('expenses'), 0) }} ₽</td>
-                            <td class="text-end fw-bold text-danger">{{ number_format(collect($tableData)->sum('salary'), 0) }} ₽</td>
+                            <td class="text-end fw-bold text-danger">
+                               @php
+                                    $totalSalary = 0;
+                                    // Для дней: сумма зарплаты из всех дат
+                                    if ($type == 'day') {
+                                        foreach ($tableData as $row) {
+                                            if (isset($row['date']) && isset($allSalaries[$row['date']])) {
+                                                $totalSalary += $allSalaries[$row['date']]['total_salary'] ?? 0;
+                                            } else {
+                                                $totalSalary += $row['salary'] ?? 0;
+                                            }
+                                        }
+                                    } else {
+                                        $totalSalary = collect($tableData)->sum('salary');
+                                    }
+                                @endphp
+                                {{ number_format($totalSalary, 0) }} ₽
+                            </td>
                             <td class="text-end fw-bold text-danger">{{ number_format(collect($tableData)->sum('fines'), 0) }} ₽</td>
                             <td class="text-end fw-bold {{ collect($tableData)->sum('profit') >= 0 ? 'text-success' : 'text-danger' }}">
-                                {{ number_format(collect($tableData)->sum('profit'), 0) }} ₽
+                                @php
+                                    $totalProfit = collect($tableData)->sum('revenue') 
+                                        - collect($tableData)->sum('total_cost')
+                                        - collect($tableData)->sum('expenses')
+                                        - $totalSalary
+                                        - collect($tableData)->sum('fines');
+                                @endphp
+                                {{ number_format($totalProfit, 0) }} ₽
                             </td>
                         </tr>
                         @endif
@@ -309,10 +413,108 @@
                 Показано: {{ count($tableData) }} периодов | 
                 Способов оплаты: {{ count($paymentMethods) }} |
                 <span class="text-primary">■ Текущий период выделен синим</span> |
-                Прибыль = Выручка - Себестоимость - Расходы - Зарплата - Штрафы
+                <span class="text-success">■ Закрытая смена</span> |
+                Зарплата рассчитывается только для закрытых смен
             </small>
         </div>
     </div>
+
+    <!-- Блок с деталями зарплаты (показывается только для текущей выбранной даты) -->
+    @if($type == 'day' && isset($salaryData) && $salaryData['shift_exists'] && !empty($salaryData['employees']))
+    <div class="card mt-4 border-success">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0">
+                <i class="bi bi-cash-coin me-2"></i>Детальный расчет зарплаты за {{ \Carbon\Carbon::parse($salaryData['shift_date'])->format('d.m.Y') }}
+                <span class="badge bg-white text-success ms-2">Текущий день</span>
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <div class="alert alert-info">
+                        <i class="bi bi-clock-history me-2"></i>
+                        <strong>Время смены:</strong> {{ $salaryData['shift_start'] }} - {{ $salaryData['shift_end'] }} 
+                        ({{ $salaryData['shift_hours'] ?? 'N/A' }} часов)
+                    </div>
+                    <p class="mb-1"><strong>Продажи за период смены:</strong> {{ $salaryData['sales_count'] }}</p>
+                    <p class="mb-1"><strong>Выручка за период смены:</strong> {{ number_format($salaryData['total_revenue'], 0) }} ₽</p>
+                    <p class="mb-1"><strong>Смена ID:</strong> {{ $salaryData['shift_id'] }}</p>
+                </div>
+                <div class="col-md-6">
+                    <div class="alert alert-success">
+                        <i class="bi bi-people me-2"></i>
+                        <strong>Сотрудников на смене:</strong> {{ count($salaryData['employees']) }}
+                    </div>
+                    <p class="mb-1"><strong>Общая зарплата:</strong> <span class="fw-bold">{{ number_format($salaryData['total_salary'], 0) }} ₽</span></p>
+                    <p class="mb-0"><strong>Статус смены:</strong> <span class="badge bg-success">{{ $salaryData['shift_status'] }}</span></p>
+                </div>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered table-striped">
+                    <thead>
+                        <tr class="table-light">
+                            <th>#</th>
+                            <th>Сотрудник</th>
+                            <th class="text-end">Ставка за смену</th>
+                            <th class="text-end">Процент с выручки</th>
+                            <th class="text-end">Зарплата с процента</th>
+                            <th class="text-end">Штрафы</th>
+                            <th class="text-end">Итого к выплате</th>
+                            <th class="text-end">Доля в выручке</th>
+                            <th class="text-end">Часовая ставка</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($salaryData['employees'] as $index => $employee)
+                        <tr>
+                            <td>{{ $index + 1 }}</td>
+                            <td>
+                                <strong>{{ $employee['name'] }}</strong>
+                                <br><small class="text-muted">{{ $employee['position'] ?? 'Сотрудник' }}</small>
+                            </td>
+                            <td class="text-end">{{ number_format($employee['shift_salary'], 0) }} ₽</td>
+                            <td class="text-end">{{ $employee['revenue_percentage'] }}%</td>
+                            <td class="text-end">{{ number_format($employee['percentage_salary'], 0) }} ₽</td>
+                            <td class="text-end text-danger">{{ number_format($employee['fines'], 0) }} ₽</td>
+                            <td class="text-end fw-bold">{{ number_format($employee['net_salary'], 0) }} ₽</td>
+                            <td class="text-end">{{ $employee['revenue_share'] ?? 0 }}%</td>
+                            <td class="text-end">
+                                {{ number_format($employee['hourly_rate'] ?? ($employee['net_salary'] / max(1, $employee['shift_hours'] ?? 1)), 0) }} ₽/час
+                            </td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                    <tfoot>
+                        <tr class="table-active">
+                            <td colspan="5" class="text-end fw-bold">Итого по смене:</td>
+                            <td class="text-end fw-bold text-danger">{{ number_format(collect($salaryData['employees'])->sum('fines'), 0) }} ₽</td>
+                            <td class="text-end fw-bold">{{ number_format($salaryData['total_salary'], 0) }} ₽</td>
+                            <td colspan="2"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            
+            <div class="mt-3 text-end">
+                <a href="{{ route('accounting.export-salary-report', array_merge(request()->all())) }}" 
+                   class="btn btn-success">
+                    <i class="bi bi-file-earmark-excel me-1"></i> Экспорт зарплаты в CSV
+                </a>
+            </div>
+        </div>
+    </div>
+    @elseif($type == 'day' && isset($salaryData) && !$salaryData['shift_exists'])
+    <div class="alert alert-warning mt-4">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        <strong>Внимание:</strong> На {{ \Carbon\Carbon::parse($salaryData['shift_date'])->format('d.m.Y') }} нет закрытой смены. 
+        Зарплата рассчитывается только для закрытых смен с указанным временем открытия и закрытия.
+        <br>
+        <small class="text-muted">
+            Для расчета зарплаты нужно: 1) закрыть смену, 2) указать время открытия/закрытия в смене
+        </small>
+    </div>
+    @endif
 
     <!-- Кнопки экспорта -->
     <div class="mt-3 text-end">
@@ -324,6 +526,12 @@
            class="btn btn-outline-danger">
             <i class="bi bi-file-earmark-pdf me-1"></i> Экспорт в PDF
         </a>
+        @if($type == 'day' && isset($salaryData) && $salaryData['shift_exists'] && !empty($salaryData['employees']))
+        <a href="{{ route('accounting.export-salary-report', array_merge(request()->all())) }}" 
+           class="btn btn-outline-success">
+            <i class="bi bi-cash-coin me-1"></i> Экспорт зарплаты
+        </a>
+        @endif
     </div>
 </div>
 
@@ -348,6 +556,12 @@
 .table-active {
     background-color: rgba(0, 0, 0, 0.05) !important;
     font-weight: bold;
+}
+.bg-custom-sticky {
+    background-color: #f8f9fa;
+    position: sticky;
+    left: 0;
+    z-index: 5;
 }
 </style>
 
@@ -389,6 +603,27 @@ document.addEventListener('DOMContentLoaded', function() {
             localStorage.setItem('accounting_months_count', this.value);
         });
     }
+    
+    // Прокрутка к блоку с зарплатой при наличии данных
+    @if($type == 'day' && isset($salaryData) && $salaryData['shift_exists'])
+    setTimeout(function() {
+        const salarySection = document.querySelector('.card.border-success');
+        if (salarySection && !isElementInViewport(salarySection)) {
+            salarySection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }, 500);
+    @endif
 });
+
+// Функция проверки видимости элемента
+function isElementInViewport(el) {
+    const rect = el.getBoundingClientRect();
+    return (
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+        rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+    );
+}
 </script>
 @endsection

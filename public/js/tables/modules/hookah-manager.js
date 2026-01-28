@@ -55,7 +55,7 @@ class HookahManager {
         if (!button) return;
         
         this.currentTableId = button.getAttribute('data-table-id');
-        const tableNumber = button.getAttribute('data-table-number');
+        const tableNumber = button.getAttribute('data-table-name');
         const guestName = button.getAttribute('data-guest-name');
         this.currentSaleId = button.getAttribute('data-sale-id');
         

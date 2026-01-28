@@ -13,7 +13,7 @@ class PaymentMethodController extends Controller
     public function index()
     {
         $paymentMethods = PaymentMethod::orderBy('Name')->get();
-        return view('payment-methods.index', compact('paymentMethods'));
+        return redirect()->route('settings.index');
     }
 
     /**
@@ -21,7 +21,7 @@ class PaymentMethodController extends Controller
      */
     public function create()
     {
-        return view('payment-methods.create');
+        return redirect()->route('settings.index');
     }
 
     /**

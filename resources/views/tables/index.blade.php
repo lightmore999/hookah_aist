@@ -57,22 +57,6 @@
         </div>
     </div>
 
-    <!-- @if(session('success'))
-        <div class="alert alert-success alert-dismissible fade show" role="alert">
-            <i class="bi bi-check-circle me-2"></i>
-            {{ session('success') }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    @endif
-
-    @if(session('error'))
-        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-            <i class="bi bi-exclamation-triangle me-2"></i>
-            {{ session('error') }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    @endif -->
-
     <!-- Основная таблица столов -->
     <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
@@ -81,12 +65,12 @@
                     <thead class="table-light sticky-top">
                         <tr>
                             <th style="width: 120px;" class="text-center">Время</th>
-                            @foreach($tableNumbers as $tableNum)
+                           @foreach($tableNames as $table)
                                 <th class="text-center">
-                                    @if($tableNum == 'Барная стойка')
-                                        <i class="bi bi-cup-hot-fill text-warning me-1"></i>{{ $tableNum }}
+                                    @if(str_contains($table->name, 'Барная стойка'))
+                                        <i class="bi bi-cup-hot-fill text-warning me-1"></i>{{ $table->name }}
                                     @else
-                                        <i class="bi bi-table me-1"></i>Стол {{ $tableNum }}
+                                        <i class="bi bi-table me-1"></i>{{ $table->name }}
                                     @endif
                                 </th>
                             @endforeach
@@ -127,17 +111,19 @@
                                     {{ $timeStr }}
                                 </td>
                                 
-                                @foreach($tableNumbers as $tableNum)
+                                @foreach($tableNames as $table)
                                     @php
-                                        // Для барной стойки используем специальный номер
-                                        $tableKey = ($tableNum == 'Барная стойка') ? 'bar' : $tableNum;
+                                        // Используем ID стола как ключ
+                                        $tableKey = $table->id;
+                                        $tableName = $table->name;
                                         $cellKey = $timeIndex . '_' . $tableKey;
+
                                         
                                         if (isset($renderedCells[$cellKey])) {
                                             continue;
                                         }
                                         
-                                        $tableBookings = $tables[$tableNum] ?? [];
+                                        $tableBookings = $tables[$tableKey] ?? [];
                                         $currentBooking = null;
                                         $isStart = false;
                                         $durationSlots = 0;
@@ -145,7 +131,7 @@
                                         foreach($tableBookings as $booking) {
                                             $bookingTimeStr = is_string($booking->booking_time) ? $booking->booking_time : (is_object($booking->booking_time) ? $booking->booking_time->format('H:i:s') : '00:00:00');
                                             
-                                            // =========== ИСПРАВЛЕНИЕ: Время бронирования ===========
+                                            // Время бронирования
                                             $bookingHour = (int)substr($bookingTimeStr, 0, 2);
                                             if ($bookingHour < 4) {
                                                 // Время бронирования 00:00-03:30 - это продолжение предыдущего дня
@@ -154,14 +140,13 @@
                                                 // Время бронирования 04:00-23:30 - это текущий день
                                                 $bookingTime = \Carbon\Carbon::parse($booking->booking_date->format('Y-m-d') . ' ' . substr($bookingTimeStr, 0, 8));
                                             }
-                                            // ======================================================
                                             
                                             $bookingEnd = $bookingTime->copy()->addMinutes($booking->duration);
                                             
                                             $timeHour = (int)substr($timeStr, 0, 2);
                                             $timeMin = (int)substr($timeStr, 3, 2);
                                             
-                                            // =========== ИСПРАВЛЕНИЕ: Время из таблицы ===========
+                                            // Время из таблицы
                                             if ($timeHour < 4) {
                                                 // Время 00:00-03:30 - это продолжение предыдущего дня
                                                 $timeCarbon = \Carbon\Carbon::parse($selectedDate->copy()->subDay()->format('Y-m-d') . ' ' . $timeStr);
@@ -169,7 +154,6 @@
                                                 // Время 04:00-23:30 - это текущий день
                                                 $timeCarbon = \Carbon\Carbon::parse($selectedDate->format('Y-m-d') . ' ' . $timeStr);
                                             }
-                                            // =====================================================
                                             
                                             // Проверяем, попадает ли текущее время в интервал бронирования
                                             if ($timeCarbon->gte($bookingTime) && $timeCarbon->lt($bookingEnd)) {
@@ -198,6 +182,9 @@
                                             $productsTotal = $sale ? $sale->items->sum(function($item) { return $item->quantity * $item->unit_price; }) : 0;
                                             $hookahsTotal = $sale ? $sale->hookahs->sum('price') : 0;
                                             $totalAmount = $productsTotal + $hookahsTotal - ($sale->discount ?? 0);
+                                            
+                                            // Получаем название стола
+                                            $tableDisplayName = $currentBooking->tableName ? $currentBooking->tableName->name : 'Стол #' . $currentBooking->table_name_id;
                                         @endphp
                                         <td rowspan="{{ $durationSlots }}" class="p-2 align-top" 
                                             style="background-color: {{ $currentBooking->getStatusColor() }}; border: 2px solid #2196f3; vertical-align: top;">
@@ -213,6 +200,7 @@
                                                 </div>
                                                 
                                                 <!-- Информация о столе -->
+                                                <div class="mb-1"><i class="bi bi-table"></i> {{ $tableDisplayName }}</div>
 
                                                 @if($currentBooking->phone || $currentBooking->client?->phone)
                                                     <div class="mb-1"><i class="bi bi-telephone"></i> {{ $currentBooking->phone ?? $currentBooking->client->phone }}</div>
@@ -237,7 +225,7 @@
                                                     @if($currentBooking->status === 'new')
                                                         <!-- СТАТУС: NEW (только создан) -->
                                                         <div class="d-flex flex-wrap gap-1">
-                                                            <!-- Кнопка Открыть стол -->
+                                                             <!-- Кнопка Открыть стол -->
                                                             <form action="{{ route('tables.change-status', $currentBooking->id) }}" method="POST" style="display: inline;">
                                                                 @csrf
                                                                 @method('POST')
@@ -253,7 +241,8 @@
                                                                     data-bs-toggle="modal"
                                                                     data-bs-target="#editTableModal"
                                                                     data-id="{{ $currentBooking->id }}"
-                                                                    data-table-number="{{ $currentBooking->table_number }}"
+                                                                    data-table-id="{{ $currentBooking->table_name_id }}"
+                                                                    data-table-name="{{ $tableDisplayName }}"
                                                                     data-booking-date="{{ $currentBooking->booking_date->format('Y-m-d') }}"
                                                                     data-booking-time="{{ is_string($currentBooking->booking_time) ? $currentBooking->booking_time : $currentBooking->booking_time->format('H:i') }}"
                                                                     data-duration="{{ $currentBooking->duration }}"
@@ -273,7 +262,8 @@
                                                                     data-bs-toggle="modal"
                                                                     data-bs-target="#deleteTableModal"
                                                                     data-id="{{ $currentBooking->id }}"
-                                                                    data-guest-name="{{ $currentBooking->guest_name ?? ($currentBooking->client->name ?? 'Без имени') }}">
+                                                                    data-guest-name="{{ $currentBooking->guest_name ?? ($currentBooking->client->name ?? 'Без имени') }}"
+                                                                    data-table-name="{{ $tableDisplayName }}">
                                                                 <i class="bi bi-trash"></i>
                                                             </button>
                                                         </div>
@@ -313,7 +303,7 @@
                                                                     data-bs-toggle="modal"                 
                                                                     data-bs-target="#saleHookahsModal"        
                                                                     data-table-id="{{ $currentBooking->id }}"
-                                                                    data-table-number="{{ $currentBooking->table_number }}"
+                                                                    data-table-name="{{ $tableDisplayName }}"
                                                                     data-guest-name="{{ $currentBooking->guest_name ?? ($currentBooking->client->name ?? 'Без имени') }}"
                                                                     data-sale-id="{{ $sale->id ?? '' }}">
                                                                 <i class="bi bi-cup-straw"></i> Кальяны
@@ -325,7 +315,8 @@
                                                                         data-bs-toggle="modal"
                                                                         data-bs-target="#editTableModal"
                                                                         data-id="{{ $currentBooking->id }}"
-                                                                        data-table-number="{{ $currentBooking->table_number }}"
+                                                                        data-table-id="{{ $currentBooking->table_name_id }}"
+                                                                        data-table-name="{{ $tableDisplayName }}"
                                                                         data-booking-date="{{ $currentBooking->booking_date->format('Y-m-d') }}"
                                                                         data-booking-time="{{ is_string($currentBooking->booking_time) ? $currentBooking->booking_time : $currentBooking->booking_time->format('H:i') }}"
                                                                         data-duration="{{ $currentBooking->duration }}"
@@ -377,7 +368,7 @@
                                                                     data-bs-toggle="modal"
                                                                     data-bs-target="#closeSaleModal"   
                                                                     data-table-id="{{ $currentBooking->id }}"
-                                                                    data-table-number="{{ $currentBooking->table_number }}"
+                                                                    data-table-name="{{ $tableDisplayName }}"
                                                                     data-guest-name="{{ $currentBooking->guest_name ?? ($currentBooking->client->name ?? 'Без имени') }}"
                                                                     data-sale-id="{{ $sale->id ?? '' }}">
                                                                     <i class="bi bi-door-closed"></i> Закрыть
@@ -406,7 +397,7 @@
                                                                     data-bs-toggle="modal"                 
                                                                     data-bs-target="#saleHookahsModal"        
                                                                     data-table-id="{{ $currentBooking->id }}"
-                                                                    data-table-number="{{ $currentBooking->table_number }}"
+                                                                    data-table-name="{{ $tableDisplayName }}"
                                                                     data-guest-name="{{ $currentBooking->guest_name ?? ($currentBooking->client->name ?? 'Без имени') }}"
                                                                     data-sale-id="{{ $sale->id ?? '' }}">
                                                                 <i class="bi bi-cup-straw"></i> Кальяны
@@ -418,7 +409,8 @@
                                                                         data-bs-toggle="modal"
                                                                         data-bs-target="#editTableModal"
                                                                         data-id="{{ $currentBooking->id }}"
-                                                                        data-table-number="{{ $currentBooking->table_number }}"
+                                                                        data-table-id="{{ $currentBooking->table_name_id }}"
+                                                                        data-table-name="{{ $tableDisplayName }}"
                                                                         data-booking-date="{{ $currentBooking->booking_date->format('Y-m-d') }}"
                                                                         data-booking-time="{{ is_string($currentBooking->booking_time) ? $currentBooking->booking_time : $currentBooking->booking_time->format('H:i') }}"
                                                                         data-duration="{{ $currentBooking->duration }}"
@@ -474,7 +466,7 @@
                                                                     data-bs-toggle="modal"
                                                                     data-bs-target="#closeSaleModal"   
                                                                     data-table-id="{{ $currentBooking->id }}"
-                                                                    data-table-number="{{ $currentBooking->table_number }}"
+                                                                    data-table-name="{{ $tableDisplayName }}"
                                                                     data-guest-name="{{ $currentBooking->guest_name ?? ($currentBooking->client->name ?? 'Без имени') }}"
                                                                     data-sale-id="{{ $sale->id ?? '' }}">
                                                                     <i class="bi bi-door-closed"></i> Закрыть
@@ -495,7 +487,7 @@
                                                                             data-bs-target="#viewOrderModal"
                                                                             data-sale-id="{{ $sale->id }}"
                                                                             data-table-id="{{ $currentBooking->id }}"
-                                                                            data-table-number="{{ $currentBooking->table_number }}"
+                                                                            data-table-name="{{ $tableDisplayName }}"
                                                                             data-guest-name="{{ $currentBooking->guest_name ?? ($currentBooking->client->name ?? 'Без имени') }}">
                                                                         <i class="bi bi-eye"></i> Заказ
                                                                     </button>
@@ -565,17 +557,17 @@ if (saleProductsModal) {
         if (button) {
             const tableId = button.getAttribute('data-table-id');
             const saleId = button.getAttribute('data-sale-id');
-            const tableNumber = button.getAttribute('data-table-number');
+            const tableName = button.getAttribute('data-table-name');
             const guestName = button.getAttribute('data-guest-name');
             
-            // ✅ ИСПРАВЛЕНО: Используем window.tableProducts
+            // ✅ Используем window.tableProducts
             window.tableProducts.currentTableId = tableId;
             window.tableProducts.currentSaleId = saleId;
             
             // Обновляем информацию в заголовке
             const infoElement = document.getElementById('currentTableInfo');
             if (infoElement) {
-                infoElement.innerHTML = `<strong>Стол ${tableNumber}</strong> - ${guestName}`;
+                infoElement.innerHTML = `<strong>Стол ${tableName}</strong> - ${guestName}`;
             }
             
             // Загружаем товары для этого стола
@@ -624,7 +616,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // =============== ИНИЦИАЛИЗАЦИЯ  ===============
     
-        // Экспорт функций
+    // Экспорт функций
     window.TableManager = {
         showToast,
         makeRequest,
@@ -671,7 +663,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     try {
         if (typeof HookahManager !== 'undefined') {
-            hookahManager = new HookahManager(); // ЭТО ЕДИНСТВЕННЫЙ ВЫЗОВ!
+            hookahManager = new HookahManager();
             console.log('✅ HookahManager успешно инициализирован');
         } else {
             console.error('❌ HookahManager не загружен!');
@@ -684,7 +676,7 @@ document.addEventListener('DOMContentLoaded', function() {
     window.productManager = productManager;
     window.hookahManager = hookahManager;
 
-    // Инициализация таймеров (ОСТАВЛЯЕМ ОДИН РАЗ!)
+    // Инициализация таймеров
     if (typeof window.HookahTimerManager !== 'undefined') {
         console.log('🚀 Immediate initialization of HookahTimerManager...');
         window.HookahTimerManager.init();
@@ -758,13 +750,10 @@ document.addEventListener('DOMContentLoaded', function() {
         
         return fetch(url, { ...defaultOptions, ...options })
             .then(response => {
-                // Пробуем получить ответ как текст
                 return response.text().then(text => {
-                    // Пробуем парсить как JSON
                     try {
                         const data = JSON.parse(text);
                         
-                        // Если статус не успешный, бросаем ошибку
                         if (!response.ok) {
                             const error = new Error(`HTTP error! status: ${response.status}`);
                             error.status = response.status;
@@ -774,7 +763,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         
                         return data;
                     } catch (e) {
-                        // Если не JSON, возвращаем текст
                         if (!response.ok) {
                             const error = new Error(`HTTP error! status: ${response.status}`);
                             error.status = response.status;
@@ -799,11 +787,19 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.delete-table-btn').forEach(button => {
         button.addEventListener('click', function() {
             const tableId = this.getAttribute('data-id');
+            const tableName = this.getAttribute('data-table-name');
             
             // Устанавливаем action формы
             const form = document.getElementById('deleteTableForm');
             if (form) {
-                form.action = `/tables/${tableId}`; // Правильный URL с ID стола
+                form.action = `/tables/${tableId}`;
+            }
+            
+            // Обновляем информацию в модалке
+            const guestName = this.getAttribute('data-guest-name');
+            const infoElement = document.querySelector('#deleteTableModal .modal-body strong');
+            if (infoElement && tableName) {
+                infoElement.textContent = `"${guestName}" (${tableName})`;
             }
         });
     });
@@ -962,7 +958,6 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('✅ Найден стол в ячейке');
             
             // ВАЖНО: Находим КОНТЕЙНЕР с таймером и суммой
-            // Ищем внутри ячейки блок с таймером и суммой
             const timerSumContainer = cell.querySelector('.d-flex.justify-content-between.align-items-center.mb-2.bg-light.rounded.p-2');
             
             if (timerSumContainer) {
@@ -1106,12 +1101,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const button = event.relatedTarget;
             if (button) {
                 const tableId = button.getAttribute('data-table-id');
-                const tableNumber = button.getAttribute('data-table-number');
+                const tableName = button.getAttribute('data-table-name');
                 const guestName = button.getAttribute('data-guest-name');
                 const saleId = button.getAttribute('data-sale-id');
                 
                 // Обновляем заголовок
-                document.getElementById('closeTableNumber').textContent = tableNumber;
+                document.getElementById('closeTableNumber').textContent = tableName;
                 document.getElementById('closeGuestName').textContent = guestName;
                 
                 // Устанавливаем action формы
@@ -1288,11 +1283,11 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Берем table_id, а не sale_id
             const tableId = button.getAttribute('data-table-id'); 
-            const tableNumber = button.getAttribute('data-table-number');
+            const tableName = button.getAttribute('data-table-name');
             const guestName = button.getAttribute('data-guest-name');
             
             // Обновляем информацию
-            document.getElementById('viewTableNumber').textContent = `Стол #${tableNumber}`;
+            document.getElementById('viewTableNumber').textContent = `Стол ${tableName}`;
             document.getElementById('viewGuestName').textContent = guestName;
             
             // Загружаем данные через tableId
@@ -1331,7 +1326,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Обновляем информацию о клиенте и бонусах
         updateViewClientBonusInfo(data);
         
-        // Товары (остается без изменений)
+        // Товары
         const productsBody = document.getElementById('viewOrderProductsBody');
         if (productsBody) {
             productsBody.innerHTML = '';
@@ -1358,7 +1353,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
-        // Кальяны (остается без изменений)
+        // Кальяны
         const hookahsBody = document.getElementById('viewOrderHookahsBody');
         if (hookahsBody) {
             hookahsBody.innerHTML = '';
@@ -1412,14 +1407,13 @@ document.addEventListener('DOMContentLoaded', function() {
             bonusDiscountContainer.style.display = 'none';
         }
         
-        // === ВАЖНОЕ ИЗМЕНЕНИЕ: Начисленные бонусы ===
+        // Начисленные бонусы
         const bonusEarnedContainer = document.getElementById('viewBonusEarnedContainer');
         const bonusEarnedElement = document.getElementById('viewBonusEarned');
         
         if (bonusEarnedContainer && bonusEarnedElement) {
             // Используем данные, которые пришли с сервера
             if (data.bonusEarned > 0 && data.hasBonusCard) {
-                // === ИСПРАВЛЕНИЕ: Создаем HTML один раз ===
                 bonusEarnedContainer.innerHTML = `
                     <small class="text-muted">Начислено бонусов:</small>
                     <div class="fw-bold text-success">${data.bonusEarned} бонусов</div>
@@ -1439,7 +1433,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Способ оплаты
         const paymentMethod = document.getElementById('viewPaymentMethod');
         if (paymentMethod && data.paymentMethod) {
-            paymentMethod.textContent = data.paymentMethod; // Просто показываем имя способа оплаты
+            paymentMethod.textContent = data.paymentMethod;
         } else if (paymentMethod) {
             paymentMethod.textContent = 'Не указано';
         }
@@ -1646,7 +1640,7 @@ document.addEventListener('DOMContentLoaded', function() {
             currentBonusDiscount = 0;
             bonusDiscountRow.style.display = 'none';
             
-            // Упрощаем сообщение - убираем прогресс к карте
+            // Упрощаем сообщение
             bonusWarning.style.display = 'block';
             bonusWarningText.innerHTML = `
                 <div><i class="bi bi-info-circle text-warning me-1"></i> У клиента нет бонусной карты</div>
@@ -2090,7 +2084,6 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateCloseModalData(data) {
         console.log('📊 updateCloseModalData вызвана с данными:', data);
         
-        // === ВАЖНО: ДОБАВЬТЕ ЭТУ СТРОКУ ===
         // Обновляем информацию о клиенте и бонусах
         updateClientBonusInfo(data);
         
@@ -2148,8 +2141,7 @@ document.addEventListener('DOMContentLoaded', function() {
             discountForBonusCalc = parseFloat(closeDiscountInput.value) || 0;
         }
         
-        // === ИСПРАВЛЕНИЕ: Используем правильный процент из карты ===
-        // Получаем процент из элемента или из window переменной
+        // Используем правильный процент из карты
         const maxPercentElement = document.getElementById('maxSpendPercentText');
         let actualPercent = clientMaxSpendPercent; // По умолчанию 50
         
@@ -2246,7 +2238,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             
-            // 4. Обрабатываем чекбокс бонусов - ВАЖНО!
+            // 4. Обрабатываем чекбокс бонусов
             const useBonusesCheckbox = document.getElementById('useBonuses');
             const bonusPointsInput = document.getElementById('bonusPointsToUse');
             
@@ -2289,8 +2281,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 discount_type: discountTypeHidden?.value,
                 use_bonuses: useBonusesCheckbox.checked ? '1' : '0',
                 bonus_points_to_use: bonusPointsInput?.value,
-                payment_method_id: document.getElementById('closePaymentMethod').value, // ✅ новое поле
-                payment_method: document.getElementById('paymentMethodAlias').value // ✅ для совместимости
+                payment_method_id: document.getElementById('closePaymentMethod').value,
+                payment_method: document.getElementById('paymentMethodAlias').value
             });
         });
     }
@@ -2322,14 +2314,14 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (hasBonusCard && bonusPercent > 0) {
             // Если у клиента ЕСТЬ карта, рассчитываем бонусы
-            const awardAmount = Math.floor(finalTotal * (bonusPercent / 100));
+            const awardAmount = Math.floor($finalTotal * (bonusPercent / 100));
             
             // Показываем блок
             bonusAwardInfo.style.display = 'block';
             bonusAwardAmount.textContent = awardAmount;
             bonusAwardPercent.textContent = `${bonusPercent}% от суммы`;
             
-            // === ИСПРАВЛЕНИЕ: Полностью перезаписываем содержимое ===
+            // Полностью перезаписываем содержимое
             bonusAwardDetails.innerHTML = `
                 <div class="row small mt-2">
                     <div class="col-6">Процент бонусов:</div>
@@ -2389,7 +2381,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('CoalTimerSystem found, initializing...');
         const system = window.CoalTimerSystem.init();
         
-        // ДОПОЛНИТЕЛЬНО: Проверяем все столы с кальянами при загрузке
+        // Проверяем все столы с кальянами при загрузке
         if (system && system.restoreTimersForAllTablesWithHookah) {
             system.restoreTimersForAllTablesWithHookah();
         }
@@ -2399,7 +2391,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // =============== ПРОСТОЙ КАЛЬКУЛЯТОР СДАЧИ ===============
 
-    // Глобальные функции калькулятора (ДОБАВЬТЕ ЭТОТ КОД)
     window.updateCalculatorTotal = function() {
         console.log('🔄 updateCalculatorTotal вызвана');
         const calcTotalElement = document.getElementById('calcTotalAmount');
@@ -2561,7 +2552,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Автоматически заполняем поле суммой к оплате
                 const total = getCurrentTotal();
                 if (cashReceivedInput) {
-                    cashReceivedInput.value = Math.ceil(total); // Округляем вверх для удобства
+                    cashReceivedInput.value = Math.ceil(total);
                     console.log(`💰 Автозаполнение: ${cashReceivedInput.value} ₽`);
                 }
                 
@@ -2578,7 +2569,7 @@ document.addEventListener('DOMContentLoaded', function() {
             cashReceivedInput.addEventListener('input', window.calculateChange);
             cashReceivedInput.addEventListener('change', window.calculateChange);
             
-            // Кнопки быстрого ввода (опционально, но удобно)
+            // Кнопки быстрого ввода
             cashReceivedInput.addEventListener('focus', function() {
                 // При фокусе выделяем всё содержимое для удобного редактирования
                 this.select();
@@ -2650,7 +2641,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
-        // Если есть конкретный ID для наличных (предположим, что ID=1 это "Наличные")
+        // Если есть конкретный ID для наличных
         const cashPaymentIds = [1];
         if (paymentMethodId && cashPaymentIds.includes(parseInt(paymentMethodId))) {
             console.log(`💰 Наличные определены по ID: ${paymentMethodId}`);
@@ -2702,7 +2693,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('closeSubtotal').textContent = formatPrice(data.subtotal);
         document.getElementById('closeFinalTotal').textContent = formatPrice(data.finalTotal);
         
-        // ✅ ОБНОВЛЯЕМ СПОСОБ ОПЛАТЫ
+        // ОБНОВЛЯЕМ СПОСОБ ОПЛАТЫ
         updatePaymentMethodInModal(data.paymentMethodId);
         
         // Устанавливаем скидку и отображаем ее
@@ -2747,13 +2738,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 name: paymentMethodName
             });
             
-            // ✅ УБЕРИТЕ ПОВТОРНОЕ ОБЪЯВЛЕНИЕ isCash ЗДЕСЬ
-            // ВМЕСТО ЭТОГО:
-            // const isCash = isCashPayment(paymentMethodId, paymentMethodName);
-            // const paymentMethodAlias = document.getElementById('paymentMethodAlias');
-            // const isCash = this.value && this.options[this.selectedIndex].text.toLowerCase().includes('нал');
-            
-            // ✅ ИСПРАВЛЕННЫЙ КОД:
             const isCash = isCashPayment(paymentMethodId, paymentMethodName);
             
             // Обновляем скрытое поле для обратной совместимости
@@ -2829,9 +2813,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     const rowspan = parseInt(cell.getAttribute('rowspan')) || 1;
                     const colspan = parseInt(cell.getAttribute('colspan')) || 1;
                     
-                    // Получаем номер стола из заголовка
+                    // Получаем название стола из заголовка
                     const tableHeader = document.querySelector(`table.table-bordered thead th:nth-child(${realCol + 1})`);
-                    const tableNumber = tableHeader ? extractTableNumber(tableHeader.textContent) : virtualCol;
+                    const tableName = tableHeader ? extractTableName(tableHeader) : `Стол ${virtualCol + 1}`;
                     
                     // Определяем, пустая ли ячейка и доступна для выделения
                     const isEmpty = cell.textContent.trim() === '' && !cell.hasAttribute('rowspan') && colspan === 1;
@@ -2840,7 +2824,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Создаем объект ячейки
                     const cellData = {
                         element: cell,
-                        tableNumber: tableNumber,
+                        tableName: tableName,
                         time: getCellTime(rowIndex),
                         row: rowIndex,
                         col: virtualCol,
@@ -2895,14 +2879,29 @@ document.addEventListener('DOMContentLoaded', function() {
         return virtualGrid;
     }
 
-    // Извлекаем номер стола из текста заголовка
-    function extractTableNumber(headerText) {
-        if (headerText.includes('Барная стойка')) {
-            return 'Барная стойка';
-        }
+    // Извлекаем название стола из текста заголовка
+    function extractTableName(headerElement) {
+        if (!headerElement) return '';
         
-        const match = headerText.match(/\d+/);
-        return match ? match[0] : headerText.trim();
+        // Получаем чистый текст без HTML и иконок
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = headerElement.innerHTML;
+        
+        // Убираем иконки (содержимое тегов <i>)
+        const icons = tempDiv.querySelectorAll('i');
+        icons.forEach(icon => icon.remove());
+        
+        // Получаем чистый текст
+        let cleanText = tempDiv.textContent
+            .replace(/\s+/g, ' ')  // Заменяем множественные пробелы
+            .trim();
+        
+        console.log('Извлечение названия стола:', {
+            originalHTML: headerElement.innerHTML,
+            cleanText: cleanText
+        });
+        
+        return cleanText;
     }
 
     // Получаем время для строки
@@ -3003,7 +3002,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         selectionState.isSelecting = true;
         selectionState.startCell = cellData;
-        selectionState.startTable = cellData.tableNumber;
+        selectionState.startTable = cellData.tableName;
         selectionState.startTime = cellData.time;
         selectionState.selectedGrid = [];
         selectionState.tempHighlighted = [];
@@ -3030,7 +3029,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!cellData || !cellData.isSelectable) return;
         
         // Проверяем, что выделение происходит в том же столбце
-        if (cellData.tableNumber !== selectionState.startTable) {
+        if (cellData.tableName !== selectionState.startTable) {
             return;
         }
         
@@ -3099,7 +3098,9 @@ document.addEventListener('DOMContentLoaded', function() {
     function showCreateModalWithSelection() {
         if (selectionState.selectedGrid.length === 0) return;
         
-        const tableNumber = selectionState.startTable;
+        const selectedTableName = selectionState.startTable;  // Название стола из заголовка
+        
+        console.log('Выбранный стол из заголовка:', selectedTableName);
         
         // Сортируем ячейки по времени
         const sortedCells = [...selectionState.selectedGrid].sort((a, b) => a.row - b.row);
@@ -3134,41 +3135,97 @@ document.addEventListener('DOMContentLoaded', function() {
         // Форматируем время для формы
         const formattedStartTime = formatTimeForInput(startTime);
         
-        // Предзаполняем форму
-        const tableNumberSelect = document.getElementById('table_number');
-        if (tableNumberSelect) {
-            let found = false;
-            for (let i = 0; i < tableNumberSelect.options.length; i++) {
-                if (tableNumberSelect.options[i].value === tableNumber.toString()) {
-                    tableNumberSelect.selectedIndex = i;
-                    found = true;
+        // Предзаполняем форму - ищем селект стола
+        const tableNameSelect = document.getElementById('table_name_id');
+        
+        if (tableNameSelect) {
+            console.log('Найден селект table_name_id, опций:', tableNameSelect.options.length);
+            
+            let selectedIndex = -1;
+            
+            // Ищем опцию по тексту (названию стола)
+            for (let i = 0; i < tableNameSelect.options.length; i++) {
+                const optionText = tableNameSelect.options[i].text.trim();
+                const optionValue = tableNameSelect.options[i].value;
+                
+                console.log(`Опция ${i}: текст="${optionText}", value="${optionValue}"`);
+                
+                // Проверяем точное совпадение или частичное
+                if (optionText === selectedTableName) {
+                    selectedIndex = i;
+                    console.log(`Точное совпадение: "${selectedTableName}" -> выбрана опция "${optionText}" (ID: ${optionValue})`);
                     break;
                 }
             }
             
-            if (!found) {
-                for (let i = 0; i < tableNumberSelect.options.length; i++) {
-                    if (tableNumberSelect.options[i].text.includes(tableNumber)) {
-                        tableNumberSelect.selectedIndex = i;
+            // Если не нашли точного совпадения, ищем частичное
+            if (selectedIndex === -1) {
+                for (let i = 0; i < tableNameSelect.options.length; i++) {
+                    const optionText = tableNameSelect.options[i].text.trim();
+                    
+                    // Проверяем содержит ли текст опции выбранное название
+                    if (optionText.includes(selectedTableName) || selectedTableName.includes(optionText)) {
+                        selectedIndex = i;
+                        console.log(`Частичное совпадение: "${selectedTableName}" -> выбрана опция "${optionText}"`);
                         break;
                     }
                 }
             }
+            
+            // Если все еще не нашли, ищем по номеру стола
+            if (selectedIndex === -1 && selectedTableName) {
+                const tableNumber = selectedTableName.match(/\d+/); // Ищем цифры в названии
+                if (tableNumber) {
+                    const num = tableNumber[0];
+                    console.log(`Ищем стол по номеру: ${num}`);
+                    
+                    for (let i = 0; i < tableNameSelect.options.length; i++) {
+                        const optionText = tableNameSelect.options[i].text.trim();
+                        if (optionText.includes(num)) {
+                            selectedIndex = i;
+                            console.log(`Найдено по номеру: выбрана опция "${optionText}"`);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Устанавливаем выбранную опцию
+            if (selectedIndex !== -1) {
+                tableNameSelect.selectedIndex = selectedIndex;
+                console.log('Установлен выбранный стол:', tableNameSelect.options[selectedIndex].text);
+            } else {
+                console.warn('Не удалось найти подходящий стол для:', selectedTableName);
+                // Можно показать предупреждение пользователю
+                showToast('warning', 'Внимание', `Не удалось автоматически выбрать стол "${selectedTableName}". Выберите вручную.`);
+            }
+        } else {
+            console.error('Не найден селект table_name_id!');
         }
         
+        // Устанавливаем время
         const bookingTimeSelect = document.getElementById('booking_time');
         if (bookingTimeSelect) {
+            let timeFound = false;
             for (let i = 0; i < bookingTimeSelect.options.length; i++) {
                 if (bookingTimeSelect.options[i].value === formattedStartTime) {
                     bookingTimeSelect.selectedIndex = i;
+                    timeFound = true;
+                    console.log('Время установлено:', formattedStartTime);
                     break;
                 }
             }
+            
+            if (!timeFound) {
+                console.warn('Не найдено время:', formattedStartTime);
+            }
         }
         
+        // Устанавливаем длительность
         const durationSelect = document.getElementById('duration');
         if (durationSelect) {
             durationSelect.value = closestDuration;
+            console.log('Длительность установлена:', closestDuration);
         }
         
         // Показываем модальное окно
@@ -3176,7 +3233,7 @@ document.addEventListener('DOMContentLoaded', function() {
         modal.show();
         
         // Показываем информацию о выбранном диапазоне
-        showSelectionInfo(tableNumber, startTime, endTime, durationMinutes);
+        showSelectionInfo(selectedTableName, startTime, endTime, durationMinutes);
     }
 
     // Вычисляем время окончания (время ячейки + 30 минут)
@@ -3212,7 +3269,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Показ информации о выбранном диапазоне
-    function showSelectionInfo(tableNumber, startTime, endTime, durationMinutes) {
+    function showSelectionInfo(tableName, startTime, endTime, durationMinutes) {
         const oldInfo = document.getElementById('selectionInfo');
         if (oldInfo) {
             oldInfo.remove();
@@ -3242,7 +3299,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <i class="bi bi-info-circle me-2"></i>
-                    <strong>Выбрано:</strong> Стол ${tableNumber}, время: ${startTime}-${endTime} (${durationText})
+                    <strong>Выбрано:</strong> Стол ${tableName}, время: ${startTime}-${endTime} (${durationText})
                 </div>
                 <button type="button" class="btn-close" onclick="this.parentElement.parentElement.remove()"></button>
             </div>
@@ -3268,7 +3325,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         selectionState.selectedGrid = [cellData];
         selectionState.startCell = cellData;
-        selectionState.startTable = cellData.tableNumber;
+        selectionState.startTable = cellData.tableName;
         selectionState.startTime = cellData.time;
         selectionState.endTime = cellData.time;
         
@@ -3375,7 +3432,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (button) {
                 const tableId = button.getAttribute('data-table-id');
                 const saleId = button.getAttribute('data-sale-id');
-                const tableNumber = button.getAttribute('data-table-number');
+                const tableName = button.getAttribute('data-table-name');
                 const guestName = button.getAttribute('data-guest-name');
                 
                 // Сохраняем ID стола и продажи
@@ -3385,7 +3442,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Обновляем информацию в заголовке
                 const infoElement = document.getElementById('currentTableInfo');
                 if (infoElement) {
-                    infoElement.innerHTML = `<strong>Стол ${tableNumber}</strong> - ${guestName}`;
+                    infoElement.innerHTML = `<strong>Стол ${tableName}</strong> - ${guestName}`;
                 }
                 
                 // Загружаем товары для этого стола
@@ -3429,6 +3486,120 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     console.log('Table Manager initialized successfully');
+
+   document.addEventListener('submit', async function(e) {
+        const form = e.target;
+        if (!form.action || !form.action.includes('change-status')) return;
+        
+        e.preventDefault();
+        
+        const button = form.querySelector('button[type="submit"]');
+        const originalText = button.innerHTML;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        button.disabled = true;
+        
+        try {
+            const response = await fetch(form.action, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                },
+                body: new FormData(form)
+            });
+            
+            const data = await response.json();
+            
+            button.innerHTML = originalText;
+            button.disabled = false;
+            
+            if (data.success) {
+                showToast('success', 'Успешно', data.message || 'Стол открыт!');
+                
+                // Обновляем только нужную часть страницы, а не всю страницу
+                setTimeout(() => {
+                    // Получаем текущую дату из URL или из формы
+                    const dateInput = document.querySelector('input[name="date"]');
+                    const selectedDate = dateInput ? dateInput.value : '';
+                    
+                    // Перезагружаем столы через AJAX
+                    loadTablesForDate(selectedDate);
+                }, 500);
+            } else {
+                showToast('danger', 'Ошибка', data.message || 'Не удалось открыть стол');
+            }
+            
+        } catch (error) {
+            console.error('Ошибка:', error);
+            button.innerHTML = originalText;
+            button.disabled = false;
+            showToast('danger', 'Ошибка', 'Ошибка соединения с сервером');
+        }
+    });
+
+    // Функция для загрузки столов через AJAX
+    function loadTablesForDate(date) {
+        if (!date) {
+            location.reload();
+            return;
+        }
+        
+        // Показываем индикатор загрузки
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.className = 'position-fixed top-50 start-50 translate-middle';
+        loadingIndicator.innerHTML = `
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+        `;
+        document.body.appendChild(loadingIndicator);
+        
+        // Загружаем таблицу столов
+        fetch(`/tables?date=${date}`, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => response.text())
+        .then(html => {
+            // Находим основную таблицу и заменяем ее содержимое
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const newTable = doc.querySelector('.table-responsive');
+            const currentTable = document.querySelector('.table-responsive');
+            
+            if (newTable && currentTable) {
+                currentTable.innerHTML = newTable.innerHTML;
+                
+                // Инициализируем таймеры заново
+                if (typeof initTableTimers === 'function') {
+                    initTableTimers();
+                }
+                
+                // Инициализируем обработчики заново
+                setTimeout(() => {
+                    initCellSelection();
+                    if (typeof window.HookahTimerManager !== 'undefined') {
+                        window.HookahTimerManager.init();
+                    }
+                }, 100);
+            } else {
+                // Если не удалось обновить через AJAX, перезагружаем всю страницу
+                location.reload();
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка загрузки:', error);
+            location.reload();
+        })
+        .finally(() => {
+            // Убираем индикатор загрузки
+            if (loadingIndicator.parentNode) {
+                loadingIndicator.parentNode.removeChild(loadingIndicator);
+            }
+        });
+    }
 
 });
 

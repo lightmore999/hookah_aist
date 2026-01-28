@@ -31,23 +31,21 @@
 
                     <!-- Номер стола -->
                     <div class="mb-4">
-                        <label for="edit_table_number" class="form-label fw-bold">
-                            <span class="text-danger">*</span> Номер стола
+                        <label for="edit_table_name_id" class="form-label fw-bold">
+                            <span class="text-danger">*</span> Стол
                         </label>
-                        <select name="table_number" 
-                                class="form-select @error('table_number') is-invalid @enderror" 
-                                id="edit_table_number" 
+                        <select name="table_name_id" 
+                                class="form-select @error('table_name_id') is-invalid @enderror" 
+                                id="edit_table_name_id" 
                                 required>
                             <option value="">-- Выберите стол --</option>
-                            <option value="1">1</option>
-                            <option value="2">2</option>
-                            <option value="3">3</option>
-                            <option value="4">4</option>
-                            <option value="Барная стойка">Барная стойка</option>
-                            <option value="6">6</option>
-                            <option value="7">7</option>
+                            @foreach($tableNames as $table)
+                                <option value="{{ $table->id }}">
+                                    {{ $table->name }}
+                                </option>
+                            @endforeach
                         </select>
-                        @error('table_number')
+                        @error('table_name_id')
                             <div class="invalid-feedback">{{ $message }}</div>
                         @enderror
                     </div>
@@ -321,7 +319,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const button = event.relatedTarget;
             if (button && button.classList.contains('edit-table-btn')) {
                 // Берем данные
-                const tableNumber = button.dataset.tableNumber;
+                const tableId = button.dataset.tableId; // Используем table_name_id
+                const tableName = button.dataset.tableName; // Для отображения
                 const bookingDate = button.dataset.bookingDate;
                 const bookingTime = button.dataset.bookingTime;
                 const duration = parseInt(button.dataset.duration) || 120; // дефолт 2 часа
@@ -336,7 +335,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const endTime = calculateEndTime(bookingTime, duration);
                 
                 // Заполняем форму данными
-                document.getElementById('edit_table_number').value = tableNumber;
+                document.getElementById('edit_table_name_id').value = tableId;
                 document.getElementById('edit_booking_date').value = bookingDate;
                 document.getElementById('edit_booking_time').value = bookingTime;
                 document.getElementById('edit_end_time').value = endTime;
@@ -357,6 +356,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const clientSelect = document.getElementById('edit_client_id');
                 const guestNameInput = document.getElementById('edit_guest_name');
                 const phoneInput = document.getElementById('edit_phone');
+                
                 
                 updateEditGuestFieldsVisibility(clientSelect, guestNameInput, phoneInput);
                 

@@ -1,3 +1,4 @@
+<!-- Модальное окно создания стола -->
 <div class="modal fade" id="createTableModal" tabindex="-1" aria-labelledby="createTableModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -26,25 +27,23 @@
                         </div>
                     @endif
 
-                    <!-- Номер стола -->
+                    <!-- ВЫБОР СТОЛА -->
                     <div class="mb-4">
-                        <label for="table_number" class="form-label fw-bold">
-                            <span class="text-danger">*</span> Номер стола
+                        <label for="table_name_id" class="form-label fw-bold">
+                            <span class="text-danger">*</span> Стол
                         </label>
-                        <select name="table_number" 
-                                class="form-select @error('table_number') is-invalid @enderror" 
-                                id="table_number" 
+                        <select name="table_name_id" 
+                                class="form-select @error('table_name_id') is-invalid @enderror" 
+                                id="table_name_id" 
                                 required>
                             <option value="">-- Выберите стол --</option>
-                            <option value="1" {{ old('table_number', 1) == '1' ? 'selected' : '' }}>1</option>
-                            <option value="2" {{ old('table_number', 1) == '2' ? 'selected' : '' }}>2</option>
-                            <option value="3" {{ old('table_number', 1) == '3' ? 'selected' : '' }}>3</option>
-                            <option value="4" {{ old('table_number', 1) == '4' ? 'selected' : '' }}>4</option>
-                            <option value="Барная стойка" {{ old('table_number', 1) == 'Барная стойка' ? 'selected' : '' }}>Барная стойка</option>
-                            <option value="6" {{ old('table_number', 1) == '6' ? 'selected' : '' }}>6</option>
-                            <option value="7" {{ old('table_number', 1) == '7' ? 'selected' : '' }}>7</option>
+                            @foreach($tableNames as $table) 
+                                <option value="{{ $table->id }}" {{ old('table_name_id') == $table->id ? 'selected' : '' }}>
+                                    {{ $table->name }}
+                                </option>
+                            @endforeach
                         </select>
-                        @error('table_number')
+                        @error('table_name_id')
                             <div class="invalid-feedback">{{ $message }}</div>
                         @enderror
                     </div>

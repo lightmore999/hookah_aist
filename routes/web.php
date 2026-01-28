@@ -204,7 +204,7 @@ Route::middleware('auth')->group(function () {
     // Основные маршруты (если еще нет)
     Route::resource('expenditures', ExpenditureController::class);
 
-    Route::prefix('accounting')->name('accounting.')->group(function () {
+        Route::prefix('accounting')->name('accounting.')->group(function () {
         // Главная страница бухгалтерии
         Route::get('/', [AccountingController::class, 'index'])->name('index');
         
@@ -219,6 +219,20 @@ Route::middleware('auth')->group(function () {
         
         // Экспорт данных
         Route::get('/export', [AccountingController::class, 'export'])->name('export');
+        
+        // НОВЫЕ РОУТЫ ДЛЯ ЗАРПЛАТЫ:
+        
+        // Отчет по зарплате
+        Route::get('/salary-report', [AccountingController::class, 'salaryReport'])->name('salary-report');
+        
+        // Экспорт отчета по зарплате
+        Route::get('/export-salary-report', [AccountingController::class, 'exportSalaryReport'])->name('export-salary-report');
+        
+        // Детальный отчет по себестоимости (уже есть в контроллере, но нет роута)
+        Route::get('/cost-report', [AccountingController::class, 'costReport'])->name('cost-report');
+        
+        // API для получения статистики по способам оплаты (уже есть в контроллере, но нет роута)
+        Route::get('/payment-methods-stats', [AccountingController::class, 'getPaymentMethodsStats'])->name('payment-methods-stats');
     });
 
     // История бонусов - общий доступ для всех авторизованных
@@ -257,6 +271,17 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/statistics/expenses/data', [StatisticsController::class, 'expensesStatistics'])->name('statistics.expenses.data');
     Route::get('/statistics/expenses', [StatisticsController::class, 'expensesPage'])->name('statistics.expenses');
+
+
+    Route::prefix('admin')->name('admin.')->group(function () {
+        Route::prefix('table-names')->name('table-names.')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Admin\TableNameController::class, 'index'])->name('index');
+            Route::post('/', [\App\Http\Controllers\Admin\TableNameController::class, 'store'])->name('store');
+            Route::put('/{table}/status', [\App\Http\Controllers\Admin\TableNameController::class, 'updateStatus'])->name('update-status');
+            Route::put('/update-order', [\App\Http\Controllers\Admin\TableNameController::class, 'updateOrder'])->name('update-order');
+            Route::delete('/{table}', [\App\Http\Controllers\Admin\TableNameController::class, 'destroy'])->name('destroy');
+        });
+    });
 
 });
 

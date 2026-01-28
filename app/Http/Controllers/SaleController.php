@@ -29,6 +29,15 @@ class SaleController extends Controller
 
     public function create()
     {
+        // Проверяем, есть ли активная смена для создания продажи
+        if (!\App\Models\Shift::canCreateSale()) {
+            return redirect()->route('sales.index')
+                ->with('error', 'Нет активной смены. Сначала откройте смену для создания продаж.');
+        }
+        
+        // Получаем активную смену
+        $activeShift = \App\Models\Shift::getActiveShift();
+        
         $sale = Sale::create([
             'client_id' => null,
             'table_id' => null,
@@ -38,6 +47,7 @@ class SaleController extends Controller
             'sale_date' => now(),
             'payment_method_id' => null,
             'comment' => null,
+            // shift_id не добавляем, так как его нет в модели
         ]);
         
         return redirect()->route('sales.show', $sale)
@@ -46,6 +56,12 @@ class SaleController extends Controller
 
     public function store(Request $request)
     {
+        // Проверяем, есть ли активная смена для создания продажи
+        if (!\App\Models\Shift::canCreateSale()) {
+            return redirect()->route('sales.index')
+                ->with('error', 'Нет активной смены. Сначала откройте смену для создания продаж.');
+        }
+        
         $sale = Sale::create([
             'client_id' => null,
             'table_id' => null,
@@ -786,5 +802,69 @@ class SaleController extends Controller
         return response()->json([
             'totalSpent' => (float) $totalSpent
         ]);
+    }
+    
+    public function __construct()
+    {
+        $this->middleware(function ($request, $next) {
+            // Методы, которые требуют активной смены
+            $methodsRequiringShift = [
+                'create', 'store', 'addItem', 'updateItem', 
+                'addHookah', 'update', 'complete', 'changeStatus'
+            ];
+            
+            if (in_array($request->route()->getActionMethod(), $methodsRequiringShift)) {
+                // Для методов, которые работают с существующей продажей
+                // (addItem, updateItem и т.д.), получаем смену для времени этой продажи
+                if (in_array($request->route()->getActionMethod(), ['addItem', 'updateItem', 'addHookah', 'update', 'complete', 'changeStatus'])) {
+                    // Получаем продажу из маршрута
+                    $saleId = $request->route('sale')->id ?? null;
+                    if ($saleId) {
+                        $sale = Sale::find($saleId);
+                        if ($sale) {
+                            // Проверяем, была ли смена активна во время создания продажи
+                            $saleTime = $sale->sale_date ?? $sale->created_at;
+                            $shiftForSale = \App\Models\Shift::getShiftForSaleTime($saleTime);
+                            
+                            if (!$shiftForSale) {
+                                if ($request->ajax() || $request->wantsJson()) {
+                                    return response()->json([
+                                        'success' => false,
+                                        'message' => 'Продажа создана вне активной смены.'
+                                    ], 403);
+                                }
+                                return back()->with('error', 'Продажа была создана вне активной смены.');
+                            }
+                            
+                            // Проверяем, не закрыта ли смена сейчас
+                            if ($shiftForSale->status === 'closed') {
+                                if ($request->ajax() || $request->wantsJson()) {
+                                    return response()->json([
+                                        'success' => false,
+                                        'message' => 'Смена уже закрыта. Невозможно изменить продажу.'
+                                    ], 403);
+                                }
+                                return back()->with('error', 'Смена уже закрыта. Невозможно изменить продажу.');
+                            }
+                        }
+                    }
+                } else {
+                    // Для создания новой продажи проверяем текущую активную смену
+                    if (!\App\Models\Shift::canCreateSale()) {
+                        if ($request->ajax() || $request->wantsJson()) {
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'Нет активной смены. Сначала откройте смену.'
+                            ], 403);
+                        }
+                        
+                        return redirect()->route('sales.index')
+                            ->with('error', 'Нет активной смены. Сначала откройте смену для работы с продажами.');
+                    }
+                }
+            }
+            
+            return $next($request);
+        });
     }
 }

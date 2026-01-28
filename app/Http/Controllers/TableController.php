@@ -17,9 +17,12 @@ use App\Models\PaymentMethod;
 use App\Models\OperationHistory;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use App\Models\Shift;
+use App\Models\TableName; 
 
 class TableController extends Controller
 {
+
     public function index(Request $request)
     {
         // Получаем дату из запроса или используем сегодня
@@ -27,32 +30,15 @@ class TableController extends Controller
             ? Carbon::parse($request->date)
             : Carbon::today();
         
-        // Создаем временные границы
-        $startOfDay = $selectedDate->copy()->startOfDay();
-        $nextDay = $selectedDate->copy()->addDay()->startOfDay();
-        $nightCutoff = $selectedDate->copy()->addDay()->setTime(3, 30, 0);
+        // Получаем все столы на выбранную дату
+        $tables = Table::with('tableName')
+            ->whereDate('booking_date', $selectedDate)
+            ->orderBy('booking_time')
+            ->get()
+            ->groupBy('table_name_id'); // группируем по ID стола
         
-        // Получаем все столы, которые пересекаются с выбранной датой
-        $tables = Table::where(function($query) use ($selectedDate, $startOfDay, $nextDay, $nightCutoff) {
-            // Столы, которые начинаются в выбранный день (с 00:00 до 23:59)
-            $query->whereDate('booking_date', $selectedDate)
-                ->whereTime('booking_time', '>=', '00:00')
-                ->whereTime('booking_time', '<', '23:59');
-            
-            // ИЛИ столы, которые начинаются после 00:00 предыдущего дня и заканчиваются после 00:00
-            $query->orWhere(function($q) use ($selectedDate) {
-                // Предыдущий день
-                $prevDay = $selectedDate->copy()->subDay();
-                $q->whereDate('booking_date', $prevDay)
-                ->whereTime('booking_time', '>=', '14:00');
-            });
-        })
-        ->orderBy('table_number')
-        ->orderBy('booking_time')
-        ->get()
-        ->groupBy('table_number');
-        
-        $tableNumbers = [1, 2, 3, 4, 'Барная стойка', 6, 7];
+        // Получаем все активные столы для отображения
+        $tableNames = TableName::active()->ordered()->get();
         
         $tableIds = $tables->flatten()->pluck('id');
         
@@ -70,10 +56,10 @@ class TableController extends Controller
         $hookahs = Hookah::orderBy('name')->get();
         
         $paymentMethods = PaymentMethod::orderBy('Name')->get();
-    
+
         return view('tables.index', compact(
             'tables',
-            'tableNumbers',
+            'tableNames', // передаем названия столов вместо номеров
             'selectedDate',
             'allSalesForTables',
             'clients',
@@ -87,7 +73,7 @@ class TableController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'table_number' => 'required|string|max:50',
+            'table_name_id' => 'required|exists:table_names,id', // изменили на table_name_id
             'booking_date' => 'required|date',
             'booking_time' => 'required|date_format:H:i',
             'duration' => 'required|integer|min:30|max:720',
@@ -99,11 +85,15 @@ class TableController extends Controller
             'status' => 'nullable|string|in:new,opened_without_hookah,opened_with_hookah,closed'
         ]);
         
+        // Получаем название стола для логирования
+        $tableName = TableName::find($validated['table_name_id']);
+        $tableNameStr = $tableName ? $tableName->name : 'Стол #' . $validated['table_name_id'];
+        
         // Проверка на пересечение времени
-        if (!$this->checkTimeAvailability($validated['table_number'], $validated['booking_date'], $validated['booking_time'], $validated['duration'])) {
+        if (!Table::isTableAvailable($validated['table_name_id'], $validated['booking_date'], $validated['booking_time'], $validated['duration'])) {
             return redirect()->back()
                 ->withInput()
-                ->with('error', 'Этот стол уже занят на выбранное время!');
+                ->with('error', "Этот стол уже занят на выбранное время!");
         }
         
         if (!isset($validated['status'])) {
@@ -126,13 +116,14 @@ class TableController extends Controller
             'entity_id' => $table->id,
             'action_type' => OperationHistory::ACTION_CREATE,
             'new_data' => [
-                'table_number' => $table->table_number,
+                'table_name_id' => $table->table_name_id,
+                'table_name' => $tableNameStr,
                 'booking_date' => $table->booking_date,
                 'booking_time' => $table->booking_time,
                 'guest_name' => $table->guest_name,
                 'status' => $table->status,
             ],
-            'comment' => "Создан стол #{$table->table_number} на {$table->booking_date} {$table->booking_time}",
+            'comment' => "Создан стол '{$tableNameStr}' на {$table->booking_date} {$table->booking_time}",
         ]);
         
         return redirect()->route('tables.index')
@@ -143,7 +134,8 @@ class TableController extends Controller
     public function update(Request $request, Table $table)
     {
         $oldData = [
-            'table_number' => $table->table_number,
+            'table_name_id' => $table->table_name_id,
+            'table_name' => $table->tableName ? $table->tableName->name : 'Стол #' . $table->table_name_id,
             'booking_date' => $table->booking_date,
             'booking_time' => $table->booking_time,
             'guest_name' => $table->guest_name,
@@ -151,7 +143,7 @@ class TableController extends Controller
         ];
         
         $validated = $request->validate([
-            'table_number' => 'required|string|max:50',
+            'table_name_id' => 'required|exists:table_names,id', // изменили на table_name_id
             'booking_date' => 'required|date',
             'booking_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i',
@@ -162,6 +154,10 @@ class TableController extends Controller
             'client_id' => 'nullable|exists:clients,id',
             'status' => 'nullable|string|in:new,opened_without_hookah,opened_with_hookah,closed'
         ]);
+        
+        // Получаем название стола для логирования
+        $newTableName = TableName::find($validated['table_name_id']);
+        $newTableNameStr = $newTableName ? $newTableName->name : 'Стол #' . $validated['table_name_id'];
         
         // Рассчитываем длительность
         $startTime = \Carbon\Carbon::parse($validated['booking_time']);
@@ -175,10 +171,10 @@ class TableController extends Controller
         $validated['duration'] = $duration;
         
         // Проверка на пересечение времени
-        if (!$this->checkTimeAvailability($validated['table_number'], $validated['booking_date'], $validated['booking_time'], $duration, $table->id)) {
+        if (!Table::isTableAvailable($validated['table_name_id'], $validated['booking_date'], $validated['booking_time'], $duration, $table->id)) {
             return redirect()->back()
                 ->withInput()
-                ->with('error', 'Этот стол уже занят на выбранное время!');
+                ->with('error', "Этот стол уже занят на выбранное время!");
         }
         
         if (!empty($validated['client_id'])) {
@@ -200,65 +196,18 @@ class TableController extends Controller
             'action_type' => OperationHistory::ACTION_UPDATE,
             'old_data' => $oldData,
             'new_data' => [
-                'table_number' => $table->table_number,
+                'table_name_id' => $table->table_name_id,
+                'table_name' => $newTableNameStr,
                 'booking_date' => $table->booking_date,
                 'booking_time' => $table->booking_time,
                 'guest_name' => $table->guest_name,
                 'status' => $table->status,
             ],
-            'comment' => "Изменен стол #{$table->table_number}",
+            'comment' => "Изменен стол '{$newTableNameStr}'",
         ]);
         
         return redirect()->route('tables.index')
             ->with('success', 'Стол обновлен успешно!');
-    }
-
-    private function checkTimeAvailability($tableNumber, $bookingDate, $bookingTime, $durationMinutes, $excludeTableId = null)
-    {
-        $newBookingDate = \Carbon\Carbon::parse($bookingDate);
-        $newBookingTime = \Carbon\Carbon::parse($newBookingDate->format('Y-m-d') . ' ' . $bookingTime);
-        $newBookingEnd = $newBookingTime->copy()->addMinutes($durationMinutes);
-        
-        $existingBookings = Table::where('table_number', $tableNumber)
-            ->when($excludeTableId, function ($query) use ($excludeTableId) {
-                return $query->where('id', '!=', $excludeTableId);
-            })
-            ->get();
-        
-        foreach ($existingBookings as $existingBooking) {
-            $existingBookingTimeStr = is_string($existingBooking->booking_time) ? 
-                $existingBooking->booking_time : 
-                $existingBooking->booking_time->format('H:i:s');
-            
-            $existingBookingHour = (int)substr($existingBookingTimeStr, 0, 2);
-            
-            if ($existingBookingHour < 4) {
-                $existingBookingTime = \Carbon\Carbon::parse(
-                    $existingBooking->booking_date->copy()->subDay()->format('Y-m-d') . ' ' . 
-                    substr($existingBookingTimeStr, 0, 8)
-                );
-            } else {
-                $existingBookingTime = \Carbon\Carbon::parse(
-                    $existingBooking->booking_date->format('Y-m-d') . ' ' . 
-                    substr($existingBookingTimeStr, 0, 8)
-                );
-            }
-            
-            $existingBookingEnd = $existingBookingTime->copy()->addMinutes($existingBooking->duration);
-            
-            $overlaps = $this->timeRangesOverlap(
-                $newBookingTime,
-                $newBookingEnd,
-                $existingBookingTime,
-                $existingBookingEnd
-            );
-            
-            if ($overlaps) {
-                return false;
-            }
-        }
-        
-        return true;
     }
 
     private function timeRangesOverlap($start1, $end1, $start2, $end2)
@@ -269,8 +218,12 @@ class TableController extends Controller
     // Удаление стола
     public function destroy(Table $table)
     {
+        // Получаем название стола для логирования
+        $tableName = $table->tableName ? $table->tableName->name : 'Стол #' . $table->table_name_id;
+        
         $oldData = [
-            'table_number' => $table->table_number,
+            'table_name_id' => $table->table_name_id,
+            'table_name' => $tableName,
             'booking_date' => $table->booking_date,
             'booking_time' => $table->booking_time,
             'guest_name' => $table->guest_name,
@@ -295,7 +248,7 @@ class TableController extends Controller
             'entity_id' => $table->id,
             'action_type' => OperationHistory::ACTION_DELETE,
             'old_data' => $oldData,
-            'comment' => "Удален стол #{$table->table_number}",
+            'comment' => "Удален стол '{$tableName}'",
         ]);
         
         return redirect()->route('tables.index')
@@ -312,11 +265,25 @@ class TableController extends Controller
             'status' => 'required|string|in:new,opened_without_hookah,opened_with_hookah,closed'
         ]);
         
-        // Если стол открывается
-        if ($newStatus === 'opened_without_hookah' && $oldStatus === 'new') {
+        // Получаем название стола для логирования
+        $tableName = $table->tableName ? $table->tableName->name : 'Стол #' . $table->table_name_id;
+        
+        // Если пытаемся открыть стол (из new в opened_without_hookah или opened_with_hookah)
+        if (($newStatus === 'opened_without_hookah' || $newStatus === 'opened_with_hookah') && $oldStatus === 'new') {
+            // Проверяем активную смену
+            $activeShift = Shift::getActiveShift();
+            
+            if (!$activeShift) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Нет активной смены. Сначала откройте смену для открытия стола.'
+                ], 403);
+            }
+            
+            // Создаем продажу и привязываем к активной смене
             $existingSale = Sale::where('table_id', $table->id)->first();
             if (!$existingSale) {
-                Sale::create([
+                $sale = Sale::create([
                     'client_id' => $table->client_id,
                     'table_id' => $table->id,
                     'total' => 0,
@@ -325,6 +292,15 @@ class TableController extends Controller
                     'sale_date' => now(),
                     'payment_method_id' => null,
                     'comment' => null,
+                ]);
+                
+                // Логируем создание продажи при открытии стола
+                OperationHistory::create([
+                    'user_id' => Auth::id(),
+                    'entity_type' => OperationHistory::ENTITY_SALE,
+                    'entity_id' => $sale->id,
+                    'action_type' => OperationHistory::ACTION_CREATE,
+                    'comment' => "Создана продажа при открытии стола '{$tableName}' (смена: {$activeShift->date->format('d.m.Y')})",
                 ]);
             }
             
@@ -336,10 +312,39 @@ class TableController extends Controller
                 'action_type' => OperationHistory::ACTION_OPEN,
                 'old_data' => ['status' => $oldStatus],
                 'new_data' => ['status' => $newStatus],
-                'comment' => "Открыт стол #{$table->table_number}",
+                'comment' => "Открыт стол '{$tableName}' (смена: {$activeShift->date->format('d.m.Y')})",
             ]);
         }
         
+        // Если закрываем стол (из opened_without_hookah или opened_with_hookah в closed)
+        if (($oldStatus === 'opened_without_hookah' || $oldStatus === 'opened_with_hookah') && $newStatus === 'closed') {
+            // Проверяем, что продажа существует и не завершена
+            $sale = Sale::where('table_id', $table->id)->first();
+            if ($sale && $sale->status !== 'completed') {
+                if ($request->expectsJson() || $request->ajax()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Сначала завершите продажу на столе.'
+                    ], 400);
+                }
+                
+                return redirect()->route('tables.index')
+                    ->with('error', 'Сначала завершите продажу на столе.');
+            }
+            
+            // Логируем закрытие стола
+            OperationHistory::create([
+                'user_id' => Auth::id(),
+                'entity_type' => OperationHistory::ENTITY_TABLE,
+                'entity_id' => $table->id,
+                'action_type' => OperationHistory::ACTION_CLOSE,
+                'old_data' => ['status' => $oldStatus],
+                'new_data' => ['status' => $newStatus],
+                'comment' => "Закрыт стол '{$tableName}'",
+            ]);
+        }
+        
+        // Обновляем статус стола
         $table->update(['status' => $newStatus]);
         
         // AJAX или редирект
@@ -352,7 +357,7 @@ class TableController extends Controller
         }
         
         return redirect()->route('tables.index')
-            ->with('success', 'Стол успешно открыт!');
+            ->with('success', 'Статус стола изменен!');
     }
     
     // Модалка для товаров
@@ -378,6 +383,7 @@ class TableController extends Controller
                 'message' => 'Нельзя добавлять товары в завершенную продажу'
             ], 400);
         }
+        $tableName = $this->getTableDisplayName($table);
         
         $validated = $request->validate([
             'product_id' => 'required|exists:products,id',
@@ -453,7 +459,7 @@ class TableController extends Controller
                 'unit_price' => $validated['unit_price'],
                 'sale_id' => $sale->id,
             ],
-            'comment' => "Добавлен товар '{$product->name}' к столу #{$table->table_number}",
+            'comment' => "Добавлен товар '{$product->name}' к столу '{$tableName}'",
         ]);
         
         // Пересчитываем сумму
@@ -500,7 +506,8 @@ class TableController extends Controller
     public function addHookahToSale(Request $request, Table $table)
     {
         $sale = Sale::where('table_id', $table->id)->firstOrFail();
-        
+        $tableName = $this->getTableDisplayName($table);
+
         if ($sale->status === 'completed') {
             return response()->json([
                 'success' => false,
@@ -529,7 +536,7 @@ class TableController extends Controller
                 'hookah_price' => $hookah->price,
                 'sale_id' => $sale->id,
             ],
-            'comment' => "Добавлен кальян '{$hookah->name}' к столу #{$table->table_number}",
+            'comment' => "Добавлен кальян '{$hookah->name}'  к столу '{$tableName}'",
         ]);
         
         // Обновляем статус стола
@@ -553,6 +560,7 @@ class TableController extends Controller
     public function removeHookahFromSale(Table $table, $hookahId)
     {
         $sale = Sale::where('table_id', $table->id)->first();
+        $tableName = $this->getTableDisplayName($table);
         
         if (!$sale) {
             return response()->json([
@@ -607,7 +615,7 @@ class TableController extends Controller
                 'hookah_name' => $hookah->name,
                 'sale_id' => $sale->id,
             ],
-            'comment' => "Удален кальян '{$hookah->name}' из стола #{$table->table_number}",
+            'comment' => "Удален кальян '{$hookah->name}' из стола '{$tableName}'",
         ]);
         
         // Пересчитываем сумму
@@ -658,7 +666,7 @@ class TableController extends Controller
     public function closeSaleAndTable(Request $request, Table $table)
     {
         $sale = Sale::where('table_id', $table->id)->firstOrFail();
-        
+    
         if ($sale->status === 'completed') {
             return redirect()->back()->with('error', 'Продажа уже завершена');
         }
@@ -672,6 +680,9 @@ class TableController extends Controller
             'use_bonuses' => 'nullable|string',
             'bonus_points_to_use' => 'nullable|integer|min:0'
         ]);
+        
+        // Получаем название стола для логирования
+        $tableName = $table->tableName ? $table->tableName->name : 'Стол #' . $table->table_name_id;
         
         // Определяем клиента
         $clientId = $table->client_id ?? $sale->client_id;
@@ -725,7 +736,7 @@ class TableController extends Controller
                 'amount' => $bonusPoints,
                 'operation_type' => 'debit',
                 'balance_after' => $client->bonus_points,
-                'reason' => 'Списание бонусов при оплате продажи #' . $sale->id . ' (стол ' . $table->table_number . ')',
+                'reason' => 'Списание бонусов при оплате продажи #' . $sale->id . ' (стол ' . $tableName . ')',
                 'sale_id' => $sale->id,
             ]);
             
@@ -824,7 +835,7 @@ class TableController extends Controller
                         'amount' => $pointsAwarded,
                         'operation_type' => 'credit',
                         'balance_after' => $client->bonus_points,
-                        'reason' => "Начисление {$bonusPercent}% бонусов за продажу #" . $sale->id . ' (стол ' . $table->table_number . ')',
+                        'reason' => "Начисление {$bonusPercent}% бонусов за продажу #" . $sale->id . ' (стол ' . $tableName . ')',
                         'sale_id' => $sale->id,
                     ]);
                     
@@ -849,7 +860,7 @@ class TableController extends Controller
                 'discount' => $discount,
                 'used_bonus_points' => $sale->used_bonus_points,
             ],
-            'comment' => "Закрыт стол #{$table->table_number}, сумма: {$sale->total} руб.",
+            'comment' => "Закрыт стол '{$tableName}', сумма: {$sale->total} руб.",
         ]);
         
         $successMessage = 'Стол закрыт и продажа завершена успешно!';
@@ -870,7 +881,8 @@ class TableController extends Controller
     public function removeProductFromSale(Table $table, SaleItem $item)
     {
         $sale = Sale::where('table_id', $table->id)->firstOrFail();
-        
+        $tableName = $this->getTableDisplayName($table);
+
         if ($sale->status === 'completed') {
             return response()->json([
                 'success' => false,
@@ -899,7 +911,7 @@ class TableController extends Controller
                 'quantity' => $item->quantity,
                 'sale_id' => $sale->id,
             ],
-            'comment' => "Удален товар '{$product->name}' из стола #{$table->table_number}",
+            'comment' => "Удален товар '{$product->name}' из стола '{$tableName}'",
         ]);
         
         $item->delete();
@@ -921,7 +933,8 @@ class TableController extends Controller
     public function updateProductQuantity(Request $request, Table $table, SaleItem $item)
     {
         $sale = Sale::where('table_id', $table->id)->firstOrFail();
-        
+        $tableName = $this->getTableDisplayName($table);
+
         if ($sale->status === 'completed') {
             return response()->json([
                 'success' => false,
@@ -954,7 +967,7 @@ class TableController extends Controller
                 'quantity' => $newQuantity,
                 'sale_id' => $sale->id,
             ],
-            'comment' => "Изменено количество товара '{$item->product->name}' на столе #{$table->table_number}: {$oldQuantity} → {$newQuantity}",
+            'comment' => "Изменено количество товара '{$item->product->name}' на столе '{$tableName}': {$oldQuantity} → {$newQuantity}",
         ]);
         
         $item->update(['quantity' => $newQuantity]);
@@ -1002,7 +1015,7 @@ class TableController extends Controller
                 'items' => [],
                 'total' => 0,
                 'tableInfo' => [
-                    'tableNumber' => $table->table_number,
+                    'tableNumber' =>  $table->tableName->name,
                     'guestName' => $table->guest_name ?? ($table->client->name ?? 'Клиент')
                 ]
             ]);
@@ -1031,7 +1044,7 @@ class TableController extends Controller
             'total' => (float)$productsTotal,
             'saleId' => $sale->id,
             'tableInfo' => [
-                'tableNumber' => $table->table_number,
+                'tableNumber' =>  $table->tableName->name,
                 'guestName' => $table->guest_name ?? ($table->client->name ?? 'Клиент')
             ]
         ]);
@@ -1069,7 +1082,7 @@ class TableController extends Controller
                 'total' => (float)$sale->hookahs->sum('price'),
                 'saleId' => $sale->id,
                 'tableInfo' => [
-                    'tableNumber' => $table->table_number,
+                    'tableNumber' =>  $table->tableName->name,
                     'guestName' => $table->guest_name ?? ($table->client->name ?? 'Клиент')
                 ]
             ]);
@@ -1088,7 +1101,7 @@ class TableController extends Controller
 
     public function getSaleData($id) 
     {
-        $table = Table::with('client.bonusCard')->findOrFail($id);
+        $table = Table::with(['tableName', 'client.bonusCard'])->findOrFail($id); // добавляем tableName
         $sale = Sale::where('table_id', $id)->first();
         
         if (!$sale) {
@@ -1125,7 +1138,9 @@ class TableController extends Controller
                 'bonusEarnedPercent' => 0,
                 'canEarnBonus' => false,
                 'bonusCalculation' => 'Нет данных о бонусной карте',
-                'hasBonusCard' => $table->client && $table->client->bonusCard ? true : false
+                'hasBonusCard' => $table->client && $table->client->bonusCard ? true : false,
+                'tableName' => $table->tableName ? $table->tableName->name : null, // добавляем название стола
+                'tableNumber' =>  $table->tableName->name, // для обратной совместимости
             ]);
         }
         
@@ -1219,7 +1234,7 @@ class TableController extends Controller
             $bonusCalculation = "Клиент не указан";
         }
         
-        return response()->json([
+            $response = [
             'success' => true,
             'products' => $products,
             'hookahs' => $hookahs,
@@ -1249,7 +1264,12 @@ class TableController extends Controller
             'bonusEarnedPercent' => $bonusEarnedPercent,
             'canEarnBonus' => $canEarnBonus,
             'bonusCalculation' => $bonusCalculation,
-        ]);
+            
+            'tableName' => $table->tableName ? $table->tableName->name : null, // добавляем название стола
+            'tableNumber' => $table->tableName->name, // для обратной совместимости
+        ];
+        
+        return response()->json($response);
     }
 
     public function getOpenedAtAttribute()
@@ -1315,7 +1335,8 @@ class TableController extends Controller
     public function updateProductPrice(Request $request, Table $table, SaleItem $item)
     {
         $sale = Sale::where('table_id', $table->id)->firstOrFail();
-        
+        $tableName = $this->getTableDisplayName($table);
+
         if ($sale->status === 'completed') {
             return response()->json([
                 'success' => false,
@@ -1348,7 +1369,7 @@ class TableController extends Controller
                 'price' => $newPrice,
                 'sale_id' => $sale->id,
             ],
-            'comment' => "Изменена цена товара '{$item->product->name}' на столе #{$table->table_number}: {$oldPrice} руб. → {$newPrice} руб.",
+            'comment' => "Изменена цена товара '{$item->product->name}' на столе '{$tableName}': {$oldPrice} руб. → {$newPrice} руб.",
         ]);
         
         $item->update(['unit_price' => $newPrice]);
@@ -1364,4 +1385,17 @@ class TableController extends Controller
             'newTotal' => $sale->total
         ]);
     }
+    /**
+     * Получить название стола для отображения
+     */
+    private function getTableDisplayName(Table $table): string
+    {
+        if ($table->tableName && $table->tableName->name) {
+            return $table->tableName->name;
+        }
+        
+        // Для обратной совместимости
+        return  $table->tableName->name ?? 'Стол #' . $table->table_name_id;
+    }
+    
 }

@@ -417,7 +417,7 @@ const HookahTimerManager = {
      */
     showPersistentNotification(tableId, cell) {
         // Получаем информацию о столе
-        const tableNumber = cell.querySelector('button[data-table-number]')?.dataset.tableNumber || '?';
+        const tableNumber = cell.querySelector('button[data-table-name]')?.dataset.tableName || '?';
         const guestName = cell.querySelector('.text-truncate')?.textContent?.trim() || 'Клиент';
         
         const notificationId = `hookah-notification-${tableId}`;

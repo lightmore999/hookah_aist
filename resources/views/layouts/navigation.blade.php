@@ -110,6 +110,9 @@
                             <x-dropdown-link :href="route('operation-history.index')">
                                 История операций
                             </x-dropdown-link>
+                            <x-dropdown-link :href="route('admin.table-names.index') ">
+                                Управление столами
+                            </x-dropdown-link>
                         </div>
                     </div>
                 </div>
