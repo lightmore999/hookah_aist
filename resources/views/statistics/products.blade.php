@@ -20,7 +20,7 @@
     
     <!-- Фильтры -->
     <div class="card border-0 shadow-sm mb-4">
-        <div class="card-body">
+        <div class="card-body"> 
             <form id="productsFilterForm">
                 <div class="row g-3">
                     <div class="col-md-3">
@@ -244,27 +244,86 @@ function renderAllCharts(data) {
     renderCategoryChart(data.category_stats);
 }
 
-function formatCurrency(amount) {
-    return new Intl.NumberFormat('ru-RU', {
-        style: 'currency',
-        currency: 'RUB',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-    }).format(amount);
-}
 
 function renderProductsTable(productsData) {
     // Фильтруем товары с продажами
     const productsWithSales = productsData.filter(item => item.total_quantity > 0);
     
-    const rows = productsData.map(item => {
+    // Добавляем поле для поиска над таблицей
+    let html = `
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Детальная статистика по товарам</h5>
+                        <div>
+                            <span class="badge bg-primary me-2">${productsData.length} товаров</span>
+                            <span class="badge bg-success">${productsWithSales.length} с продажами</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Поиск по названию товара -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="input-group">
+                                    <span class="input-group-text">
+                                        <i class="bi bi-search"></i>
+                                    </span>
+                                    <input type="text" 
+                                           class="form-control form-control-sm" 
+                                           id="tableProductSearch" 
+                                           placeholder="Поиск по названию товара..."
+                                           onkeyup="filterProductsTable()">
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearProductSearch()">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                                <small class="text-muted">Введите название для поиска в таблице</small>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <div class="d-flex justify-content-end gap-2">
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="sortTableBy('name')" title="Сортировать по названию">
+                                        <i class="bi bi-sort-alpha-down"></i> Название
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="sortTableBy('total_profit')" title="Сортировать по прибыли">
+                                        <i class="bi bi-sort-numeric-down"></i> Прибыль
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="sortTableBy('total_quantity')" title="Сортировать по количеству">
+                                        <i class="bi bi-sort-numeric-down-alt"></i> Кол-во
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" id="productsTable">
+                                <thead class="bg-light">
+                                    <tr>
+                                        <th class="ps-3">Товар</th>
+                                        <th>Категория</th>
+                                        <th>Цена</th>
+                                        <th>Себест.</th>
+                                        <th>Продано</th>
+                                        <th>Выручка</th>
+                                        <th>Прибыль</th>
+                                        <th>Маржа</th>
+                                        <th>Продаж</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="productsTableBody">
+    `;
+    
+    // Сортируем товары по прибыли при первой загрузке
+    let sortedProducts = [...productsData].sort((a, b) => b.total_profit - a.total_profit);
+    
+    sortedProducts.forEach(item => {
         const profitClass = item.total_profit > 0 ? 'text-success' : 'text-danger';
         const marginClass = item.profit_margin >= 30 ? 'text-success' : 
                           item.profit_margin >= 20 ? 'text-warning' : 'text-danger';
         const rowClass = item.total_quantity === 0 ? 'bg-light' : '';
         
-        return `
-            <tr class="${rowClass}">
+        html += `
+            <tr class="${rowClass}" data-name="${item.name.toLowerCase()}" data-category="${item.category.toLowerCase()}" data-profit="${item.total_profit}" data-quantity="${item.total_quantity}">
                 <td class="ps-3 fw-bold">${item.name}</td>
                 <td><span class="badge bg-secondary">${item.category}</span></td>
                 <td>${formatCurrency(item.price)}</td>
@@ -280,7 +339,7 @@ function renderProductsTable(productsData) {
                 <td>${item.sales_count}</td>
             </tr>
         `;
-    }).join('');
+    });
     
     const totalQuantity = productsData.reduce((sum, item) => sum + item.total_quantity, 0);
     const totalRevenue = productsData.reduce((sum, item) => sum + item.total_revenue, 0);
@@ -288,38 +347,10 @@ function renderProductsTable(productsData) {
     const totalSalesCount = productsData.reduce((sum, item) => sum + item.sales_count, 0);
     const totalMargin = totalRevenue > 0 ? (totalProfit / totalRevenue * 100).toFixed(1) : 0;
     
-    let html = `
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">Детальная статистика по товарам </h5>
-                        <div>
-                            <span class="badge bg-primary me-2">${productsData.length} товаров</span>
-                            <span class="badge bg-success">${productsWithSales.length} с продажами</span>
-                        </div>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover mb-0">
-                                <thead class="bg-light">
-                                    <tr>
-                                        <th class="ps-3">Товар</th>
-                                        <th>Категория</th>
-                                        <th>Цена</th>
-                                        <th>Себест.</th>
-                                        <th>Продано</th>
-                                        <th>Выручка</th>
-                                        <th>Прибыль</th>
-                                        <th>Маржа</th>
-                                        <th>Продаж</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
+    html += `
                                 </tbody>
                                 <tfoot class="bg-light">
-                                    <tr>
+                                    <tr id="tableFooter">
                                         <td class="ps-3 fw-bold" colspan="4">Итого:</td>
                                         <td class="fw-bold">${totalQuantity} шт.</td>
                                         <td class="fw-bold">${formatCurrency(totalRevenue)}</td>
@@ -330,14 +361,221 @@ function renderProductsTable(productsData) {
                                 </tfoot>
                             </table>
                         </div>
+                        
+                        <!-- Информация о поиске -->
+                        <div class="mt-3">
+                            <small id="searchInfo" class="text-muted d-none">
+                                <i class="bi bi-info-circle"></i> Найдено: <span id="foundCount">0</span> из ${productsData.length} товаров
+                            </small>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     `;
     
+    // Сохраняем данные товаров в глобальной переменной для фильтрации
+    window.allProductsData = productsData;
+    
     document.getElementById('dataContainer').insertAdjacentHTML('beforeend', html);
 }
+
+let currentSort = { column: 'total_profit', order: 'desc' };
+
+// Функция фильтрации таблицы
+function filterProductsTable() {
+    const searchInput = document.getElementById('tableProductSearch');
+    const searchTerm = searchInput.value.toLowerCase().trim();
+    const tableRows = document.querySelectorAll('#productsTableBody tr');
+    const searchInfo = document.getElementById('searchInfo');
+    const foundCountSpan = document.getElementById('foundCount');
+    
+    let visibleCount = 0;
+    
+    tableRows.forEach(row => {
+        const productName = row.getAttribute('data-name');
+        const categoryName = row.getAttribute('data-category');
+        
+        // Ищем по названию товара или категории
+        const matches = productName.includes(searchTerm) || categoryName.includes(searchTerm);
+        
+        if (searchTerm === '' || matches) {
+            row.style.display = '';
+            visibleCount++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    // Обновляем информацию о поиске
+    if (searchTerm) {
+        searchInfo.classList.remove('d-none');
+        foundCountSpan.textContent = visibleCount;
+    } else {
+        searchInfo.classList.add('d-none');
+    }
+    
+    // Обновляем итоговую строку
+    updateTableFooter(visibleCount, searchTerm);
+}
+
+// Функция очистки поиска
+function clearProductSearch() {
+    const searchInput = document.getElementById('tableProductSearch');
+    searchInput.value = '';
+    filterProductsTable();
+}
+
+// Функция обновления итоговой строки таблицы
+function updateTableFooter(visibleCount, searchTerm) {
+    const footer = document.getElementById('tableFooter');
+    
+    if (searchTerm && visibleCount > 0) {
+        // Пересчитываем суммы для видимых товаров
+        const tableRows = document.querySelectorAll('#productsTableBody tr:not([style*="display: none"])');
+        
+        let totalQuantity = 0;
+        let totalRevenue = 0;
+        let totalProfit = 0;
+        let totalSalesCount = 0;
+        
+        tableRows.forEach(row => {
+            const quantityCell = row.querySelector('td:nth-child(5)');
+            const revenueCell = row.querySelector('td:nth-child(6)');
+            const profitCell = row.querySelector('td:nth-child(7)');
+            const salesCell = row.querySelector('td:nth-child(9)');
+            
+            if (quantityCell && revenueCell && profitCell && salesCell) {
+                const quantity = parseInt(quantityCell.textContent.replace(/\D/g, '')) || 0;
+                const revenue = parseFloat(revenueCell.textContent.replace(/[^\d.-]/g, '')) || 0;
+                const profit = parseFloat(profitCell.textContent.replace(/[^\d.-]/g, '')) || 0;
+                const sales = parseInt(salesCell.textContent) || 0;
+                
+                totalQuantity += quantity;
+                totalRevenue += revenue;
+                totalProfit += profit;
+                totalSalesCount += sales;
+            }
+        });
+        
+        // Обновляем итоговую строку
+        footer.innerHTML = `
+            <td class="ps-3 fw-bold" colspan="4">Итого (${visibleCount} товаров):</td>
+            <td class="fw-bold">${totalQuantity} шт.</td>
+            <td class="fw-bold">${formatCurrency(totalRevenue)}</td>
+            <td class="fw-bold">${formatCurrency(totalProfit)}</td>
+            <td class="fw-bold">${totalRevenue > 0 ? ((totalProfit / totalRevenue * 100).toFixed(1)) : 0}%</td>
+            <td class="fw-bold">${totalSalesCount}</td>
+        `;
+    } else {
+        // Возвращаем оригинальные итоги
+        const totalQuantity = window.allProductsData.reduce((sum, item) => sum + item.total_quantity, 0);
+        const totalRevenue = window.allProductsData.reduce((sum, item) => sum + item.total_revenue, 0);
+        const totalProfit = window.allProductsData.reduce((sum, item) => sum + item.total_profit, 0);
+        const totalSalesCount = window.allProductsData.reduce((sum, item) => sum + item.sales_count, 0);
+        const totalMargin = totalRevenue > 0 ? (totalProfit / totalRevenue * 100).toFixed(1) : 0;
+        
+        footer.innerHTML = `
+            <td class="ps-3 fw-bold" colspan="4">Итого:</td>
+            <td class="fw-bold">${totalQuantity} шт.</td>
+            <td class="fw-bold">${formatCurrency(totalRevenue)}</td>
+            <td class="fw-bold">${formatCurrency(totalProfit)}</td>
+            <td class="fw-bold">${totalMargin}%</td>
+            <td class="fw-bold">${totalSalesCount}</td>
+        `;
+    }
+}
+
+// Функция сортировки таблицы
+function sortTableBy(column) {
+    const tableBody = document.getElementById('productsTableBody');
+    const rows = Array.from(tableBody.querySelectorAll('tr'));
+    
+    // Определяем порядок сортировки
+    const isAscending = currentSort.column === column && currentSort.order === 'asc';
+    const newOrder = isAscending ? 'desc' : 'asc';
+    
+    // Сортируем строки
+    rows.sort((a, b) => {
+        let aValue, bValue;
+        
+        switch(column) {
+            case 'name':
+                aValue = a.querySelector('td:nth-child(1)').textContent.toLowerCase();
+                bValue = b.querySelector('td:nth-child(1)').textContent.toLowerCase();
+                return isAscending ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+                
+            case 'total_profit':
+                aValue = parseFloat(a.getAttribute('data-profit'));
+                bValue = parseFloat(b.getAttribute('data-profit'));
+                return isAscending ? aValue - bValue : bValue - aValue;
+                
+            case 'total_quantity':
+                aValue = parseFloat(a.getAttribute('data-quantity'));
+                bValue = parseFloat(b.getAttribute('data-quantity'));
+                return isAscending ? aValue - bValue : bValue - aValue;
+                
+            default:
+                return 0;
+        }
+    });
+    
+    // Обновляем таблицу
+    rows.forEach(row => tableBody.appendChild(row));
+    
+    // Обновляем состояние сортировки
+    currentSort = { column, order: newOrder };
+    
+    // Визуально показываем сортировку
+    updateSortIndicators(column, newOrder);
+}
+
+// Функция для обновления индикаторов сортировки
+function updateSortIndicators(column, order) {
+    // Удаляем индикаторы со всех кнопок
+    document.querySelectorAll('.sort-indicator').forEach(indicator => {
+        indicator.remove();
+    });
+    
+    // Добавляем индикатор на активную кнопку
+    const button = document.querySelector(`[onclick*="sortTableBy('${column}')"]`);
+    if (button) {
+        const indicator = document.createElement('span');
+        indicator.className = 'sort-indicator ms-1';
+        indicator.innerHTML = order === 'asc' ? 
+            '<i class="bi bi-arrow-up"></i>' : 
+            '<i class="bi bi-arrow-down"></i>';
+        button.appendChild(indicator);
+    }
+}
+
+// Функция для форматирования валюты (если еще нет)
+function formatCurrency(amount) {
+    // Проверяем, не является ли amount null или undefined
+    if (amount === null || amount === undefined || isNaN(amount)) {
+        amount = 0;
+    }
+    
+    // Форматируем число
+    return new Intl.NumberFormat('ru-RU', {
+        style: 'currency',
+        currency: 'RUB',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+    }).format(amount);
+}
+
+// Добавляем обработчик Enter в поле поиска
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('tableProductSearch');
+    if (searchInput) {
+        searchInput.addEventListener('keyup', function(e) {
+            if (e.key === 'Enter') {
+                filterProductsTable();
+            }
+        });
+    }
+});
 
 function renderTopProducts(topProducts) {
     if (!topProducts || topProducts.length === 0) return;

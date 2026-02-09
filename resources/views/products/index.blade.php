@@ -70,7 +70,7 @@ function calculateComponentCost($product, $quantity) {
                     <div class="card-body">
                         <form method="GET" action="{{ route('products.index') }}" id="filter-form">
                             <div class="row g-3">
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <label for="category_id" class="form-label">Категория</label>
                                     <select name="category_id" id="category_id" class="form-select"
                                             onchange="this.form.submit()"> 
@@ -81,6 +81,34 @@ function calculateComponentCost($product, $quantity) {
                                                 {{ $category->name }}
                                             </option>
                                         @endforeach
+                                    </select>
+                                </div>
+                                
+                                <div class="col-md-3">
+                                    <label for="is_active" class="form-label">Статус</label>
+                                    <select name="is_active" id="is_active" class="form-select"
+                                            onchange="this.form.submit()"> 
+                                        <option value="">Все статусы</option>
+                                        <option value="true" {{ request('is_active') === 'true' ? 'selected' : '' }}>
+                                            Только активные
+                                        </option>
+                                        <option value="false" {{ request('is_active') === 'false' ? 'selected' : '' }}>
+                                            Только неактивные
+                                        </option>
+                                    </select>
+                                </div>
+                                
+                                <div class="col-md-3">
+                                    <label for="sort_by" class="form-label">Сортировка</label>
+                                    <select name="sort_by" id="sort_by" class="form-select"
+                                            onchange="this.form.submit()"> 
+                                        <option value="">По умолчанию</option>
+                                        <option value="popularity" {{ request('sort_by') === 'popularity' ? 'selected' : '' }}>
+                                            По популярности
+                                        </option>
+                                        <option value="name" {{ request('sort_by') === 'name' ? 'selected' : '' }}>
+                                            По названию
+                                        </option>
                                     </select>
                                 </div>
                             </div>
@@ -109,6 +137,8 @@ function calculateComponentCost($product, $quantity) {
                                 <th>Единица</th>
                                 <th>Категория</th>
                                 <th>Состав</th>
+                                <th>Статус</th>
+                                <th>Популярность</th>
                                 <th>Артикул</th>
                                 <th class="text-end">Действия</th>
                             </tr>
@@ -139,6 +169,25 @@ function calculateComponentCost($product, $quantity) {
                                     @endif
                                 </td>
                                 <td>
+                                    @if($product->is_active)
+                                        <span class="badge bg-success">
+                                            <i class="bi bi-check-circle me-1"></i>Активен
+                                        </span>
+                                    @else
+                                        <span class="badge bg-danger">
+                                            <i class="bi bi-x-circle me-1"></i>Неактивен
+                                        </span>
+                                    @endif
+                                </td>
+                                <td>
+                                    <span class="badge bg-{{ $product->popularity > 0 ? 'info' : 'light text-dark' }}">
+                                        {{ $product->popularity }}
+                                        @if($product->popularity > 0)
+                                            <i class="bi bi-fire ms-1"></i>
+                                        @endif
+                                    </span>
+                                </td>
+                                <td>
                                     <small class="text-muted">
                                         @if($product->article_number)
                                             {{ $product->article_number }}
@@ -161,6 +210,8 @@ function calculateComponentCost($product, $quantity) {
                                                 data-category-id="{{ $product->product_category_id }}"
                                                 data-article="{{ $product->article_number ?? '' }}"
                                                 data-barcode="{{ $product->barcode ?? '' }}"
+                                                data-popularity="{{ $product->popularity }}" 
+                                                data-is-active="{{ $product->is_active ? 'true' : 'false' }}" 
                                                 data-components="{{ $product->recipeComponents->map(function($component) {
                                                     return [
                                                         'id' => $component->id,
@@ -184,7 +235,6 @@ function calculateComponentCost($product, $quantity) {
                                     </div>
                                 </td>
                             </tr>
-                            
                             @endforeach
                         </tbody>
                     </table>
@@ -218,10 +268,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('edit_product_category_id').value = button.dataset.categoryId;
                 document.getElementById('edit_product_article').value = button.dataset.article || '';
                 document.getElementById('edit_product_barcode').value = button.dataset.barcode || '';
+                document.getElementById('edit_product_popularity').value = button.dataset.popularity || '0';
+                
+                // Обработка checkbox is_active
+                const isActiveCheckbox = document.getElementById('edit_product_is_active');
+                if (isActiveCheckbox) {
+                    isActiveCheckbox.checked = button.dataset.isActive === 'true';
+                }
+                
                 document.getElementById('editProductForm').action = `/products/${button.dataset.id}`;
             }
         });
     }
+
 
     // Заполнение полей модалки удаления
     if (deleteProductModal) {
@@ -565,6 +624,55 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    const resetPopularityBtn = document.getElementById('reset_popularity_btn');
+    if (resetPopularityBtn) {
+        resetPopularityBtn.addEventListener('click', function() {
+            document.getElementById('edit_product_popularity').value = '0';
+        });
+    }
+
+    // AJAX для быстрого изменения статуса (опционально)
+    document.addEventListener('click', function(e) {
+        // Если кликнули по бейджу статуса - быстрое переключение
+        if (e.target.closest('.badge.bg-success, .badge.bg-danger')) {
+            const badge = e.target.closest('.badge');
+            const row = badge.closest('tr');
+            const editBtn = row.querySelector('.edit-product-btn');
+            
+            if (editBtn && confirm('Изменить статус товара?')) {
+                const productId = editBtn.dataset.id;
+                const isCurrentlyActive = badge.classList.contains('bg-success');
+                const newStatus = !isCurrentlyActive;
+                
+                fetch(`/products/${productId}/toggle-active`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    },
+                    body: JSON.stringify({
+                        is_active: newStatus
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Обновляем UI
+                        if (newStatus) {
+                            badge.className = 'badge bg-success';
+                            badge.innerHTML = '<i class="bi bi-check-circle me-1"></i>Активен';
+                            editBtn.dataset.isActive = 'true';
+                        } else {
+                            badge.className = 'badge bg-danger';
+                            badge.innerHTML = '<i class="bi bi-x-circle me-1"></i>Неактивен';
+                            editBtn.dataset.isActive = 'false';
+                        }
+                    }
+                });
+            }
+        }
+    });
     
     // ========== ОБЩИЕ ФУНКЦИИ ==========
     
@@ -580,12 +688,42 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 
-
-
 <style>
 .badge {
     font-size: 0.75em;
     padding: 0.35em 0.65em;
+}
+
+/* Стили для статусов */
+.badge.bg-success {
+    background-color: #198754 !important;
+}
+.badge.bg-danger {
+    background-color: #dc3545 !important;
+}
+.badge.bg-info {
+    background-color: #0dcaf0 !important;
+}
+.badge.bg-light {
+    background-color: #f8f9fa !important;
+}
+
+/* Стили для популярности */
+.popularity-high {
+    color: #ff6b6b;
+    font-weight: bold;
+}
+.popularity-medium {
+    color: #ffa94d;
+}
+.popularity-low {
+    color: #51cf66;
+}
+
+/* Стили для чекбоксов */
+.form-check-input:checked {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
 }
 </style>
 

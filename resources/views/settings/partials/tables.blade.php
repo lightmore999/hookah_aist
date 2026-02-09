@@ -86,13 +86,18 @@
                                 </div>
                             </td>
                             <td>
-                                <button type="button" 
-                                        class="btn btn-sm btn-outline-danger delete-table-btn"
-                                        data-table-id="{{ $table->id }}"
-                                        data-table-name="{{ $table->name }}"
-                                        title="Удалить стол">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                <form action="{{ route('admin.table-names.destroy', ['table_name' => $table->id]) }}" 
+                                    method="POST" 
+                                    class="d-inline"
+                                    onsubmit="return confirm('Вы уверены, что хотите удалить стол \\'{{ $table->name }}\\'?\\n\\nЭто действие нельзя отменить.');">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" 
+                                            class="btn btn-sm btn-outline-danger"
+                                            title="Удалить стол">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
                             </td>
                         </tr>
                         @endforeach

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\OperationHistory;
+use App\Models\Sale;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -57,33 +58,23 @@ class OperationHistoryController extends Controller
         // Пагинация
         $history = $query->paginate(50)->withQueryString();
 
-        // Типы действий для фильтра
-        $actionTypes = [
-            OperationHistory::ACTION_CREATE => 'Создание',
-            OperationHistory::ACTION_UPDATE => 'Изменение',
-            OperationHistory::ACTION_DELETE => 'Удаление',
-            OperationHistory::ACTION_CLOSE => 'Закрытие',
-            OperationHistory::ACTION_OPEN => 'Открытие',
-            OperationHistory::ACTION_ADD_HOOKAH => 'Добавление кальяна',
-            OperationHistory::ACTION_REMOVE_HOOKAH => 'Удаление кальяна',
-        ];
+        // Загружаем детали продаж для записей типа "sale"
+        $history->each(function($record) {
+            if ($record->entity_type === OperationHistory::ENTITY_SALE && $record->entity_id) {
+                $record->loadSaleDetails();
+            }
+        });
 
-        // Типы сущностей для фильтра
-        $entityTypes = [
-            OperationHistory::ENTITY_TABLE => 'Столы',
-            OperationHistory::ENTITY_SALE => 'Продажи',
-            OperationHistory::ENTITY_EXPENSE => 'Расходы',
-            OperationHistory::ENTITY_HOOKAH => 'Кальяны',
-        ];
+        // Используем методы модели для получения типов
+        $actionTypes = OperationHistory::getActionTypes();
+        $entityTypes = OperationHistory::getEntityTypes();
 
         // Пользователи для фильтра
         $users = \App\Models\User::orderBy('name')->get();
 
-        $stats = $this->getStatistics($request);
-
         return view('operation-history.index', compact(
             'history',
-            'stats', // добавляем эту строку
+            'stats',
             'actionTypes',
             'entityTypes',
             'users'
@@ -103,7 +94,8 @@ class OperationHistoryController extends Controller
             try {
                 $modelClass = $this->getModelClass($operationHistory->entity_type);
                 if (class_exists($modelClass)) {
-                    $entity = $modelClass::find($operationHistory->entity_id);
+                    $entity = $modelClass::with($this->getModelRelations($operationHistory->entity_type))
+                        ->find($operationHistory->entity_id);
                 }
             } catch (\Exception $e) {
                 // Игнорируем ошибки при поиске удаленных сущностей
@@ -188,5 +180,27 @@ class OperationHistoryController extends Controller
         ];
 
         return $mapping[$entityType] ?? null;
+    }
+
+    /**
+     * Get model relations by entity type.
+     */
+    private function getModelRelations(string $entityType): array
+    {
+        $mapping = [
+            OperationHistory::ENTITY_SALE => [
+                'client',
+                'table',
+                'paymentMethod',
+                'items.product',
+                'hookahs',
+                'bonusHistories'
+            ],
+            OperationHistory::ENTITY_TABLE => [],
+            OperationHistory::ENTITY_EXPENSE => [],
+            OperationHistory::ENTITY_HOOKAH => [],
+        ];
+
+        return $mapping[$entityType] ?? [];
     }
 }

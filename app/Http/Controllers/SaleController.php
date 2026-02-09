@@ -91,8 +91,11 @@ class SaleController extends Controller
             $sale->client->load('bonusCard');
         }
         
-        $products = Product::with(['recipeComponents.component', 'category'])
-            ->orderBy('name')
+        // ИЗМЕНЯЕМ: Берем только активные товары, сортируем по популярности
+        $products = Product::active() // Используем scope active()
+            ->with(['recipeComponents.component', 'category'])
+            ->orderBy('popularity', 'desc') // Сначала популярные
+            ->orderBy('name') // Потом по имени
             ->get();
             
         $hookahs = Hookah::orderBy('name')->get();
@@ -280,6 +283,25 @@ class SaleController extends Controller
             }
         }
 
+        // ========== ДОБАВЛЯЕМ УВЕЛИЧЕНИЕ ПОПУЛЯРНОСТИ ==========
+        // Увеличиваем популярность товаров при завершении продажи
+        foreach ($sale->items as $item) {
+            $product = $item->product;
+            
+            // Увеличиваем популярность пропорционально количеству
+            // Например: 1 товар = +1 к популярности, 10 товаров = +10 к популярности
+            $popularityIncrease = (int) $item->quantity; // Можно использовать целое количество
+            
+            // ИЛИ используем более сложную формулу:
+            // $popularityIncrease = (int) ceil($item->quantity); // Округляем вверх
+            
+            // ИЛИ фиксированное увеличение за каждый товар (даже дробные количества):
+            $popularityIncrease = max(1, (int) ceil($item->quantity)); // Минимум 1, округляем вверх
+            
+            $product->incrementPopularity($popularityIncrease);
+        }
+        // ========== КОНЕЦ ДОБАВЛЕНИЯ ПОПУЛЯРНОСТИ ==========
+
         // Закрываем стол, если заказ привязан к столу
         $tableClosed = false;
         if ($sale->table_id) {
@@ -463,6 +485,11 @@ class SaleController extends Controller
         ]);
 
         $product = Product::find($validated['product_id']);
+        
+        // ДОБАВЛЯЕМ: Проверяем, активен ли товар
+        if (!$product->is_active) {
+            return back()->with('error', 'Товар не активен. Невозможно добавить в продажу.');
+        }
         
         // Для штучных товаров проверяем целое число
         if ($product->unit === 'шт' && floor($validated['quantity']) != $validated['quantity']) {

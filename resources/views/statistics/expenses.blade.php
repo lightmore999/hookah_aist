@@ -67,7 +67,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-const API_URL = '{{ route("statistics.expenses.data") }}';
+const API_URL = '{{ route("statistics.expenses.stats") }}';
 let charts = {};
 
 document.addEventListener('DOMContentLoaded', function() {

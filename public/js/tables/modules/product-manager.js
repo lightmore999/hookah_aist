@@ -135,38 +135,87 @@ class ProductManager {
         const productSelect = document.getElementById('productSelect');
         const selectedOption = productSelect.options[productSelect.selectedIndex];
         
+        // Получаем элементы DOM для нового блока отображения
+        const selectedProductName = document.getElementById('selectedProductName');
+        const selectedProductDetails = document.getElementById('selectedProductDetails');
+        const selectedProductPrice = document.getElementById('selectedProductPrice');
+        const selectedProductStock = document.getElementById('selectedProductStock');
+        const selectedProductAvailable = document.getElementById('selectedProductAvailable');
+        const selectedProductUnit = document.getElementById('selectedProductUnit');
+        const priceInput = document.getElementById('productPrice');
+        const quantityHint = document.getElementById('quantityHint');
+        const quantityInput = document.getElementById('productQuantity');
+        
+        // Если товар не выбран
         if (!selectedOption || !selectedOption.value) {
             this.hideAvailabilityWarning();
+            
+            // Сбрасываем блок отображения
+            if (selectedProductName) selectedProductName.textContent = 'Товар не выбран';
+            if (selectedProductDetails) selectedProductDetails.textContent = 'Выберите товар из списка';
+            if (selectedProductPrice) selectedProductPrice.textContent = '- ₽';
+            if (selectedProductStock) selectedProductStock.style.display = 'none';
+            
+            // Сбрасываем поля формы
+            if (priceInput) priceInput.value = '';
+            if (quantityInput) quantityInput.value = '1';
+            if (quantityHint) {
+                quantityHint.textContent = '';
+                quantityHint.className = 'text-muted';
+            }
+            
             return;
         }
         
-        const unit = selectedOption.dataset.unit;
-        const price = selectedOption.dataset.price;
+        // Получаем данные из выбранного товара
+        const unit = selectedOption.dataset.unit || 'шт';
+        const price = selectedOption.dataset.price || 0;
         const available = parseFloat(selectedOption.dataset.available) || 0;
+        const fullText = selectedOption.textContent;
+        const productName = fullText.split(' (')[0].trim();
+        const categoryName = selectedOption.dataset.categoryName || 'Без категории';
         
-        // Устанавливаем цену по умолчанию
-        const priceInput = document.getElementById('productPrice');
-        if (priceInput && price) {
-            priceInput.value = price;
-        }
+        // Обновляем блок отображения выбранного товара
+        if (selectedProductName) selectedProductName.textContent = productName;
+        if (selectedProductDetails) selectedProductDetails.textContent = categoryName;
+        if (selectedProductPrice) selectedProductPrice.textContent = parseFloat(price).toFixed(2) + ' ₽';
         
-        // Обновляем подсказку
-        const hint = document.getElementById('quantityHint');
-        if (hint) {
-            if (unit === 'шт') {
-                hint.textContent = 'Количество должно быть целым числом';
-                hint.className = 'text-info';
+        // Обновляем информацию о наличии
+        if (selectedProductStock && selectedProductAvailable && selectedProductUnit) {
+            if (available > 0) {
+                selectedProductAvailable.textContent = available;
+                selectedProductUnit.textContent = unit;
+                selectedProductStock.style.display = 'block';
             } else {
-                hint.textContent = `Единица измерения: ${unit}`;
-                hint.className = 'text-muted';
+                selectedProductStock.style.display = 'none';
             }
         }
         
-        // Устанавливаем правильный step для input
-        const quantityInput = document.getElementById('productQuantity');
+        // Заполняем поле цены
+        if (priceInput && price) {
+            priceInput.value = parseFloat(price).toFixed(2);
+        }
+        
+        // Обновляем подсказку для количества
+        if (quantityHint) {
+            if (unit === 'шт') {
+                quantityHint.textContent = 'Количество должно быть целым числом';
+                quantityHint.className = 'text-info';
+            } else {
+                quantityHint.textContent = `Единица измерения: ${unit}`;
+                quantityHint.className = 'text-muted';
+            }
+        }
+        
+        // Устанавливаем правильные атрибуты для поля количества
         if (quantityInput) {
-            quantityInput.step = unit === 'шт' ? '1' : '0.001';
-            quantityInput.min = unit === 'шт' ? '1' : '0.001';
+            if (unit === 'шт') {
+                quantityInput.step = '1';
+                quantityInput.min = '1';
+            } else {
+                quantityInput.step = '0.001';
+                quantityInput.min = '0.001';
+            }
         }
         
         // Показываем информацию о доступности
@@ -540,19 +589,56 @@ class ProductManager {
     }
     
     resetProductForm() {
+        // Получаем все необходимые элементы
         const productSelect = document.getElementById('productSelect');
         const quantityInput = document.getElementById('productQuantity');
         const priceInput = document.getElementById('productPrice');
-        const hint = document.getElementById('quantityHint');
+        const quantityHint = document.getElementById('quantityHint');
+        const selectedProductName = document.getElementById('selectedProductName');
+        const selectedProductDetails = document.getElementById('selectedProductDetails');
+        const selectedProductPrice = document.getElementById('selectedProductPrice');
+        const selectedProductStock = document.getElementById('selectedProductStock');
         
-        if (productSelect) productSelect.value = '';
-        if (quantityInput) quantityInput.value = '1';
-        if (priceInput) priceInput.value = '';
-        if (hint) {
-            hint.textContent = '';
-            hint.className = 'text-muted';
+        // Сбрасываем select
+        if (productSelect) {
+            productSelect.value = '';
         }
         
+        // Сбрасываем поля ввода
+        if (quantityInput) {
+            quantityInput.value = '1';
+            quantityInput.step = 'any';
+            quantityInput.min = '0.001';
+        }
+        
+        if (priceInput) {
+            priceInput.value = '';
+        }
+        
+        // Сбрасываем подсказку
+        if (quantityHint) {
+            quantityHint.textContent = '';
+            quantityHint.className = 'text-muted';
+        }
+        
+        // Сбрасываем блок отображения выбранного товара
+        if (selectedProductName) {
+            selectedProductName.textContent = 'Товар не выбран';
+        }
+        
+        if (selectedProductDetails) {
+            selectedProductDetails.textContent = 'Выберите товар из списка';
+        }
+        
+        if (selectedProductPrice) {
+            selectedProductPrice.textContent = '- ₽';
+        }
+        
+        if (selectedProductStock) {
+            selectedProductStock.style.display = 'none';
+        }
+        
+        // Скрываем предупреждение о доступности
         this.hideAvailabilityWarning();
     }
     

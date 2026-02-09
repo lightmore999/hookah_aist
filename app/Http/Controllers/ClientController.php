@@ -5,17 +5,70 @@ namespace App\Http\Controllers;
 use App\Models\Client;
 use App\Models\BonusCard;
 use App\Models\BonusHistory;
+use App\Models\Sale;
 use Illuminate\Http\Request;
 
 class ClientController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $clients = Client::with('bonusCard')->latest()->get();
+        $query = Client::with(['bonusCard', 'sales']);
+        
+        // Поиск по имени или телефону
+        if ($request->has('search') && $request->search) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+        
+        // Сортировка
+        $sortBy = $request->get('sort_by', 'created_at');
+        $sortOrder = $request->get('sort_order', 'desc');
+        
+        // Загружаем всех клиентов и вычисляем дополнительные данные
+        $clients = $query->latest()->get()->map(function($client) {
+            // Вычисляем общую сумму покупок
+            $totalSpent = $client->sales()->sum('total');
+            // Вычисляем количество посещений (продаж)
+            $visitsCount = $client->sales()->count();
+            
+            // Добавляем вычисленные поля как динамические свойства
+            $client->total_spent = $totalSpent ?? 0;
+            $client->visits_count = $visitsCount ?? 0;
+            
+            return $client;
+        });
+        
+        // Сортировка на уровне коллекции
+        if ($sortBy === 'total_spent') {
+            $clients = $sortOrder === 'asc' 
+                ? $clients->sortBy('total_spent') 
+                : $clients->sortByDesc('total_spent');
+        } elseif ($sortBy === 'visits_count') {
+            $clients = $sortOrder === 'asc' 
+                ? $clients->sortBy('visits_count') 
+                : $clients->sortByDesc('visits_count');
+        } elseif ($sortBy === 'bonus_points') {
+            $clients = $sortOrder === 'asc' 
+                ? $clients->sortBy('bonus_points') 
+                : $clients->sortByDesc('bonus_points');
+        } elseif ($sortBy === 'name') {
+            $clients = $sortOrder === 'asc' 
+                ? $clients->sortBy('name') 
+                : $clients->sortByDesc('name');
+        }
+        
+        // Преобразуем обратно в коллекцию с сохранением ключей
+        $clients = $clients->values();
+        
         $bonusCards = BonusCard::all();
+        
         return view('clients.index', compact('clients', 'bonusCards'));
     }
-
+    
+    // Остальные методы остаются без изменений...
     public function create()
     {
         $bonusCards = BonusCard::all();
@@ -41,8 +94,15 @@ class ClientController extends Controller
 
     public function show(Client $client)
     {
-        $client->load('bonusCard');
-        return view('clients.show', compact('client'));
+        // Загружаем продажи для отображения деталей
+        $client->load(['bonusCard', 'sales']);
+        
+        // Вычисляем дополнительные данные
+        $totalSpent = $client->sales()->sum('total');
+        $visitsCount = $client->sales()->count();
+        $averageCheck = $visitsCount > 0 ? $totalSpent / $visitsCount : 0;
+        
+        return view('clients.show', compact('client', 'totalSpent', 'visitsCount', 'averageCheck'));
     }
 
     public function edit(Client $client)
@@ -89,11 +149,11 @@ class ClientController extends Controller
         // Начисляем бонусы
         $oldBalance = $client->bonus_points;
         $client->increment('bonus_points', $validated['amount']);
-        $client->refresh(); // обновляем объект
+        $client->refresh();
         
         // Создаем запись в истории
         BonusHistory::create([
-            'client_id' => $client->id, // теперь client_id вместо user_id
+            'client_id' => $client->id,
             'amount' => $validated['amount'],
             'operation_type' => 'credit',
             'balance_after' => $client->bonus_points,
@@ -128,7 +188,7 @@ class ClientController extends Controller
         
         // Создаем запись в истории
         BonusHistory::create([
-            'client_id' => $client->id, // теперь client_id вместо user_id
+            'client_id' => $client->id,
             'amount' => $validated['amount'],
             'operation_type' => 'debit',
             'balance_after' => $client->bonus_points,
@@ -148,5 +208,17 @@ class ClientController extends Controller
             new \App\Exports\ClientsExport(), 
             $filename
         );
+    }
+    
+    /**
+     * История бонусов клиента
+     */
+    public function bonusHistory(Client $client)
+    {
+        $bonusHistory = BonusHistory::where('client_id', $client->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+            
+        return view('clients.bonus-history', compact('client', 'bonusHistory'));
     }
 }

@@ -97,6 +97,7 @@
                                     <tr>
                                         <th>Кальян</th>
                                         <th width="100">Цена</th>
+                                        <th width="100">Время добавления</th>
                                     </tr>
                                 </thead>
                                 <tbody id="viewOrderHookahsBody">

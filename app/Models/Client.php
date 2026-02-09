@@ -40,6 +40,11 @@ class Client extends Model
     {
         return $this->hasMany(Order::class, 'IDClient');
     }
+    
+    public function sales()
+    {
+        return $this->hasMany(Sale::class, 'client_id');
+    }
 
     /**
      * Добавить покупку клиенту и проверить/обновить карту

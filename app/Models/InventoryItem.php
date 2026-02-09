@@ -76,4 +76,5 @@ class InventoryItem extends Model
     {
         return $query->whereColumn('actual_quantity', '!=', 'system_quantity');
     }
+    
 }

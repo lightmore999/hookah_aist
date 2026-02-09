@@ -226,6 +226,7 @@ class Table extends Model
      */
     public static function isTableAvailable($tableNameId, $date, $time, $duration, $excludeId = null): bool
     {
+
         $query = self::where('table_name_id', $tableNameId)
             ->where('booking_date', $date)
             ->where('status', '!=', 'cancelled');
@@ -236,14 +237,29 @@ class Table extends Model
 
         $existingBookings = $query->get();
 
-        $requestStart = strtotime($time);
-        $requestEnd = $requestStart + ($duration * 3600);
+        // Исправляем расчет времени
+        // strtotime нужно передавать полную дату и время
+        $requestStart = strtotime($date . ' ' . $time);
+        // Длительность в МИНУТАХ, а не часах! Умножаем на 60
+        $requestEnd = $requestStart + ($duration * 60);
 
         foreach ($existingBookings as $booking) {
-            $bookingStart = strtotime($booking->booking_time);
-            $bookingEnd = $bookingStart + ($booking->duration * 3600);
+            // Для существующих броней также нужно использовать полную дату и время
+            $bookingStart = strtotime($booking->booking_date . ' ' . $booking->booking_time);
+            $bookingEnd = $bookingStart + ($booking->duration * 60); // Здесь тоже минуты!
 
+            \Log::info('Checking booking:', [
+                'booking_id' => $booking->id,
+                'guest_name' => $booking->guest_name,
+                'booking_start' => date('Y-m-d H:i:s', $bookingStart),
+                'booking_end' => date('Y-m-d H:i:s', $bookingEnd),
+                'booking_duration_minutes' => $booking->duration
+            ]);
+
+            // Проверяем пересечение
+            // Условие: (requestStart < bookingEnd) && (requestEnd > bookingStart)
             if ($requestStart < $bookingEnd && $requestEnd > $bookingStart) {
+                \Log::info('Conflict found! Booking overlaps.');
                 return false;
             }
         }

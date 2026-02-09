@@ -8,9 +8,9 @@ use App\Models\Hookah;
 use App\Models\Fine;
 use App\Models\Product;
 use App\Models\PaymentMethod;
-use App\Models\User; // Добавляем User
-use App\Models\Shift; // Добавляем Shift
-use App\Models\ShiftUser;
+use App\Models\User;
+use App\Models\Shift;
+use App\Models\ShiftSalary;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -51,15 +51,15 @@ class AccountingController extends Controller
         $totalStats = $this->getTotalStats();
         $paymentMethods = PaymentMethod::orderBy('Name')->get();
         
-        // Добавляем расчет зарплаты за выбранный период
-        $salaryData = $this->calculateSalaryForPeriod($type, $date, $startDate, $endDate, $month);
+        // Добавляем расчет зарплаты за выбранный период ИЗ НОВОЙ МОДЕЛИ
+        $salaryData = $this->getSalaryDataFromModel($type, $date, $startDate, $endDate, $month);
         
         // ВАЖНОЕ ИЗМЕНЕНИЕ: Рассчитываем зарплату для ВСЕХ дней в таблице
         $allSalaries = [];
         if ($type == 'day') {
             foreach ($tableData as $row) {
                 if (isset($row['date'])) {
-                    $allSalaries[$row['date']] = $this->calculateDailySalary($row['date']);
+                    $allSalaries[$row['date']] = $this->getDailySalaryFromModel($row['date']);
                 }
             }
         }
@@ -79,6 +79,254 @@ class AccountingController extends Controller
             'salaryData' => $salaryData, // данные для текущей выбранной даты (для детального блока)
             'allSalaries' => $allSalaries, // данные для ВСЕХ дат в таблице
         ]);
+    }
+
+    private function getSalaryDataFromModel($type, $date, $startDate, $endDate, $month)
+    {
+        if ($type === 'day') {
+            return $this->getDailySalaryFromModel($date);
+        } elseif ($type === 'week') {
+            if (!$startDate || !$endDate) {
+                $startDate = now()->startOfWeek()->format('Y-m-d');
+                $endDate = now()->endOfWeek()->format('Y-m-d');
+            }
+            return $this->getPeriodSalaryFromModel($startDate, $endDate);
+        } elseif ($type === 'month') {
+            if (!$month) {
+                $month = now()->format('Y-m');
+            }
+            $monthStart = Carbon::parse($month)->startOfMonth()->format('Y-m-d');
+            $monthEnd = Carbon::parse($month)->endOfMonth()->format('Y-m-d');
+            return $this->getPeriodSalaryFromModel($monthStart, $monthEnd);
+        }
+        
+        return [];
+    }
+
+    private function getPeriodSalaryFromModel($startDate, $endDate)
+    {
+        // Получаем все смены в периоде
+        $shifts = Shift::whereBetween('date', [$startDate, $endDate])
+            ->where('status', 'closed')
+            ->get();
+        
+        if ($shifts->isEmpty()) {
+            return [
+                'total_salary' => 0,
+                'total_revenue' => 0,
+                'employees' => [],
+                'shifts' => [],
+                'period_start' => $startDate,
+                'period_end' => $endDate,
+                'shifts_count' => 0,
+                'unique_employees' => 0,
+                'message' => 'Нет закрытых смен в периоде'
+            ];
+        }
+        
+        // Получаем зарплату из ShiftSalary для этих смен
+        $shiftSalaries = ShiftSalary::with(['user', 'shift'])
+            ->whereIn('shift_id', $shifts->pluck('id'))
+            ->get();
+        
+        if ($shiftSalaries->isEmpty()) {
+            return [
+                'total_salary' => 0,
+                'total_revenue' => 0,
+                'employees' => [],
+                'shifts' => $shifts->map(function($shift) {
+                    return [
+                        'date' => $shift->date,
+                        'shift_id' => $shift->id,
+                        'status' => $shift->status,
+                    ];
+                })->toArray(),
+                'period_start' => $startDate,
+                'period_end' => $endDate,
+                'shifts_count' => $shifts->count(),
+                'unique_employees' => 0,
+                'message' => 'Зарплата не рассчитана для смен в периоде'
+            ];
+        }
+        
+        // Группируем по сотрудникам
+        $employeeData = [];
+        $totalSalary = 0;
+        $totalRevenue = 0;
+        
+        foreach ($shiftSalaries as $shiftSalary) {
+            $employeeId = $shiftSalary->user_id;
+            $employee = $shiftSalary->user;
+            $shift = $shiftSalary->shift;
+            
+            if (!isset($employeeData[$employeeId])) {
+                $employeeData[$employeeId] = [
+                    'employee' => $employee,
+                    'total_net_salary' => 0,
+                    'total_fines' => 0,
+                    'shifts_worked' => 0,
+                    'shifts' => [],
+                ];
+            }
+            
+            // Штрафы за эту смену
+            $fines = Fine::where('user_id', $employeeId)
+                ->whereDate('created_at', $shift->date)
+                ->sum('amount');
+            
+            // Продажи за смену для расчета выручки
+            $shiftStart = $shift->opened_at ? Carbon::parse($shift->opened_at) : Carbon::parse($shift->date . ' 12:00:00');
+            $shiftEnd = $shift->closed_at ? Carbon::parse($shift->closed_at) : Carbon::parse($shift->date . ' 23:59:59');
+            
+            $sales = Sale::where('status', 'completed')
+                ->whereBetween('created_at', [$shiftStart, $shiftEnd])
+                ->get();
+            
+            $shiftRevenue = $sales->sum('total');
+            $totalRevenue += $shiftRevenue;
+            
+            $employeeData[$employeeId]['total_net_salary'] += $shiftSalary->amount;
+            $employeeData[$employeeId]['total_fines'] += $fines;
+            $employeeData[$employeeId]['shifts_worked']++;
+            $employeeData[$employeeId]['shifts'][] = [
+                'date' => $shift->date,
+                'shift_id' => $shift->id,
+                'net_salary' => $shiftSalary->amount,
+                'fines' => $fines,
+                'shift_revenue' => $shiftRevenue,
+            ];
+            
+            $totalSalary += $shiftSalary->amount;
+        }
+        
+        // Формируем итоговый массив сотрудников
+        $employeeSalaries = [];
+        foreach ($employeeData as $employeeId => $data) {
+            $employeeSalaries[] = [
+                'id' => $employeeId,
+                'name' => $data['employee']->name,
+                'position' => $data['employee']->position,
+                'shifts_worked' => $data['shifts_worked'],
+                'total_fines' => $data['total_fines'],
+                'total_net_salary' => $data['total_net_salary'],
+                'avg_salary_per_shift' => $data['shifts_worked'] > 0 ? 
+                    round($data['total_net_salary'] / $data['shifts_worked'], 2) : 0,
+                'shifts' => $data['shifts'],
+            ];
+        }
+        
+        // Сортируем по убыванию зарплаты
+        usort($employeeSalaries, function($a, $b) {
+            return $b['total_net_salary'] <=> $a['total_net_salary'];
+        });
+        
+        return [
+            'total_salary' => $totalSalary,
+            'total_revenue' => $totalRevenue,
+            'employees' => $employeeSalaries,
+            'shifts' => $shifts->map(function($shift) {
+                return [
+                    'date' => $shift->date,
+                    'shift_id' => $shift->id,
+                    'status' => $shift->status,
+                ];
+            })->toArray(),
+            'period_start' => $startDate,
+            'period_end' => $endDate,
+            'shifts_count' => $shifts->count(),
+            'unique_employees' => count($employeeData),
+            'message' => 'Данные из рассчитанной зарплаты',
+        ];
+    }
+
+    private function getDailySalaryFromModel($date)
+    {
+        // Находим ЗАКРЫТУЮ смену на эту дату
+        $shift = Shift::whereDate('date', $date)
+                    ->where('status', 'closed')
+                    ->first();
+        
+        if (!$shift) {
+            return [
+                'total_salary' => 0,
+                'total_revenue' => 0,
+                'employees' => [],
+                'shift_exists' => false,
+                'shift_date' => $date,
+                'message' => 'Смена не найдена или не закрыта'
+            ];
+        }
+        
+        // Получаем зарплату из модели ShiftSalary
+        $shiftSalaries = ShiftSalary::with(['user', 'shift'])
+            ->where('shift_id', $shift->id)
+            ->get();
+        
+        if ($shiftSalaries->isEmpty()) {
+            return [
+                'total_salary' => 0,
+                'total_revenue' => 0,
+                'employees' => [],
+                'shift_exists' => true,
+                'shift_date' => $date,
+                'message' => 'Зарплата еще не рассчитана для этой смены'
+            ];
+        }
+        
+        // Получаем продажи для расчета выручки
+        $shiftStart = $shift->opened_at ? Carbon::parse($shift->opened_at) : Carbon::parse($shift->date . ' 12:00:00');
+        $shiftEnd = $shift->closed_at ? Carbon::parse($shift->closed_at) : Carbon::parse($shift->date . ' 23:59:59');
+        
+        $sales = Sale::where('status', 'completed')
+            ->whereBetween('created_at', [$shiftStart, $shiftEnd])
+            ->get();
+        
+        $totalRevenue = $sales->sum('total');
+        $shiftHours = $shiftStart->diffInHours($shiftEnd);
+        $totalSalary = 0;
+        $employeeSalaries = [];
+        
+        foreach ($shiftSalaries as $shiftSalary) {
+            $employee = $shiftSalary->user;
+            
+            // Штрафы сотрудника за день смены
+            $fines = Fine::where('user_id', $employee->id)
+                ->whereDate('created_at', $shift->date)
+                ->sum('amount');
+            
+            // Получаем данные сотрудника для отображения
+            $employeeSalaries[] = [
+                'id' => $employee->id,
+                'name' => $employee->name,
+                'position' => $employee->position,
+                'shift_salary' => $employee->shift_salary ?? 0,
+                'revenue_percentage' => $employee->revenue_percentage ?? 0,
+                'percentage_salary' => $totalRevenue * ($employee->revenue_percentage ?? 0) / 100,
+                'total_salary' => $shiftSalary->amount + $fines, // возвращаем зарплату до вычета штрафов
+                'fines' => $fines,
+                'net_salary' => $shiftSalary->amount,
+                'shift_hours' => $shiftHours,
+                'revenue_share' => $employee->revenue_percentage ?? 0,
+                'hourly_rate' => $shiftHours > 0 ? round($shiftSalary->amount / $shiftHours, 2) : 0,
+            ];
+            
+            $totalSalary += $shiftSalary->amount;
+        }
+        
+        return [
+            'total_salary' => $totalSalary,
+            'total_revenue' => $totalRevenue,
+            'employees' => $employeeSalaries,
+            'shift_exists' => true,
+            'shift_date' => $date,
+            'shift_start' => $shift->opened_at ? Carbon::parse($shift->opened_at)->format('H:i') : null,
+            'shift_end' => $shift->closed_at ? Carbon::parse($shift->closed_at)->format('H:i') : null,
+            'sales_count' => $sales->count(),
+            'shift_status' => $shift->status,
+            'shift_hours' => $shiftHours,
+            'shift_id' => $shift->id,
+            'message' => 'Данные из рассчитанной зарплаты',
+        ];
     }
     
     /**
@@ -453,52 +701,58 @@ class AccountingController extends Controller
         // Все завершенные продажи
         $sales = Sale::where('status', 'completed')->get();
         
+        // Все расходы с загрузкой способа оплаты
+        $expenditures = Expenditure::with('paymentMethod')->get();
+        
         // Получаем все способы оплаты
         $paymentMethods = PaymentMethod::all();
         $paymentStats = [];
         
-        // Группируем продажи по payment_method_id
-        $groupedSales = [];
-        foreach ($sales as $sale) {
-            $methodId = $sale->payment_method_id;
-            if (!isset($groupedSales[$methodId])) {
-                $groupedSales[$methodId] = 0;
-            }
-            $groupedSales[$methodId] += $sale->total;
-        }
+        $totalIncome = 0; // Общий доход от продаж
         
-        // Создаем статистику для каждого способа оплаты
-        // ИСПРАВЛЕНО: используем IDPaymentMethod
+        // Инициализируем статистику для каждого способа оплаты
         foreach ($paymentMethods as $method) {
             $methodId = $method->IDPaymentMethod;
-            $total = $groupedSales[$methodId] ?? 0;
-            
             $paymentStats[$methodId] = [
                 'id' => $methodId,
                 'name' => $method->Name,
-                'total' => $total
+                'income' => 0,   // Доходы по этому способу оплаты
+                'expense' => 0,  // Расходы по этому способу оплаты
+                'net' => 0,      // Чистый результат (доходы - расходы)
+                'total' => 0     // Для обратной совместимости (сумма доходов)
             ];
         }
         
-        // Все расходы
-        $expenditures = Expenditure::sum('cost');
+        // 1. Считаем доходы по каждому способу оплаты (из продаж)
+        foreach ($sales as $sale) {
+            $methodId = $sale->payment_method_id;
+            $totalIncome += $sale->total; // Общий доход
+            
+            if (isset($paymentStats[$methodId])) {
+                $paymentStats[$methodId]['income'] += $sale->total;
+                $paymentStats[$methodId]['total'] += $sale->total; // Для обратной совместимости
+            }
+        }
         
-        // Все штрафы
-        $fines = Fine::sum('amount');
+        // 2. Считаем расходы по каждому способу оплаты
+        foreach ($expenditures as $expenditure) {
+            if ($expenditure->paymentMethod) {
+                $methodId = $expenditure->paymentMethod->IDPaymentMethod;
+                if (isset($paymentStats[$methodId])) {
+                    $paymentStats[$methodId]['expense'] += $expenditure->cost;
+                }
+            }
+        }
         
-        // Общая выручка
-        $totalRevenue = $sales->sum('total');
+        // 3. Рассчитываем чистый результат для каждого способа оплаты
+        foreach ($paymentStats as &$stat) {
+            $stat['net'] = $stat['income'] - $stat['expense'];
+        }
         
-        // Прибыль (без учета себестоимости для общей статистики)
-        $profit = $totalRevenue - $expenditures - $fines;
-        
+        // Возвращаем общий доход и детализацию по оплатам
         return [
-            'total_income' => $totalRevenue,
-            'expenses' => $expenditures,
-            'fines' => $fines,
-            'profit' => $profit,
-            'sales_count' => $sales->count(),
-            'payment_stats' => $paymentStats,
+            'total_income' => $totalIncome, // Общий доход от продаж
+            'payment_stats' => $paymentStats, // Детализация по способам оплаты
         ];
     }
     
@@ -1005,354 +1259,7 @@ class AccountingController extends Controller
      * ============================================
      */
     
-    /**
-     * Рассчитать зарплату для периода
-     */
-     private function calculateSalaryForPeriod($type, $date, $startDate, $endDate, $month)
-    {
-        if ($type === 'day') {
-            return $this->calculateDailySalary($date);
-        } elseif ($type === 'week') {
-            if (!$startDate || !$endDate) {
-                $startDate = now()->startOfWeek()->format('Y-m-d');
-                $endDate = now()->endOfWeek()->format('Y-m-d');
-            }
-            return $this->calculatePeriodSalary($startDate, $endDate);
-        } elseif ($type === 'month') {
-            if (!$month) {
-                $month = now()->format('Y-m');
-            }
-            $monthStart = Carbon::parse($month)->startOfMonth()->format('Y-m-d');
-            $monthEnd = Carbon::parse($month)->endOfMonth()->format('Y-m-d');
-            return $this->calculatePeriodSalary($monthStart, $monthEnd);
-        }
-        
-        return [];
-    }
     
-    /**
-     * Рассчитать зарплату за день с учетом смен
-     */
-    private function calculateDailySalary($date)
-    {
-        // Находим ЗАКРЫТУЮ смену на эту дату
-        $shift = Shift::whereDate('date', $date)
-                    ->where('status', 'closed')
-                    ->first();
-        
-        if (!$shift) {
-            return [
-                'total_salary' => 0,
-                'total_revenue' => 0,
-                'employees' => [],
-                'shift_exists' => false,
-                'shift_date' => $date,
-                'shift_start' => null,
-                'shift_end' => null,
-                'sales_count' => 0,
-                'shift_status' => null,
-                'shift_hours' => 0,
-                'shift_id' => null,
-                'message' => 'Смена не найдена или не закрыта'
-            ];
-        }
-        
-        // Получаем сотрудников на этой смене
-        $shiftUsers = ShiftUser::with('user')
-            ->where('shift_id', $shift->id)
-            ->get();
-        
-        if ($shiftUsers->isEmpty()) {
-            return [
-                'total_salary' => 0,
-                'total_revenue' => 0,
-                'employees' => [],
-                'shift_exists' => true,
-                'shift_date' => $date,
-                'shift_start' => $shift->opened_at ? Carbon::parse($shift->opened_at)->format('H:i') : null,
-                'shift_end' => $shift->closed_at ? Carbon::parse($shift->closed_at)->format('H:i') : null,
-                'sales_count' => 0,
-                'shift_status' => $shift->status,
-                'shift_hours' => 0,
-                'shift_id' => $shift->id,
-                'message' => 'Нет сотрудников на смене'
-            ];
-        }
-        
-        // ОБЯЗАТЕЛЬНО проверяем наличие времени открытия/закрытия
-        if (!$shift->opened_at || !$shift->closed_at) {
-            return [
-                'total_salary' => 0,
-                'total_revenue' => 0,
-                'employees' => [],
-                'shift_exists' => true,
-                'shift_date' => $date,
-                'shift_start' => null,
-                'shift_end' => null,
-                'sales_count' => 0,
-                'shift_status' => $shift->status,
-                'shift_hours' => 0,
-                'shift_id' => $shift->id,
-                'message' => 'У смены нет времени открытия/закрытия'
-            ];
-        }
-        
-        // Используем РЕАЛЬНОЕ время смены из базы
-        $shiftStart = Carbon::parse($shift->opened_at);
-        $shiftEnd = Carbon::parse($shift->closed_at);
-        
-        // Получаем все продажи за ПЕРИОД СМЕНЫ
-        $sales = Sale::where('status', 'completed')
-            ->whereBetween('created_at', [$shiftStart, $shiftEnd])
-            ->get();
-        
-        $totalRevenue = $sales->sum('total');
-        $shiftHours = $shiftStart->diffInHours($shiftEnd);
-        
-        // Рассчитываем зарплату для каждого сотрудника
-        $employeeSalaries = [];
-        $totalSalary = 0;
-        
-        foreach ($shiftUsers as $shiftUser) {
-            $employee = $shiftUser->user;
-            
-            // Проверяем, что пользователь является сотрудником
-            if ($employee->role !== 'employee') {
-                continue;
-            }
-            
-            // Ставка за смену
-            $shiftSalary = $employee->shift_salary ?? 0;
-            
-            // Процент с выручки за ЭТУ СМЕНУ
-            $revenuePercentage = $employee->revenue_percentage ?? 0;
-            $percentageSalary = $totalRevenue * ($revenuePercentage / 100);
-            
-            // Общая зарплата за смену
-            $totalEmployeeSalary = $shiftSalary + $percentageSalary;
-            
-            // Штрафы сотрудника за ДЕНЬ СМЕНЫ
-            $fines = Fine::where('user_id', $employee->id)
-                ->whereDate('created_at', $shift->date)
-                ->sum('amount');
-            
-            // Чистая зарплата (после вычета штрафов)
-            $netSalary = max(0, $totalEmployeeSalary - $fines);
-            
-            $employeeSalaries[] = [
-                'id' => $employee->id,
-                'name' => $employee->name,
-                'position' => $employee->position,
-                'shift_salary' => $shiftSalary,
-                'revenue_percentage' => $revenuePercentage,
-                'percentage_salary' => $percentageSalary,
-                'total_salary' => $totalEmployeeSalary,
-                'fines' => $fines,
-                'net_salary' => $netSalary,
-                'shift_hours' => $shiftHours,
-                'revenue_share' => $totalRevenue > 0 ? round(($percentageSalary / $totalRevenue) * 100, 2) : 0,
-                'hourly_rate' => $shiftHours > 0 ? round($netSalary / $shiftHours, 2) : 0,
-            ];
-            
-            $totalSalary += $netSalary;
-        }
-        
-        return [
-            'total_salary' => $totalSalary,
-            'total_revenue' => $totalRevenue,
-            'employees' => $employeeSalaries,
-            'shift_exists' => true,
-            'shift_date' => $date,
-            'shift_start' => $shiftStart->format('H:i'),
-            'shift_end' => $shiftEnd->format('H:i'),
-            'shift_start_full' => $shiftStart->format('Y-m-d H:i:s'),
-            'shift_end_full' => $shiftEnd->format('Y-m-d H:i:s'),
-            'sales_count' => $sales->count(),
-            'shift_status' => $shift->status,
-            'shift_users_count' => $shiftUsers->count(),
-            'shift_hours' => $shiftHours,
-            'shift_id' => $shift->id,
-            'message' => 'Расчет выполнен по времени смены',
-            'debug' => [
-                'opened_at_db' => $shift->opened_at,
-                'closed_at_db' => $shift->closed_at,
-                'sales_period_start' => $shiftStart->format('Y-m-d H:i:s'),
-                'sales_period_end' => $shiftEnd->format('Y-m-d H:i:s'),
-                'sales_found' => $sales->count(),
-            ]
-        ];
-    }
-    
-    /**
-     * Рассчитать зарплату за период (неделя, месяц) по реальному времени смен
-     */
-    private function calculatePeriodSalary($startDate, $endDate)
-    {
-        // Находим все ЗАКРЫТЫЕ смены в периоде с временем открытия/закрытия
-        $shifts = Shift::whereBetween('date', [$startDate, $endDate])
-            ->where('status', 'closed')
-            ->whereNotNull('opened_at')
-            ->whereNotNull('closed_at')
-            ->get();
-        
-        if ($shifts->isEmpty()) {
-            return [
-                'total_salary' => 0,
-                'total_revenue' => 0,
-                'employees' => [],
-                'shifts' => [],
-                'period_start' => $startDate,
-                'period_end' => $endDate,
-                'shifts_count' => 0,
-                'unique_employees' => 0,
-                'message' => 'Нет закрытых смен с указанием времени'
-            ];
-        }
-        
-        $totalSalary = 0;
-        $totalRevenue = 0;
-        $allEmployees = [];
-        $shiftSalaries = [];
-        
-        foreach ($shifts as $shift) {
-            // Получаем сотрудников на этой смене
-            $shiftUsers = ShiftUser::with('user')
-                ->where('shift_id', $shift->id)
-                ->get();
-            
-            // Используем РЕАЛЬНОЕ время смены
-            $shiftStart = Carbon::parse($shift->opened_at);
-            $shiftEnd = Carbon::parse($shift->closed_at);
-            $shiftHours = $shiftStart->diffInHours($shiftEnd);
-            
-            // Получаем продажи за ПЕРИОД ЭТОЙ СМЕНЫ
-            $sales = Sale::where('status', 'completed')
-                ->whereBetween('created_at', [$shiftStart, $shiftEnd])
-                ->get();
-            
-            $shiftRevenue = $sales->sum('total');
-            $totalRevenue += $shiftRevenue;
-            
-            // Рассчитываем зарплату для каждого сотрудника на этой смене
-            foreach ($shiftUsers as $shiftUser) {
-                $employee = $shiftUser->user;
-                $employeeId = $employee->id;
-                
-                // Проверяем, что это сотрудник
-                if ($employee->role !== 'employee') {
-                    continue;
-                }
-                
-                // Инициализируем запись сотрудника
-                if (!isset($allEmployees[$employeeId])) {
-                    $allEmployees[$employeeId] = [
-                        'employee' => $employee,
-                        'shifts_worked' => 0,
-                        'total_shift_salary' => 0,
-                        'total_percentage_salary' => 0,
-                        'total_fines' => 0,
-                        'total_net_salary' => 0,
-                        'total_hours' => 0,
-                        'shifts' => [],
-                    ];
-                }
-                
-                // Ставка за смену
-                $shiftSalary = $employee->shift_salary ?? 0;
-                
-                // Процент с выручки за ЭТУ СМЕНУ
-                $revenuePercentage = $employee->revenue_percentage ?? 0;
-                $percentageSalary = $shiftRevenue * ($revenuePercentage / 100);
-                
-                // Штрафы сотрудника за день смены
-                $fines = Fine::where('user_id', $employee->id)
-                    ->whereDate('created_at', $shift->date)
-                    ->sum('amount');
-                
-                // Зарплата за смену
-                $netSalary = max(0, ($shiftSalary + $percentageSalary) - $fines);
-                
-                // Обновляем данные сотрудника
-                $allEmployees[$employeeId]['shifts_worked']++;
-                $allEmployees[$employeeId]['total_shift_salary'] += $shiftSalary;
-                $allEmployees[$employeeId]['total_percentage_salary'] += $percentageSalary;
-                $allEmployees[$employeeId]['total_fines'] += $fines;
-                $allEmployees[$employeeId]['total_net_salary'] += $netSalary;
-                $allEmployees[$employeeId]['total_hours'] += $shiftHours;
-                
-                // Добавляем детали по смене
-                $allEmployees[$employeeId]['shifts'][] = [
-                    'date' => $shift->date,
-                    'shift_id' => $shift->id,
-                    'shift_salary' => $shiftSalary,
-                    'revenue_percentage' => $revenuePercentage,
-                    'percentage_salary' => $percentageSalary,
-                    'fines' => $fines,
-                    'net_salary' => $netSalary,
-                    'shift_revenue' => $shiftRevenue,
-                    'shift_status' => $shift->status,
-                    'shift_start' => $shiftStart->format('H:i'),
-                    'shift_end' => $shiftEnd->format('H:i'),
-                    'shift_hours' => $shiftHours,
-                    'sales_count' => $sales->count(),
-                ];
-                
-                $totalSalary += $netSalary;
-            }
-            
-            // Данные по смене
-            $shiftSalaries[] = [
-                'date' => $shift->date,
-                'shift_id' => $shift->id,
-                'status' => $shift->status,
-                'revenue' => $shiftRevenue,
-                'employees_count' => $shiftUsers->count(),
-                'shift_hours' => $shiftHours,
-                'opened_at' => $shift->opened_at,
-                'closed_at' => $shift->closed_at,
-            ];
-        }
-        
-        // Формируем итоговый массив сотрудников
-        $employeeSalaries = [];
-        foreach ($allEmployees as $employeeId => $data) {
-            $avgHourlyRate = $data['total_hours'] > 0 ? 
-                round($data['total_net_salary'] / $data['total_hours'], 2) : 0;
-            
-            $employeeSalaries[] = [
-                'id' => $employeeId,
-                'name' => $data['employee']->name,
-                'position' => $data['employee']->position,
-                'shifts_worked' => $data['shifts_worked'],
-                'total_shift_salary' => $data['total_shift_salary'],
-                'total_percentage_salary' => $data['total_percentage_salary'],
-                'total_fines' => $data['total_fines'],
-                'total_net_salary' => $data['total_net_salary'],
-                'total_hours' => $data['total_hours'],
-                'avg_salary_per_shift' => $data['shifts_worked'] > 0 ? 
-                    round($data['total_net_salary'] / $data['shifts_worked'], 2) : 0,
-                'avg_hourly_rate' => $avgHourlyRate,
-                'shifts' => $data['shifts'],
-            ];
-        }
-        
-        // Сортируем по убыванию зарплаты
-        usort($employeeSalaries, function($a, $b) {
-            return $b['total_net_salary'] <=> $a['total_net_salary'];
-        });
-        
-        return [
-            'total_salary' => $totalSalary,
-            'total_revenue' => $totalRevenue,
-            'employees' => $employeeSalaries,
-            'shifts' => $shiftSalaries,
-            'period_start' => $startDate,
-            'period_end' => $endDate,
-            'shifts_count' => $shifts->count(),
-            'unique_employees' => count($allEmployees),
-            'message' => 'Расчет выполнен по реальному времени смен',
-        ];
-    }
     
     /**
      * Отдельная страница отчета по зарплате
@@ -1366,14 +1273,14 @@ class AccountingController extends Controller
         $month = $request->get('month', now()->format('Y-m'));
         
         if ($type === 'day') {
-            $salaryData = $this->calculateDailySalary($date);
+            $salaryData = $this->getDailySalaryFromModel($date);
             $periodText = Carbon::parse($date)->format('d.m.Y');
         } elseif ($type === 'week') {
             if (!$startDate || !$endDate) {
                 $startDate = now()->startOfWeek()->format('Y-m-d');
                 $endDate = now()->endOfWeek()->format('Y-m-d');
             }
-            $salaryData = $this->calculatePeriodSalary($startDate, $endDate);
+            $salaryData = $this->getPeriodSalaryFromModel($startDate, $endDate);
             $periodText = Carbon::parse($startDate)->format('d.m.Y') . ' - ' . Carbon::parse($endDate)->format('d.m.Y');
         } else {
             if (!$month) {
@@ -1381,7 +1288,7 @@ class AccountingController extends Controller
             }
             $monthStart = Carbon::parse($month)->startOfMonth()->format('Y-m-d');
             $monthEnd = Carbon::parse($month)->endOfMonth()->format('Y-m-d');
-            $salaryData = $this->calculatePeriodSalary($monthStart, $monthEnd);
+            $salaryData = $this->getPeriodSalaryFromModel($monthStart, $monthEnd);
             $periodText = Carbon::parse($month)->translatedFormat('F Y');
         }
         
@@ -1533,38 +1440,5 @@ class AccountingController extends Controller
         return response()->stream($callback, 200, $headers);
     }
 
-    /**
-     * Метод для проверки расчета зарплаты с отладкой
-     */
-    public function debugSalaryCalculation(Request $request)
-    {
-        $date = $request->get('date', '2026-01-26');
-        
-        $result = $this->calculateDailySalary($date);
-        
-        // Получаем детали продаж за период смены для проверки
-        if ($result['shift_exists'] && isset($result['shift_start_full'])) {
-            $salesDetails = Sale::where('status', 'completed')
-                ->whereBetween('created_at', [
-                    $result['shift_start_full'],
-                    $result['shift_end_full']
-                ])
-                ->get();
-            
-            $result['sales_debug'] = [
-                'count' => $salesDetails->count(),
-                'total' => $salesDetails->sum('total'),
-                'details' => $salesDetails->map(function($sale) {
-                    return [
-                        'id' => $sale->id,
-                        'total' => $sale->total,
-                        'created_at' => $sale->created_at->format('Y-m-d H:i:s'),
-                    ];
-                })->toArray()
-            ];
-        }
-        
-        return response()->json($result);
-    }
     
 }

@@ -1,6 +1,6 @@
 <!-- sales/modals/add-item.blade.php -->
 <div class="modal fade" id="addItemModal" tabindex="-1" aria-labelledby="addItemModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg"> <!-- Увеличил до modal-lg -->
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title" id="addItemModalLabel">
@@ -13,14 +13,13 @@
                 @csrf
                 
                 <div class="modal-body">
-                    <!-- Фильтры в две колонки -->
-                    <div class="row g-2 mb-3">
-                        <div class="col-md-6">
-                            <label for="categoryFilter" class="form-label fw-bold">Категория</label>
-                            <select class="form-select form-select-sm" id="categoryFilter" onchange="filterProducts()">
+                    <!-- Блок выбора товара - теперь занимает всю ширину -->
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <label for="categoryFilter" class="form-label fw-bold">Фильтр по категории</label>
+                            <select class="form-select" id="categoryFilter" onchange="filterProducts()">
                                 <option value="all">Все категории</option>
                                 @php
-                                    // Получаем категории из продуктов - ИСПРАВЛЕНО: используем product_category_id
                                     $categories = $products->where('product_category_id', '!=', null)
                                         ->pluck('category')
                                         ->unique('id')
@@ -34,196 +33,257 @@
                                     @endif
                                 @endforeach
                                 
-                                {{-- Опция для товаров без категории --}}
                                 @if($products->where('product_category_id', null)->count() > 0)
                                     <option value="null">Без категории</option>
                                 @endif
                             </select>
                         </div>
-                        <div class="col-md-6">
-                            <label for="searchProduct" class="form-label fw-bold">Поиск</label>
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text">
-                                    <i class="bi bi-search"></i>
-                                </span>
-                                <input type="text" 
-                                       class="form-control" 
-                                       id="searchProduct" 
-                                       placeholder="Название товара..."
-                                       oninput="filterProducts()">
-                                <button class="btn btn-outline-secondary" type="button" onclick="clearSearch()">
-                                    <i class="bi bi-x"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Выбор товара -->
-                    <div class="mb-3">
-                        <label for="product_id" class="form-label fw-bold">Выберите товар *</label>
-                        <select class="form-select" 
-                                id="product_id" 
-                                name="product_id" 
-                                size="6"
-                                style="height: auto; min-height: 150px;"
-                                required 
-                                onchange="updateProductInfo()">
-                            <option value="">-- Выберите товар --</option>
-                            @foreach($products as $product)
-                            @php
-                                // Получаем доступное количество ВО ВСЕХ СКЛАДАХ
-                                $available = \App\Models\Stock::where('product_id', $product->id)->sum('quantity');
+                        
+                        <div class="col-md-8">
+                            <!-- Блок поиска и выбора товара -->
+                            <div class="product-select-container">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <label for="product_id" class="form-label fw-bold mb-0 h6">Поиск и выбор товара</label>
+                                    <small class="text-muted">Начните вводить или выберите из списка</small>
+                                </div>
                                 
-                                // Для составных товаров рассчитываем доступное количество
-                                if ($product->is_composite) {
-                                    $minAvailable = PHP_INT_MAX;
-                                    foreach ($product->recipeComponents as $component) {
-                                        $totalComponentQuantity = \App\Models\Stock::where('product_id', $component->component_product_id)
-                                            ->sum('quantity');
-                                        
-                                        if ($totalComponentQuantity <= 0) {
-                                            $available = 0;
-                                            break;
-                                        }
-                                        
-                                        $availableForComponent = floor($totalComponentQuantity / $component->quantity);
-                                        $minAvailable = min($minAvailable, $availableForComponent);
-                                    }
-                                    $available = ($minAvailable !== PHP_INT_MAX) ? $minAvailable : 0;
-                                }
-                                
-                                // Категория товара
-                                $categoryName = $product->category ? $product->category->name : 'Без категории';
-                                $categoryId = $product->product_category_id ? (string)$product->product_category_id : 'null';
-                            @endphp
-                            <option value="{{ $product->id }}" 
-                                    data-price="{{ $product->price }}"
-                                    data-unit="{{ $product->unit ?? 'шт' }}"
-                                    data-is-composite="{{ $product->is_composite ? '1' : '0' }}"
-                                    data-cost="{{ $product->cost ?? 0 }}"
-                                    data-available="{{ $available }}"
-                                    data-category="{{ $categoryId }}"
-                                    data-category-name="{{ $categoryName }}"
-                                    class="product-option"
-                                    {{ $available <= 0 ? 'disabled' : '' }}>
-                                {{ $product->name }} 
-                                @if($available > 0)
-                                    ({{ $available }} шт • {{ number_format($product->price, 2) }} ₽)
-                                @else
-                                    - нет в наличии
-                                @endif
-                            </option>
-                            @endforeach
-                        </select>
-                        @if(isset($products) && $products->isEmpty())
-                        <div class="alert alert-warning mt-2">
-                            Нет доступных товаров для добавления
-                        </div>
-                        @endif
-                    </div>
-                    
-                    <!-- Информация о товаре в две колонки -->
-                    <div class="card mb-3 border-0 bg-light" id="productInfoCard" style="display: none;">
-                        <div class="card-body p-3">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <div class="mb-2">
-                                        <small class="text-muted d-block">Товар:</small>
-                                        <strong id="productName" class="text-primary">—</strong>
-                                    </div>
-                                    <div class="mb-2">
-                                        <small class="text-muted d-block">Категория:</small>
-                                        <span class="badge bg-info" id="productCategory">—</span>
-                                    </div>
-                                    <div>
-                                        <small class="text-muted d-block">Единица измерения:</small>
-                                        <strong id="productUnitInfo">—</strong>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="mb-2">
-                                        <small class="text-muted d-block">Цена за единицу:</small>
-                                        <strong id="productUnitPrice" class="text-success">0.00 ₽</strong>
-                                    </div>
-                                    <div class="mb-2">
-                                        <small class="text-muted d-block">Доступно в системе:</small>
-                                        <strong id="productAvailable" class="text-success">0</strong>
-                                        <span id="productAvailableUnit"></span>
-                                    </div>
-                                    <div>
-                                        <small class="text-muted d-block">Остаток после добавления:</small>
-                                        <strong id="remainingStock" class="text-warning">0</strong>
-                                    </div>
-                                </div>
-                            </div>
-                            <div id="compositeWarning" style="display: none;" class="mt-3 alert alert-warning p-2">
-                                <i class="bi bi-info-circle me-1"></i> Составной товар - будет списан по рецепту
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Ввод количества и цены в две колонки -->
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="quantity" class="form-label fw-bold">Количество *</label>
-                                <div class="input-group">
-                                    <input type="number" 
-                                           step="0.001"
-                                           min="0.001" 
-                                           class="form-control" 
-                                           id="quantity" 
-                                           name="quantity" 
-                                           value="1" 
-                                           required
-                                           oninput="checkQuantity()">
-                                    <span class="input-group-text" id="quantityUnitLabel">шт</span>
-                                </div>
-                                <small class="text-muted" id="quantityInfo">Введите количество</small>
-                                <div id="quantityWarning" class="alert alert-warning mt-2 p-2" style="display: none;">
-                                    <i class="bi bi-exclamation-triangle me-1"></i>
-                                    <span id="warningMessage"></span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="unit_price" class="form-label fw-bold">Цена за единицу *</label>
-                                <div class="input-group">
-                                    <input type="number" 
-                                           step="0.01" 
-                                           min="0.01" 
-                                           class="form-control" 
-                                           id="unit_price" 
-                                           name="unit_price" 
-                                           required>
-                                    <span class="input-group-text" id="priceUnitLabel">₽/ед.</span>
-                                    <button class="btn btn-outline-secondary" type="button" onclick="setDefaultPrice()">
-                                        <i class="bi bi-arrow-clockwise"></i>
+                                <!-- Поле поиска -->
+                                <div class="input-group mb-2">
+                                    <span class="input-group-text bg-light">
+                                        <i class="bi bi-search text-primary"></i>
+                                    </span>
+                                    <input type="text" 
+                                           class="form-control form-control-lg py-2" 
+                                           id="searchProduct" 
+                                           placeholder="Введите название товара для быстрого поиска..."
+                                           oninput="filterProducts()"
+                                           style="border-bottom-left-radius: 0; border-bottom-right-radius: 0;">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="clearSearch()" style="border-bottom-right-radius: 0;">
+                                        <i class="bi bi-x"></i> Очистить
                                     </button>
                                 </div>
-                                <small class="text-muted" id="priceInfo">Цена за единицу товара</small>
+                                
+                                <!-- Select с товарами -->
+                                <div class="product-list-container">
+                                    <select class="form-select" 
+                                            id="product_id" 
+                                            name="product_id" 
+                                            size="6"
+                                            style="height: 250px; border-top-left-radius: 0; border-top-right-radius: 0; font-size: 0.95rem;"
+                                            required 
+                                            onchange="updateProductInfo()">
+                                        <option value="" class="text-muted">Выберите товар из списка ниже...</option>
+                                        @foreach($products as $product)
+                                        @php
+                                            $available = \App\Models\Stock::where('product_id', $product->id)->sum('quantity');
+                                            
+                                            if ($product->is_composite) {
+                                                $minAvailable = PHP_INT_MAX;
+                                                foreach ($product->recipeComponents as $component) {
+                                                    $totalComponentQuantity = \App\Models\Stock::where('product_id', $component->component_product_id)
+                                                        ->sum('quantity');
+                                                    
+                                                    if ($totalComponentQuantity <= 0) {
+                                                        $available = 0;
+                                                        break;
+                                                    }
+                                                    
+                                                    $availableForComponent = floor($totalComponentQuantity / $component->quantity);
+                                                    $minAvailable = min($minAvailable, $availableForComponent);
+                                                }
+                                                $available = ($minAvailable !== PHP_INT_MAX) ? $minAvailable : 0;
+                                            }
+                                            
+                                            $categoryName = $product->category ? $product->category->name : 'Без категории';
+                                            $categoryId = $product->product_category_id ? (string)$product->product_category_id : 'null';
+                                        @endphp
+                                        <option value="{{ $product->id }}" 
+                                                data-price="{{ $product->price }}"
+                                                data-unit="{{ $product->unit ?? 'шт' }}"
+                                                data-is-composite="{{ $product->is_composite ? '1' : '0' }}"
+                                                data-cost="{{ $product->cost ?? 0 }}"
+                                                data-available="{{ $available }}"
+                                                data-category="{{ $categoryId }}"
+                                                data-category-name="{{ $categoryName }}"
+                                                class="product-option"
+                                                {{ $available <= 0 ? 'disabled' : '' }}>
+                                            <div class="d-flex justify-content-between">
+                                                <span>{{ $product->name }}</span>
+                                                <span class="text-end ms-2">
+                                                    @if($available > 0)
+                                                        <span class="badge bg-success">{{ $available }} шт</span>
+                                                        <span class="text-primary ms-2">{{ number_format($product->price, 2) }} ₽</span>
+                                                    @else
+                                                        <span class="badge bg-secondary">Нет в наличии</span>
+                                                    @endif
+                                                </span>
+                                            </div>
+                                        </option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                
+                                @if(isset($products) && $products->isEmpty())
+                                <div class="alert alert-warning mt-3">
+                                    <i class="bi bi-exclamation-triangle me-2"></i>
+                                    Нет доступных товаров для добавления
+                                </div>
+                                @endif
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Расчет суммы -->
-                    <div class="card mt-3 border-primary">
-                        <div class="card-body p-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span class="h6 mb-0">Сумма к добавлению:</span>
-                                <span class="h5 mb-0 text-primary" id="preliminaryTotal">0.00 ₽</span>
+                    <!-- Информация о выбранном товаре -->
+                    <div class="card mb-4 border-primary" id="productInfoCard" style="display: none;">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Информация о выбранном товаре</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row g-4">
+                                <div class="col-md-4">
+                                    <div class="p-3 bg-light rounded">
+                                        <div class="mb-3">
+                                            <small class="text-muted d-block mb-1">Товар</small>
+                                            <div class="h5 text-primary mb-0" id="productName">—</div>
+                                        </div>
+                                        <div class="mb-2">
+                                            <small class="text-muted d-block mb-1">Категория</small>
+                                            <span class="badge bg-info fs-6 px-3 py-2" id="productCategory">—</span>
+                                        </div>
+                                        <div>
+                                            <small class="text-muted d-block mb-1">Единица измерения</small>
+                                            <strong class="fs-5" id="productUnitInfo">—</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="p-3 bg-light rounded">
+                                        <div class="mb-3">
+                                            <small class="text-muted d-block mb-1">Цена за единицу</small>
+                                            <div class="h4 text-success mb-0" id="productUnitPrice">0.00 ₽</div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <small class="text-muted d-block mb-1">Доступно в системе</small>
+                                            <div class="d-flex align-items-center">
+                                                <span class="h5 text-success mb-0 me-2" id="productAvailable">0</span>
+                                                <span class="fs-5" id="productAvailableUnit"></span>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <small class="text-muted d-block mb-1">Себестоимость</small>
+                                            <strong class="fs-5 text-muted" id="productCost">0.00 ₽</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="p-3 bg-light rounded">
+                                        <div class="mb-3">
+                                            <small class="text-muted d-block mb-1">Остаток после добавления</small>
+                                            <div class="h4 mb-0">
+                                                <span class="text-warning" id="remainingStock">0</span>
+                                                <span class="fs-5 ms-1" id="remainingUnit"></span>
+                                            </div>
+                                        </div>
+                                        <div id="compositeWarning" style="display: none;">
+                                            <div class="alert alert-warning p-2 mb-0">
+                                                <i class="bi bi-info-circle me-1"></i> Составной товар - списание по рецепту
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Ввод данных для добавления -->
+                    <div class="row g-4 mb-4">
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0"><i class="bi bi-calculator me-2"></i>Количество</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="quantity" class="form-label fw-bold h6">Количество *</label>
+                                        <div class="input-group input-group-lg">
+                                            <input type="number" 
+                                                   step="0.001"
+                                                   min="0.001" 
+                                                   class="form-control form-control-lg" 
+                                                   id="quantity" 
+                                                   name="quantity" 
+                                                   value="1" 
+                                                   required
+                                                   oninput="checkQuantity()">
+                                            <span class="input-group-text fs-5" id="quantityUnitLabel">шт</span>
+                                        </div>
+                                        <small class="text-muted mt-2 d-block" id="quantityInfo">Введите количество товара</small>
+                                        <div id="quantityWarning" class="alert alert-warning mt-3 p-3" style="display: none;">
+                                            <i class="bi bi-exclamation-triangle me-2"></i>
+                                            <span id="warningMessage" class="fw-medium"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0"><i class="bi bi-currency-exchange me-2"></i>Цена</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="unit_price" class="form-label fw-bold h6">Цена за единицу *</label>
+                                        <div class="input-group input-group-lg">
+                                            <input type="number" 
+                                                   step="0.01" 
+                                                   min="0.01" 
+                                                   class="form-control form-control-lg" 
+                                                   id="unit_price" 
+                                                   name="unit_price" 
+                                                   required>
+                                            <span class="input-group-text fs-5" id="priceUnitLabel">₽/ед.</span>
+                                            <button class="btn btn-outline-primary" type="button" onclick="setDefaultPrice()">
+                                                <i class="bi bi-arrow-clockwise me-1"></i> Сброс
+                                            </button>
+                                        </div>
+                                        <small class="text-muted mt-2 d-block" id="priceInfo">Установите цену продажи</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Итоговая сумма -->
+                    <div class="card border-success">
+                        <div class="card-body p-4">
+                            <div class="row align-items-center">
+                                <div class="col-md-8">
+                                    <div class="h5 mb-2">Сумма к добавлению в продажу:</div>
+                                    <div class="d-flex align-items-center">
+                                        <div class="fs-6 text-muted me-3">Количество:</div>
+                                        <div class="fs-5 fw-bold" id="displayQuantity">1</div>
+                                        <div class="fs-6 text-muted mx-2">×</div>
+                                        <div class="fs-5 fw-bold" id="displayPrice">0.00 ₽</div>
+                                        <div class="fs-6 text-muted mx-2">=</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <div class="h2 text-success mb-0" id="preliminaryTotal">0.00 ₽</div>
+                                    <div class="text-muted">Итоговая сумма</div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="modal-footer border-top-0">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
-                        Отмена
+                <div class="modal-footer border-top-0 bg-light">
+                    <button type="button" class="btn btn-lg btn-outline-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-lg me-2"></i>Отмена
                     </button>
-                    <button type="submit" class="btn btn-primary" id="submitBtn">
-                        <i class="bi bi-plus-circle me-1"></i>Добавить
+                    <button type="submit" class="btn btn-lg btn-primary" id="submitBtn">
+                        <i class="bi bi-plus-circle me-2"></i>Добавить товар
                     </button>
                 </div>
             </form>
@@ -232,28 +292,156 @@
 </div>
 
 <style>
-.product-option {
-    padding: 6px 10px;
-    border-bottom: 1px solid #eee;
-    font-size: 0.9rem;
+/* Основные стили */
+.product-select-container {
+    border: 1px solid #dee2e6;
+    border-radius: 0.5rem;
+    padding: 16px;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
+
+.product-list-container {
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    margin-top: 8px;
+}
+
+/* Стили для select */
+.product-select-container select {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent;
+}
+
+.product-select-container select:focus {
+    outline: none;
+}
+
+/* Плавный переход при фокусе */
+.product-select-container:focus-within {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.15);
+}
+
+/* Стили для опций товаров */
+.product-option {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 0.95rem;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
 .product-option:last-child {
     border-bottom: none;
 }
-.product-option:disabled {
-    color: #999;
+
+.product-option:hover {
     background-color: #f8f9fa;
 }
-select[multiple] option:checked {
+
+.product-option:checked {
     background-color: #e7f1ff;
     color: #0d6efd;
+    font-weight: 500;
 }
-.input-group-text {
-    font-size: 0.875rem;
+
+.product-option:disabled {
+    color: #adb5bd;
+    background-color: #f8f9fa;
+    cursor: not-allowed;
 }
-.form-label {
-    font-size: 0.875rem;
+
+/* Бейджи в опциях */
+.product-option .badge {
+    font-size: 0.75rem;
+    padding: 4px 8px;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .product-select-container {
+        padding: 12px;
+    }
+    
+    .product-select-container select {
+        font-size: 0.9rem;
+    }
+    
+    .product-option {
+        padding: 8px 12px;
+    }
+}
+
+/* Стили для карточек */
+.card {
+    border: 1px solid #e0e0e0;
+    border-radius: 0.75rem;
+    overflow: hidden;
+}
+
+.card-header {
+    border-bottom: 1px solid #e0e0e0;
+    padding: 1rem 1.25rem;
+}
+
+/* Анимации */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+#productInfoCard {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* Поля ввода */
+.form-control-lg {
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+}
+
+.input-group-lg > .form-control {
+    padding: 0.75rem 1rem;
+}
+
+/* Заголовки */
+.h6 {
     font-weight: 600;
+}
+
+/* Иконки */
+.bi {
+    font-size: 1.1em;
+}
+
+/* Убираем стрелку у select в Firefox */
+select {
+    -moz-appearance: none;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+/* Кастомная полоса прокрутки */
+.product-list-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.product-list-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.product-list-container::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.product-list-container::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
 }
 </style>
 

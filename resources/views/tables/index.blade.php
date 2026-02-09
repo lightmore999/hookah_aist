@@ -65,8 +65,8 @@
                     <thead class="table-light sticky-top">
                         <tr>
                             <th style="width: 120px;" class="text-center">Время</th>
-                           @foreach($tableNames as $table)
-                                <th class="text-center">
+                        @foreach($tableNames as $table)
+                                <th class="text-center" data-table-id="{{ $table->id }}">
                                     @if(str_contains($table->name, 'Барная стойка'))
                                         <i class="bi bi-cup-hot-fill text-warning me-1"></i>{{ $table->name }}
                                     @else
@@ -542,6 +542,7 @@
 <script src="{{ asset('js/tables/modules/product-manager.js') }}"></script>
 <script src="{{ asset('js/tables/modules/hookah-manager.js') }}"></script>
 
+
 <script>
 
 window.tableProducts = window.tableProducts || {
@@ -615,7 +616,16 @@ if (saleProductsModal) {
 document.addEventListener('DOMContentLoaded', function() {
 
     // =============== ИНИЦИАЛИЗАЦИЯ  ===============
+
+    if (typeof window.TableSelectionManager !== 'undefined') {
+        // Инициализируем с небольшой задержкой, чтобы таблица успела отрендериться
+        setTimeout(() => {
+            window.TableSelectionManager.init();
+        }, 1000);
+    }
     
+    window.tableObserver = null;
+
     // Экспорт функций
     window.TableManager = {
         showToast,
@@ -788,6 +798,7 @@ document.addEventListener('DOMContentLoaded', function() {
         button.addEventListener('click', function() {
             const tableId = this.getAttribute('data-id');
             const tableName = this.getAttribute('data-table-name');
+            const guestName = this.getAttribute('data-guest-name');
             
             // Устанавливаем action формы
             const form = document.getElementById('deleteTableForm');
@@ -796,13 +807,46 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Обновляем информацию в модалке
-            const guestName = this.getAttribute('data-guest-name');
-            const infoElement = document.querySelector('#deleteTableModal .modal-body strong');
-            if (infoElement && tableName) {
-                infoElement.textContent = `"${guestName}" (${tableName})`;
+            const infoElement = document.getElementById('deleteTableInfo');
+            if (infoElement && tableName && guestName) {
+                infoElement.textContent = `Стол: "${tableName}", Гость: "${guestName}"`;
             }
+            
+            // Сбрасываем поле комментария
+            const commentField = document.getElementById('deleteComment');
+            if (commentField) {
+                commentField.value = '';
+            }
+            
+            // Автоматически фокусируемся на поле комментария
+            setTimeout(() => {
+                if (commentField) {
+                    commentField.focus();
+                }
+            }, 500);
         });
     });
+    const deleteTableForm = document.getElementById('deleteTableForm');
+    if (deleteTableForm) {
+        deleteTableForm.addEventListener('submit', function(e) {
+            // Можно добавить валидацию если нужно
+            const commentField = document.getElementById('deleteComment');
+            if (commentField && commentField.value.trim().length > 500) {
+                e.preventDefault();
+                showToast('warning', 'Внимание', 'Комментарий не должен превышать 500 символов');
+                return false;
+            }
+            
+            // Показываем индикатор загрузки
+            const submitButton = this.querySelector('button[type="submit"]');
+            const originalText = submitButton.innerHTML;
+            submitButton.innerHTML = '<i class="bi bi-hourglass"></i> Удаление...';
+            submitButton.disabled = true;
+            
+            // Форма будет отправлена обычным способом
+            return true;
+        });
+    }
 
 
     // =============== ТАЙМЕР ДЛЯ СТОЛОВ ===============
@@ -1227,24 +1271,42 @@ document.addEventListener('DOMContentLoaded', function() {
             // Группируем одинаковые кальяны
             const groupedHookahs = {};
             hookahs.forEach(hookah => {
-                if (!groupedHookahs[hookah.id]) {
-                    groupedHookahs[hookah.id] = {
+                const key = `${hookah.id}_${hookah.created_at || ''}`;
+                if (!groupedHookahs[key]) {
+                    groupedHookahs[key] = {
                         ...hookah,
-                        count: 1
+                        count: 1,
+                        times: [hookah.created_at || '--:--']
                     };
                 } else {
-                    groupedHookahs[hookah.id].count++;
+                    groupedHookahs[key].count++;
+                    groupedHookahs[key].times.push(hookah.created_at || '--:--');
                 }
             });
             
             Object.values(groupedHookahs).forEach(hookah => {
                 const totalPrice = parseFloat(hookah.price) * hookah.count;
+                
+                // Формируем строку с временами добавления
+                let timesHtml = '';
+                if (hookah.times.length === 1) {
+                    timesHtml = `<div class="text-muted small">${hookah.times[0]}</div>`;
+                } else {
+                    // Если несколько одинаковых кальянов, показываем список времен
+                    timesHtml = '<div class="text-muted small">';
+                    hookah.times.forEach((time, index) => {
+                        timesHtml += `<div>${index + 1}. ${time}</div>`;
+                    });
+                    timesHtml += '</div>';
+                }
+                
                 html += `
                     <div class="list-group-item border-0 px-0 py-2">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="me-3 flex-grow-1">
                                 <div class="fw-bold mb-1">${hookah.name}</div>
                                 <div class="text-muted">${hookah.count > 1 ? hookah.count + ' × ' : ''}${formatPrice(hookah.price)}</div>
+                                ${timesHtml}
                             </div>
                             <div class="text-end">
                                 <div class="fw-bold">${formatPrice(totalPrice)}</div>
@@ -1363,14 +1425,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     const row = document.createElement('tr');
                     row.innerHTML = `
                         <td>${hookah.name}</td>
-                        <td>${parseFloat(hookah.price).toFixed(2)} ₽</td>
+                        <td>${parseFloat(hookah.price).toFixed(0)} ₽</td>
+                        <td>${hookah.created_at || '--:--'}</td>
                     `;
                     hookahsBody.appendChild(row);
                 });
             } else {
                 const emptyRow = document.createElement('tr');
                 emptyRow.innerHTML = `
-                    <td colspan="2" class="text-center text-muted py-3">
+                    <td colspan="3" class="text-center text-muted py-3">
                         <i class="bi bi-cup-straw me-2"></i>Кальяны не добавлены
                     </td>
                 `;
@@ -2307,14 +2370,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const hasBonusCard = window.currentClientHasBonusCard || false;
         const bonusPercent = window.currentClientBonusPercent || 0;
         
-        // Получаем финальную сумму для расчета
+        // Получаем финальную сумму для расчета ИЗ ЭЛЕМЕНТА НА СТРАНИЦЕ
         const finalTotalElement = document.getElementById('closeFinalTotal');
-        const finalTotalText = finalTotalElement.textContent;
+        if (!finalTotalElement) {
+            console.error('❌ Элемент closeFinalTotal не найден');
+            bonusAwardInfo.style.display = 'none';
+            return;
+        }
+        
+        const finalTotalText = finalTotalElement.textContent || '0.00 ₽';
         const finalTotal = parseFloat(finalTotalText.replace(' ₽', '').replace(/\s/g, '')) || 0;
         
-        if (hasBonusCard && bonusPercent > 0) {
+        if (hasBonusCard && bonusPercent > 0 && finalTotal > 0) {
             // Если у клиента ЕСТЬ карта, рассчитываем бонусы
-            const awardAmount = Math.floor($finalTotal * (bonusPercent / 100));
+            const awardAmount = Math.floor(finalTotal * (bonusPercent / 100));
             
             // Показываем блок
             bonusAwardInfo.style.display = 'block';
@@ -2340,9 +2409,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             `;
             
-            console.log('✅ Начисляемые бонусы:', awardAmount);
+            console.log('✅ Начисляемые бонусы:', awardAmount, 'от суммы', finalTotal);
         } else {
-            // У клиента нет карты - скрываем блок
+            // У клиента нет карты или некорректные данные - скрываем блок
             bonusAwardInfo.style.display = 'none';
             // Очищаем содержимое чтобы не накапливалось
             if (bonusAwardDetails) {
@@ -2618,19 +2687,30 @@ document.addEventListener('DOMContentLoaded', function() {
     function isCashPayment(paymentMethodId, paymentMethodName = '') {
         if (!paymentMethodId && !paymentMethodName) return false;
         
-        // Если передано ID, проверяем по нему
-        if (paymentMethodId) {
+        // Получаем полное название способа оплаты
+        let fullPaymentMethodName = paymentMethodName;
+        
+        // Если передано только ID, получаем название из select
+        if (paymentMethodId && !paymentMethodName) {
             const paymentSelect = document.getElementById('closePaymentMethod');
             if (paymentSelect && paymentSelect.value) {
                 const selectedOption = paymentSelect.options[paymentSelect.selectedIndex];
-                paymentMethodName = selectedOption.text || '';
+                if (selectedOption) {
+                    fullPaymentMethodName = selectedOption.text || '';
+                    console.log('💰 Получено название оплаты из select:', fullPaymentMethodName);
+                }
             }
         }
         
-        // Проверяем по названию
-        if (paymentMethodName) {
-            const cashKeywords = ['нал', 'cash', 'налич', 'наличк', 'руб', '₽', 'деньг'];
-            const lowerName = paymentMethodName.toLowerCase();
+        console.log('💰 Проверка наличных:', {
+            id: paymentMethodId,
+            name: fullPaymentMethodName
+        });
+        
+        // Проверяем по названию (все варианты)
+        if (fullPaymentMethodName) {
+            const cashKeywords = ['нал', 'cash', 'налич', 'наличк', 'руб', '₽', 'деньг', 'денеж', 'купюр'];
+            const lowerName = fullPaymentMethodName.toLowerCase();
             
             // Проверяем все ключевые слова
             for (const keyword of cashKeywords) {
@@ -2639,45 +2719,77 @@ document.addEventListener('DOMContentLoaded', function() {
                     return true;
                 }
             }
+            
+            // Проверяем полные совпадения (с учетом возможных пробелов)
+            if (['наличные', 'наличка', 'cash', 'нал'].includes(lowerName.trim())) {
+                console.log(`💰 Наличные определены по полному совпадению: "${lowerName}"`);
+                return true;
+            }
         }
         
-        // Если есть конкретный ID для наличных
-        const cashPaymentIds = [1];
+        // Если есть конкретные ID для наличных (добавьте нужные ID)
+        const cashPaymentIds = [1]; // Замените на реальные ID наличных из вашей БД
+        
         if (paymentMethodId && cashPaymentIds.includes(parseInt(paymentMethodId))) {
             console.log(`💰 Наличные определены по ID: ${paymentMethodId}`);
             return true;
         }
         
+        console.log('💰 Не является наличными:', {
+            id: paymentMethodId,
+            name: fullPaymentMethodName
+        });
         return false;
     }
 
-    function updatePaymentMethodInModal(paymentMethodId) {
+    function updatePaymentMethodInModal(paymentMethodId, paymentMethodName) {
         const paymentSelect = document.getElementById('closePaymentMethod');
         
         if (!paymentSelect) return;
         
+        console.log('🔄 updatePaymentMethodInModal вызвана:', {
+            id: paymentMethodId,
+            name: paymentMethodName
+        });
+        
         // Если передан ID способа оплаты
         if (paymentMethodId) {
-            paymentSelect.value = paymentMethodId;
+            // Ищем опцию с нужным value
+            let optionFound = false;
+            for (let i = 0; i < paymentSelect.options.length; i++) {
+                if (paymentSelect.options[i].value == paymentMethodId) {
+                    paymentSelect.selectedIndex = i;
+                    optionFound = true;
+                    console.log(`✅ Найден и выбран способ оплаты ID: ${paymentMethodId}`);
+                    break;
+                }
+            }
+            
+            if (!optionFound) {
+                console.log(`❌ Способ оплаты с ID ${paymentMethodId} не найден в select`);
+            }
         } else {
-            paymentSelect.value = '';
+            paymentSelect.selectedIndex = 0;
         }
         
         // Обновляем скрытое поле для обратной совместимости
         const paymentMethodAlias = document.getElementById('paymentMethodAlias');
-        if (paymentMethodAlias && paymentSelect.value) {
-            // Получаем текстовое значение для обратной совместимости
+        if (paymentMethodAlias) {
+            // Используем переданное название или берем из select
             const selectedOption = paymentSelect.options[paymentSelect.selectedIndex];
-            paymentMethodAlias.value = selectedOption.text || '';
+            paymentMethodAlias.value = paymentMethodName || selectedOption.text || '';
         }
         
-        // Обновляем калькулятор сдачи если выбран наличный расчет
-        if (typeof initCashCalculator === 'function') {
-            setTimeout(() => {
-                const event = new Event('change');
-                paymentSelect.dispatchEvent(event);
-            }, 50);
-        }
+        // ОБЯЗАТЕЛЬНО: Вызываем событие change чтобы обработать показ калькулятора
+        setTimeout(() => {
+            const event = new Event('change');
+            paymentSelect.dispatchEvent(event);
+            
+            // Дополнительно вызываем initCashCalculator
+            if (typeof initCashCalculator === 'function') {
+                initCashCalculator();
+            }
+        }, 50);
     }
 
     // Обновляем функцию updateCloseModalData
@@ -2693,8 +2805,8 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('closeSubtotal').textContent = formatPrice(data.subtotal);
         document.getElementById('closeFinalTotal').textContent = formatPrice(data.finalTotal);
         
-        // ОБНОВЛЯЕМ СПОСОБ ОПЛАТЫ
-        updatePaymentMethodInModal(data.paymentMethodId);
+        // ОБНОВЛЯЕМ СПОСОБ ОПЛАТЫ (передаем и ID и название)
+        updatePaymentMethodInModal(data.paymentMethodId, data.paymentMethodName);
         
         // Устанавливаем скидку и отображаем ее
         const discountInput = document.getElementById('closeDiscount');
@@ -2715,10 +2827,12 @@ document.addEventListener('DOMContentLoaded', function() {
         fillProductsList(data.products || []);
         fillHookahsList(data.hookahs || []);
         
-        if (document.getElementById('cashCalculator').style.display !== 'none') {
-            updateCalculatorTotal();
-            calculateChange();
-        }
+        // ОБЯЗАТЕЛЬНО: Инициализируем калькулятор после загрузки всех данных
+        setTimeout(() => {
+            if (typeof initCashCalculator === 'function') {
+                initCashCalculator();
+            }
+        }, 200);
     }
 
     // Инициализация обработчика для способа оплаты
@@ -2767,839 +2881,649 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // =============== ВЫДЕЛЕНИЕ ЯЧЕЕК ДЛЯ СОЗДАНИЯ СТОЛА ===============
 
-    let selectionState = {
+let selectionState = {
+    isSelecting: false,
+    startCell: null,
+    startTableId: null,
+    startRow: null,
+    startCol: null,
+    selectedCells: [],
+    tempHighlighted: []
+};
+
+// Инициализация выделения ячеек
+function initCellSelection() {
+    console.log('Инициализация выделения ячеек...');
+    
+    // Удаляем старые обработчики если есть
+    const table = document.querySelector('table.table-bordered tbody');
+    if (table) {
+        table.removeEventListener('mousedown', handleTableMouseDown);
+        table.removeEventListener('mouseenter', handleTableMouseEnter);
+        table.removeEventListener('mouseup', handleTableMouseUp);
+    }
+    
+    // Очищаем старые классы
+    document.querySelectorAll('.table-cell-selectable, .table-cell-selected, .table-cell-selecting')
+        .forEach(cell => {
+            cell.classList.remove('table-cell-selectable', 'table-cell-selected', 'table-cell-selecting');
+        });
+    
+    // Сбрасываем состояние
+    selectionState = {
         isSelecting: false,
         startCell: null,
-        startTable: null,
-        startTime: null,
-        endTime: null,
-        selectedGrid: [],
-        virtualGrid: [],
-        tempHighlighted: [] // Для временного выделения при перетаскивании
+        startTableId: null,
+        startRow: null,
+        startCol: null,
+        selectedCells: [],
+        tempHighlighted: []
     };
+    
+    // Назначаем уникальные идентификаторы ячейкам
+    assignCellIds();
+    
+    // Добавляем обработчики событий
+    if (table) {
+        table.addEventListener('mousedown', handleTableMouseDown);
+        table.addEventListener('mouseenter', handleTableMouseEnter);
+        table.addEventListener('mouseup', handleTableMouseUp);
+    }
+    
+    console.log('Выделение ячеек инициализировано');
+}
 
-    // Создаем виртуальное представление таблицы
-    function createVirtualGrid() {
-        const virtualGrid = [];
-        const rows = document.querySelectorAll('table.table-bordered tbody tr');
-        
-        // Получаем количество столбцов из заголовка
-        const headerRow = document.querySelector('table.table-bordered thead tr');
-        const columnCount = headerRow ? headerRow.cells.length - 2 : 0;
-        
-        if (rows.length === 0 || columnCount === 0) return virtualGrid;
-        
-        // Инициализируем сетку
-        for (let i = 0; i < rows.length; i++) {
-            virtualGrid[i] = new Array(columnCount).fill(null);
+// Назначаем уникальные идентификаторы ячейкам
+function assignCellIds() {
+    const rows = document.querySelectorAll('table.table-bordered tbody tr');
+    const headerCells = document.querySelectorAll('table.table-bordered thead th');
+    
+    if (rows.length === 0 || headerCells.length === 0) return;
+    
+    // Определяем количество столбцов (исключая столбцы времени)
+    const columnCount = headerCells.length - 2;
+    
+    console.log('Количество столбцов для назначения ID:', columnCount);
+    
+    // Сначала очищаем все data-атрибуты
+    rows.forEach(row => {
+        const cells = Array.from(row.cells);
+        for (let i = 1; i < cells.length - 1; i++) {
+            const cell = cells[i];
+            delete cell.dataset.cellId;
+            delete cell.dataset.rowIndex;
+            delete cell.dataset.colIndex;
+            delete cell.dataset.tableName;
+            delete cell.dataset.coveredBy;
         }
+    });
+    
+    rows.forEach((row, rowIndex) => {
+        const cells = Array.from(row.cells);
+        let currentCol = 0;
         
-        // Заполняем сетку данными о ячейках
-        rows.forEach((row, rowIndex) => {
-            const cells = Array.from(row.cells);
-            let virtualCol = 0;
-            let realCol = 1;
+        // Пропускаем первый столбец (время) и последний (время)
+        for (let i = 1; i < cells.length - 1; i++) {
+            const cell = cells[i];
             
-            while (virtualCol < columnCount && realCol < cells.length - 1) {
-                const cell = cells[realCol];
-                
-                if (cell) {
-                    // Если ячейка уже заполнена в сетке (часть rowspan), пропускаем
-                    if (virtualGrid[rowIndex][virtualCol] !== null) {
-                        virtualCol++;
-                        continue;
-                    }
+            // Пропускаем ячейки, которые уже являются частью rowspan
+            while (currentCol < columnCount && 
+                   document.querySelector(`td[data-cell-id="${rowIndex}-${currentCol}"]`)) {
+                currentCol++;
+            }
+            
+            if (currentCol >= columnCount) break;
+            
+            const rowspan = parseInt(cell.getAttribute('rowspan')) || 1;
+            const colspan = parseInt(cell.getAttribute('colspan')) || 1;
+            
+            // Основная ячейка
+            cell.dataset.cellId = `${rowIndex}-${currentCol}`;
+            cell.dataset.rowIndex = rowIndex;
+            cell.dataset.colIndex = currentCol;
+            cell.dataset.tableName = getTableNameForColumn(currentCol);
+            
+            // Если ячейка пустая и не занята rowspan/colspan, делаем ее selectable
+            const isEmpty = cell.textContent.trim() === '' && 
+                           !cell.querySelector('.btn') && 
+                           !cell.querySelector('.badge') &&
+                           !cell.classList.contains('bg-') &&
+                           rowspan === 1 && colspan === 1;
+            
+            if (isEmpty) {
+                cell.classList.add('table-cell-selectable');
+                console.log(`Сделана selectable: строка ${rowIndex}, колонка ${currentCol}`);
+            } else {
+                cell.classList.remove('table-cell-selectable');
+            }
+            
+            // Заполняем ячейки, покрытые rowspan/colspan
+            for (let r = 0; r < rowspan; r++) {
+                for (let c = 0; c < colspan; c++) {
+                    if (r === 0 && c === 0) continue; // Пропускаем основную ячейку
                     
-                    const rowspan = parseInt(cell.getAttribute('rowspan')) || 1;
-                    const colspan = parseInt(cell.getAttribute('colspan')) || 1;
+                    const targetRow = rowIndex + r;
+                    const targetCol = currentCol + c;
                     
-                    // Получаем название стола из заголовка
-                    const tableHeader = document.querySelector(`table.table-bordered thead th:nth-child(${realCol + 1})`);
-                    const tableName = tableHeader ? extractTableName(tableHeader) : `Стол ${virtualCol + 1}`;
-                    
-                    // Определяем, пустая ли ячейка и доступна для выделения
-                    const isEmpty = cell.textContent.trim() === '' && !cell.hasAttribute('rowspan') && colspan === 1;
-                    const isOccupied = cell.hasAttribute('rowspan') || cell.textContent.trim() !== '';
-                    
-                    // Создаем объект ячейки
-                    const cellData = {
-                        element: cell,
-                        tableName: tableName,
-                        time: getCellTime(rowIndex),
-                        row: rowIndex,
-                        col: virtualCol,
-                        realCol: realCol,
-                        rowspan: rowspan,
-                        colspan: colspan,
-                        isEmpty: isEmpty,
-                        isOccupied: isOccupied,
-                        isSelectable: isEmpty && !isOccupied
-                    };
-                    
-                    // Заполняем ячейку в сетке
-                    virtualGrid[rowIndex][virtualCol] = cellData;
-                    
-                    // Если есть rowspan, заполняем ячейки ниже
-                    for (let r = 1; r < rowspan; r++) {
-                        if (rowIndex + r < virtualGrid.length) {
-                            virtualGrid[rowIndex + r][virtualCol] = {
-                                ...cellData,
-                                isCovered: true,
-                                element: null,
-                                isEmpty: false,
-                                isSelectable: false,
-                                isOccupied: true
-                            };
+                    if (targetRow < rows.length && targetCol < columnCount) {
+                        // Ищем существующую ячейку в этой позиции
+                        const targetRowCells = rows[targetRow].cells;
+                        let targetCell = null;
+                        
+                        for (let j = 1; j < targetRowCells.length - 1; j++) {
+                            const testCell = targetRowCells[j];
+                            if (!testCell.dataset.cellId) {
+                                targetCell = testCell;
+                                break;
+                            }
+                        }
+                        
+                        if (targetCell) {
+                            targetCell.dataset.cellId = `${targetRow}-${targetCol}`;
+                            targetCell.dataset.rowIndex = targetRow;
+                            targetCell.dataset.colIndex = targetCol;
+                            targetCell.dataset.tableName = getTableNameForColumn(targetCol);
+                            targetCell.dataset.coveredBy = `${rowIndex}-${currentCol}`;
+                            targetCell.classList.remove('table-cell-selectable');
                         }
                     }
-                    
-                    // Если есть colspan, заполняем ячейки справа
-                    for (let c = 1; c < colspan; c++) {
-                        if (virtualCol + c < columnCount) {
-                            virtualGrid[rowIndex][virtualCol + c] = {
-                                ...cellData,
-                                isCovered: true,
-                                element: null,
-                                isEmpty: false,
-                                isSelectable: false,
-                                isOccupied: true
-                            };
-                        }
-                    }
-                    
-                    virtualCol += colspan;
-                    realCol += colspan;
-                } else {
-                    virtualCol++;
-                    realCol++;
                 }
             }
-        });
-        
-        return virtualGrid;
-    }
-
-    // Извлекаем название стола из текста заголовка
-    function extractTableName(headerElement) {
-        if (!headerElement) return '';
-        
-        // Получаем чистый текст без HTML и иконок
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = headerElement.innerHTML;
-        
-        // Убираем иконки (содержимое тегов <i>)
-        const icons = tempDiv.querySelectorAll('i');
-        icons.forEach(icon => icon.remove());
-        
-        // Получаем чистый текст
-        let cleanText = tempDiv.textContent
-            .replace(/\s+/g, ' ')  // Заменяем множественные пробелы
-            .trim();
-        
-        console.log('Извлечение названия стола:', {
-            originalHTML: headerElement.innerHTML,
-            cleanText: cleanText
-        });
-        
-        return cleanText;
-    }
-
-    // Получаем время для строки
-    function getCellTime(rowIndex) {
-        const row = document.querySelector(`table.table-bordered tbody tr:nth-child(${rowIndex + 1})`);
-        if (!row) return '';
-        
-        const timeCell = row.cells[0];
-        return timeCell ? timeCell.textContent.trim() : '';
-    }
-
-    // Инициализация выделения ячеек
-    function initCellSelection() {
-        // Создаем виртуальную сетку
-        selectionState.virtualGrid = createVirtualGrid();
-        
-        // Очищаем предыдущие классы
-        document.querySelectorAll('.table-cell-selectable, .table-cell-selected, .table-cell-selecting')
-            .forEach(cell => {
-                cell.classList.remove('table-cell-selectable', 'table-cell-selected', 'table-cell-selecting');
-            });
-        
-        // Удаляем старые обработчики
-        const table = document.querySelector('table.table-bordered tbody');
-        if (table) {
-            table.removeEventListener('mousedown', handleTableMouseDown);
-            table.removeEventListener('mouseenter', handleTableMouseEnter);
-            table.removeEventListener('mouseup', handleTableMouseUp);
             
-            // Добавляем новые обработчики
-            table.addEventListener('mousedown', handleTableMouseDown);
-            table.addEventListener('mouseenter', handleTableMouseEnter);
-            table.addEventListener('mouseup', handleTableMouseUp);
+            currentCol += colspan;
         }
-        
-        // Применяем класс selectable к пустым ячейкам
-        selectionState.virtualGrid.forEach(row => {
-            row.forEach(cell => {
-                if (cell && cell.element && cell.isSelectable) {
-                    cell.element.classList.add('table-cell-selectable');
-                }
-            });
-        });
-    }
+    });
+    
+    console.log('Назначение ID ячейкам завершено');
+}
 
-    // Находим ячейку в виртуальной сетке
-    function findCellInGrid(cellElement) {
-        for (let row = 0; row < selectionState.virtualGrid.length; row++) {
-            for (let col = 0; col < selectionState.virtualGrid[row].length; col++) {
-                const cell = selectionState.virtualGrid[row][col];
-                if (cell && cell.element === cellElement) {
-                    return cell;
-                }
-            }
-        }
-        return null;
-    }
+// Получаем название стола для колонки
+function getTableNameForColumn(colIndex) {
+    const headerCells = document.querySelectorAll('table.table-bordered thead th');
+    if (colIndex < 0 || colIndex >= headerCells.length - 2) return '';
+    
+    const headerCell = headerCells[colIndex + 1]; // +1 чтобы пропустить первый столбец времени
+    return headerCell.textContent.trim();
+}
 
-    // Очистка временных выделений
-    function clearTempHighlight() {
-        selectionState.tempHighlighted.forEach(cellData => {
-            if (cellData.element) {
-                cellData.element.classList.remove('table-cell-selecting');
-            }
-        });
-        selectionState.tempHighlighted = [];
-    }
+// Получаем ID стола для колонки (из data-атрибута)
+function getTableIdForColumn(colIndex) {
+    const headerCells = document.querySelectorAll('table.table-bordered thead th');
+    if (colIndex < 0 || colIndex >= headerCells.length - 2) return null;
+    
+    const headerCell = headerCells[colIndex + 1];
+    return headerCell.dataset.tableId || null;
+}
 
-    // Выделение диапазона ячеек
-    function highlightRange(startRow, endRow, col) {
-        clearTempHighlight();
-        
-        const minRow = Math.min(startRow, endRow);
-        const maxRow = Math.max(startRow, endRow);
-        
-        for (let row = minRow; row <= maxRow; row++) {
-            const cell = selectionState.virtualGrid[row][col];
-            if (cell && cell.element && cell.isSelectable) {
-                cell.element.classList.add('table-cell-selecting');
-                selectionState.tempHighlighted.push(cell);
-            }
-        }
-    }
-
-    // Обработчик нажатия мыши на таблице
-    function handleTableMouseDown(e) {
-        if (!e.target.closest('td')) return;
-        
-        const cellElement = e.target.closest('td');
-        if (!cellElement || !cellElement.classList.contains('table-cell-selectable')) {
-            return;
-        }
-        
-        e.preventDefault();
-        
-        const cellData = findCellInGrid(cellElement);
-        if (!cellData || !cellData.isSelectable) return;
-        
+// Обработчики событий
+function handleTableMouseDown(e) {
+    const cell = e.target.closest('td.table-cell-selectable');
+    if (!cell) return;
+    
+    e.preventDefault();
+    
+    if (cell.classList.contains('table-cell-selectable')) {
         selectionState.isSelecting = true;
-        selectionState.startCell = cellData;
-        selectionState.startTable = cellData.tableName;
-        selectionState.startTime = cellData.time;
-        selectionState.selectedGrid = [];
-        selectionState.tempHighlighted = [];
+        selectionState.startCell = cell;
+        selectionState.startRow = parseInt(cell.dataset.rowIndex);
+        selectionState.startCol = parseInt(cell.dataset.colIndex);
+        selectionState.startTableId = getTableIdForColumn(selectionState.startCol);
+        selectionState.selectedCells = [cell];
         
-        // Сбрасываем предыдущие выделения
         clearSelection();
         clearTempHighlight();
         
-        // Начинаем выделение
-        cellData.element.classList.add('table-cell-selected');
-        selectionState.selectedGrid.push(cellData);
-    }
-
-    // Обработчик перемещения мыши по таблице
-    function handleTableMouseEnter(e) {
-        if (!selectionState.isSelecting) return;
+        cell.classList.add('table-cell-selected');
         
-        const cellElement = e.target.closest('td');
-        if (!cellElement || !cellElement.classList.contains('table-cell-selectable')) {
-            return;
-        }
-        
-        const cellData = findCellInGrid(cellElement);
-        if (!cellData || !cellData.isSelectable) return;
-        
-        // Проверяем, что выделение происходит в том же столбце
-        if (cellData.tableName !== selectionState.startTable) {
-            return;
-        }
-        
-        // Выделяем диапазон
-        highlightRange(selectionState.startCell.row, cellData.row, selectionState.startCell.col);
-    }
-
-    // Обработчик отпускания мыши
-    function handleTableMouseUp(e) {
-        if (!selectionState.isSelecting) return;
-        
-        const cellElement = e.target.closest('td');
-        if (cellElement && cellElement.classList.contains('table-cell-selectable')) {
-            const cellData = findCellInGrid(cellElement);
-            if (cellData && cellData.isSelectable) {
-                // Собираем все выделенные ячейки
-                const startRow = selectionState.startCell.row;
-                const endRow = cellData.row;
-                const col = selectionState.startCell.col;
-                
-                const minRow = Math.min(startRow, endRow);
-                const maxRow = Math.max(startRow, endRow);
-                
-                // Преобразуем временные выделения в постоянные
-                selectionState.tempHighlighted.forEach(cell => {
-                    if (cell.element) {
-                        cell.element.classList.remove('table-cell-selecting');
-                        cell.element.classList.add('table-cell-selected');
-                    }
-                });
-                
-                // Собираем данные о выделенных ячейках
-                selectionState.selectedGrid = [];
-                for (let row = minRow; row <= maxRow; row++) {
-                    const targetCell = selectionState.virtualGrid[row][col];
-                    if (targetCell && targetCell.element && targetCell.isSelectable) {
-                        selectionState.selectedGrid.push(targetCell);
-                    }
-                }
-                
-                // Определяем время окончания
-                if (selectionState.selectedGrid.length > 0) {
-                    const lastCell = selectionState.selectedGrid[selectionState.selectedGrid.length - 1];
-                    selectionState.endTime = lastCell.time;
-                    
-                    // Показываем модальное окно
-                    showCreateModalWithSelection();
-                }
-            }
-        }
-        
-        // Очищаем временные выделения
-        clearTempHighlight();
-        selectionState.isSelecting = false;
-    }
-
-    // Очистка выделения
-    function clearSelection() {
-        document.querySelectorAll('.table-cell-selected, .table-cell-selecting').forEach(cell => {
-            cell.classList.remove('table-cell-selected', 'table-cell-selecting');
+        console.log('Начало выделения:', {
+            row: selectionState.startRow,
+            col: selectionState.startCol,
+            tableId: selectionState.startTableId,
+            tableName: cell.dataset.tableName
         });
-        selectionState.selectedGrid = [];
     }
+}
 
-    // Показ модального окна с предзаполненными данными
-    function showCreateModalWithSelection() {
-        if (selectionState.selectedGrid.length === 0) return;
+function handleTableMouseEnter(e) {
+    if (!selectionState.isSelecting) return;
+    
+    const cell = e.target.closest('td.table-cell-selectable');
+    if (!cell) return;
+    
+    const currentRow = parseInt(cell.dataset.rowIndex);
+    const currentCol = parseInt(cell.dataset.colIndex);
+    const currentTableId = getTableIdForColumn(currentCol);
+    
+    // Проверяем, что выделение в пределах одного стола
+    if (currentTableId !== selectionState.startTableId) {
+        console.log('Попытка выделения другого стола:', currentTableId, 'ожидался:', selectionState.startTableId);
+        return;
+    }
+    
+    // Проверяем, что выделение в пределах одного столбца
+    if (currentCol !== selectionState.startCol) {
+        console.log('Попытка выделения другого столбца:', currentCol, 'ожидался:', selectionState.startCol);
+        return;
+    }
+    
+    highlightRange(selectionState.startRow, currentRow, currentCol);
+}
+
+function handleTableMouseUp(e) {
+    if (!selectionState.isSelecting) return;
+    
+    const cell = e.target.closest('td.table-cell-selectable');
+    if (cell && cell.classList.contains('table-cell-selectable')) {
+        const currentRow = parseInt(cell.dataset.rowIndex);
+        const currentCol = parseInt(cell.dataset.colIndex);
         
-        const selectedTableName = selectionState.startTable;  // Название стола из заголовка
+        // Сохраняем выделенные ячейки
+        selectionState.tempHighlighted.forEach(cell => {
+            cell.classList.remove('table-cell-selecting');
+            cell.classList.add('table-cell-selected');
+        });
         
-        console.log('Выбранный стол из заголовка:', selectedTableName);
+        selectionState.selectedCells = getCellsInRange(
+            selectionState.startRow, 
+            currentRow, 
+            selectionState.startCol
+        );
         
-        // Сортируем ячейки по времени
-        const sortedCells = [...selectionState.selectedGrid].sort((a, b) => a.row - b.row);
+        console.log('Выделено ячеек:', selectionState.selectedCells.length);
         
-        const startTime = sortedCells[0].time;
-        const endCell = sortedCells[sortedCells.length - 1];
-        
-        // Вычисляем время окончания
-        const endTime = calculateEndTime(endCell.time);
-        
-        // Вычисляем длительность
-        const startMinutes = timeToMinutes(startTime);
-        const endMinutes = timeToMinutes(endTime);
-        let durationMinutes;
-        
-        if (endMinutes < startMinutes) {
-            durationMinutes = (24 * 60 - startMinutes) + endMinutes;
-        } else {
-            durationMinutes = endMinutes - startMinutes;
+        if (selectionState.selectedCells.length > 0) {
+            showCreateModalWithSelection();
         }
-        
-        // Находим ближайший вариант в селекте длительности
-        const durationOptions = [60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360];
-        let closestDuration = 120;
-        
-        for (const option of durationOptions) {
-            if (Math.abs(option - durationMinutes) < Math.abs(closestDuration - durationMinutes)) {
-                closestDuration = option;
-            }
-        }
-        
-        // Форматируем время для формы
-        const formattedStartTime = formatTimeForInput(startTime);
-        
-        // Предзаполняем форму - ищем селект стола
-        const tableNameSelect = document.getElementById('table_name_id');
-        
-        if (tableNameSelect) {
-            console.log('Найден селект table_name_id, опций:', tableNameSelect.options.length);
-            
-            let selectedIndex = -1;
-            
-            // Ищем опцию по тексту (названию стола)
-            for (let i = 0; i < tableNameSelect.options.length; i++) {
-                const optionText = tableNameSelect.options[i].text.trim();
-                const optionValue = tableNameSelect.options[i].value;
-                
-                console.log(`Опция ${i}: текст="${optionText}", value="${optionValue}"`);
-                
-                // Проверяем точное совпадение или частичное
-                if (optionText === selectedTableName) {
-                    selectedIndex = i;
-                    console.log(`Точное совпадение: "${selectedTableName}" -> выбрана опция "${optionText}" (ID: ${optionValue})`);
-                    break;
-                }
-            }
-            
-            // Если не нашли точного совпадения, ищем частичное
-            if (selectedIndex === -1) {
-                for (let i = 0; i < tableNameSelect.options.length; i++) {
-                    const optionText = tableNameSelect.options[i].text.trim();
-                    
-                    // Проверяем содержит ли текст опции выбранное название
-                    if (optionText.includes(selectedTableName) || selectedTableName.includes(optionText)) {
-                        selectedIndex = i;
-                        console.log(`Частичное совпадение: "${selectedTableName}" -> выбрана опция "${optionText}"`);
-                        break;
-                    }
-                }
-            }
-            
-            // Если все еще не нашли, ищем по номеру стола
-            if (selectedIndex === -1 && selectedTableName) {
-                const tableNumber = selectedTableName.match(/\d+/); // Ищем цифры в названии
-                if (tableNumber) {
-                    const num = tableNumber[0];
-                    console.log(`Ищем стол по номеру: ${num}`);
-                    
-                    for (let i = 0; i < tableNameSelect.options.length; i++) {
-                        const optionText = tableNameSelect.options[i].text.trim();
-                        if (optionText.includes(num)) {
-                            selectedIndex = i;
-                            console.log(`Найдено по номеру: выбрана опция "${optionText}"`);
+    }
+    
+    clearTempHighlight();
+    selectionState.isSelecting = false;
+}
+
+// Подсветка диапазона ячеек
+function highlightRange(startRow, endRow, col) {
+    clearTempHighlight();
+    
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+    const rows = document.querySelectorAll('table.table-bordered tbody tr');
+    
+    console.log(`Подсветка диапазона: строки ${minRow}-${maxRow}, столбец ${col}`);
+    
+    for (let row = minRow; row <= maxRow; row++) {
+        if (row >= 0 && row < rows.length) {
+            // Находим ячейку в этой строке и столбце
+            const cell = document.querySelector(`td[data-cell-id="${row}-${col}"]`);
+            if (cell && cell.classList.contains('table-cell-selectable')) {
+                // Проверяем, что ячейка не заблокирована rowspan сверху
+                let isBlocked = false;
+                for (let r = row - 1; r >= 0; r--) {
+                    const cellAbove = document.querySelector(`td[data-cell-id="${r}-${col}"]`);
+                    if (cellAbove) {
+                        const rowspan = parseInt(cellAbove.getAttribute('rowspan')) || 1;
+                        if (rowspan > 1 && (r + rowspan - 1) >= row) {
+                            isBlocked = true;
+                            console.log(`Ячейка ${row}-${col} заблокирована rowspan из ${r}-${col}`);
                             break;
                         }
                     }
                 }
-            }
-            
-            // Устанавливаем выбранную опцию
-            if (selectedIndex !== -1) {
-                tableNameSelect.selectedIndex = selectedIndex;
-                console.log('Установлен выбранный стол:', tableNameSelect.options[selectedIndex].text);
-            } else {
-                console.warn('Не удалось найти подходящий стол для:', selectedTableName);
-                // Можно показать предупреждение пользователю
-                showToast('warning', 'Внимание', `Не удалось автоматически выбрать стол "${selectedTableName}". Выберите вручную.`);
-            }
-        } else {
-            console.error('Не найден селект table_name_id!');
-        }
-        
-        // Устанавливаем время
-        const bookingTimeSelect = document.getElementById('booking_time');
-        if (bookingTimeSelect) {
-            let timeFound = false;
-            for (let i = 0; i < bookingTimeSelect.options.length; i++) {
-                if (bookingTimeSelect.options[i].value === formattedStartTime) {
-                    bookingTimeSelect.selectedIndex = i;
-                    timeFound = true;
-                    console.log('Время установлено:', formattedStartTime);
-                    break;
+                
+                if (!isBlocked) {
+                    cell.classList.add('table-cell-selecting');
+                    selectionState.tempHighlighted.push(cell);
+                    console.log(`Подсвечена ячейка: ${row}-${col}`);
                 }
+            } else if (cell) {
+                console.log(`Ячейка ${row}-${col} не selectable или не найдена`);
             }
-            
-            if (!timeFound) {
-                console.warn('Не найдено время:', formattedStartTime);
+        }
+    }
+}
+
+// Получаем все ячейки в диапазоне
+function getCellsInRange(startRow, endRow, col) {
+    const cells = [];
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+    
+    for (let row = minRow; row <= maxRow; row++) {
+        const cell = document.querySelector(`td[data-cell-id="${row}-${col}"]`);
+        if (cell && cell.classList.contains('table-cell-selectable')) {
+            cells.push(cell);
+        }
+    }
+    
+    return cells;
+}
+
+// Очистка временной подсветки
+function clearTempHighlight() {
+    selectionState.tempHighlighted.forEach(cell => {
+        if (cell && cell.classList) {
+            cell.classList.remove('table-cell-selecting');
+        }
+    });
+    selectionState.tempHighlighted = [];
+}
+
+// Очистка выделения
+function clearSelection() {
+    document.querySelectorAll('.table-cell-selected, .table-cell-selecting').forEach(cell => {
+        cell.classList.remove('table-cell-selected', 'table-cell-selecting');
+    });
+    selectionState.selectedCells = [];
+}
+
+// Показ модального окна с предзаполненными данными
+function showCreateModalWithSelection() {
+    if (selectionState.selectedCells.length === 0) {
+        console.log('Нет выделенных ячеек для показа модалки');
+        return;
+    }
+    
+    // Сортируем ячейки по строкам
+    const sortedCells = [...selectionState.selectedCells].sort((a, b) => {
+        return parseInt(a.dataset.rowIndex) - parseInt(b.dataset.rowIndex);
+    });
+    
+    const firstCell = sortedCells[0];
+    const lastCell = sortedCells[sortedCells.length - 1];
+    
+    // Получаем время начала и конца
+    const startRow = parseInt(firstCell.dataset.rowIndex);
+    const endRow = parseInt(lastCell.dataset.rowIndex);
+    
+    const startTime = getTimeForRow(startRow);
+    const endTime = calculateEndTime(getTimeForRow(endRow));
+    
+    // Рассчитываем длительность
+    const startMinutes = timeToMinutes(startTime);
+    const endMinutes = timeToMinutes(endTime);
+    let durationMinutes;
+    
+    if (endMinutes < startMinutes) {
+        durationMinutes = (24 * 60 - startMinutes) + endMinutes;
+    } else {
+        durationMinutes = endMinutes - startMinutes;
+    }
+    
+    // Находим ближайшую стандартную длительность
+    const durationOptions = [60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360];
+    let closestDuration = 120;
+    
+    for (const option of durationOptions) {
+        if (Math.abs(option - durationMinutes) < Math.abs(closestDuration - durationMinutes)) {
+            closestDuration = option;
+        }
+    }
+    
+    const formattedStartTime = formatTimeForInput(startTime);
+    
+    console.log('Данные для модалки:', {
+        startTime,
+        endTime,
+        durationMinutes,
+        closestDuration,
+        formattedStartTime,
+        tableName: firstCell.dataset.tableName,
+        tableId: selectionState.startTableId
+    });
+    
+    // Предзаполняем форму
+    const tableNameSelect = document.getElementById('table_name_id');
+    if (tableNameSelect && selectionState.startTableId) {
+        // Ищем опцию с нужным value
+        let found = false;
+        for (let i = 0; i < tableNameSelect.options.length; i++) {
+            if (parseInt(tableNameSelect.options[i].value) === parseInt(selectionState.startTableId)) {
+                tableNameSelect.selectedIndex = i;
+                found = true;
+                console.log('Установлен стол ID:', selectionState.startTableId, 'текст:', tableNameSelect.options[i].text);
+                break;
             }
         }
         
-        // Устанавливаем длительность
-        const durationSelect = document.getElementById('duration');
-        if (durationSelect) {
-            durationSelect.value = closestDuration;
-            console.log('Длительность установлена:', closestDuration);
+        if (!found) {
+            console.log('Не найден стол с ID:', selectionState.startTableId);
+        }
+    } else if (!tableNameSelect) {
+        console.log('Селект table_name_id не найден');
+    }
+    
+    // Устанавливаем время
+    const bookingTimeSelect = document.getElementById('booking_time');
+    if (bookingTimeSelect) {
+        let timeFound = false;
+        for (let i = 0; i < bookingTimeSelect.options.length; i++) {
+            if (bookingTimeSelect.options[i].value === formattedStartTime) {
+                bookingTimeSelect.selectedIndex = i;
+                timeFound = true;
+                console.log('Время установлено:', formattedStartTime);
+                break;
+            }
         }
         
-        // Показываем модальное окно
-        const modal = new bootstrap.Modal(document.getElementById('createTableModal'));
+        if (!timeFound) {
+            console.log('Не найдено время:', formattedStartTime);
+        }
+    }
+    
+    // Устанавливаем длительность
+    const durationSelect = document.getElementById('duration');
+    if (durationSelect) {
+        durationSelect.value = closestDuration;
+        console.log('Длительность установлена:', closestDuration);
+    }
+    
+    // Показываем модальное окно
+    const modalElement = document.getElementById('createTableModal');
+    if (modalElement) {
+        const modal = new bootstrap.Modal(modalElement);
         modal.show();
         
-        // Показываем информацию о выбранном диапазоне
-        showSelectionInfo(selectedTableName, startTime, endTime, durationMinutes);
+        // Показываем информацию о выборе
+        showSelectionInfo(
+            firstCell.dataset.tableName || 'Стол',
+            startTime,
+            endTime,
+            durationMinutes
+        );
+    } else {
+        console.log('Модальное окно createTableModal не найдено');
     }
+}
 
-    // Вычисляем время окончания (время ячейки + 30 минут)
-    function calculateEndTime(cellTime) {
-        const [hours, minutes] = cellTime.split(':').map(Number);
-        let newHours = hours;
-        let newMinutes = minutes + 30;
-        
-        if (newMinutes >= 60) {
-            newHours += Math.floor(newMinutes / 60);
-            newMinutes = newMinutes % 60;
-        }
-        
-        if (newHours >= 24) {
-            newHours = newHours % 24;
-        }
-        
-        return `${newHours.toString().padStart(2, '0')}:${newMinutes.toString().padStart(2, '0')}`;
+// Вспомогательные функции
+function getTimeForRow(rowIndex) {
+    const row = document.querySelector(`table.table-bordered tbody tr:nth-child(${rowIndex + 1})`);
+    if (!row) return '';
+    
+    const timeCell = row.cells[0];
+    return timeCell ? timeCell.textContent.trim() : '';
+}
+
+function calculateEndTime(cellTime) {
+    const [hours, minutes] = cellTime.split(':').map(Number);
+    let newHours = hours;
+    let newMinutes = minutes + 30;
+    
+    if (newMinutes >= 60) {
+        newHours += Math.floor(newMinutes / 60);
+        newMinutes = newMinutes % 60;
     }
-
-    // Конвертация времени в минуты
-    function timeToMinutes(timeStr) {
-        if (!timeStr) return 0;
-        const [hours, minutes] = timeStr.split(':').map(Number);
-        return hours * 60 + minutes;
+    
+    if (newHours >= 24) {
+        newHours = newHours % 24;
     }
+    
+    return `${newHours.toString().padStart(2, '0')}:${newMinutes.toString().padStart(2, '0')}`;
+}
 
-    // Форматирование времени для input
-    function formatTimeForInput(timeStr) {
-        if (!timeStr) return '';
-        const [hours, minutes] = timeStr.split(':');
-        return `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`;
+function timeToMinutes(timeStr) {
+    if (!timeStr) return 0;
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours * 60 + minutes;
+}
+
+function formatTimeForInput(timeStr) {
+    if (!timeStr) return '';
+    const [hours, minutes] = timeStr.split(':');
+    return `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`;
+}
+
+function showSelectionInfo(tableName, startTime, endTime, durationMinutes) {
+    const oldInfo = document.getElementById('selectionInfo');
+    if (oldInfo) {
+        oldInfo.remove();
     }
-
-    // Показ информации о выбранном диапазоне
-    function showSelectionInfo(tableName, startTime, endTime, durationMinutes) {
-        const oldInfo = document.getElementById('selectionInfo');
-        if (oldInfo) {
-            oldInfo.remove();
-        }
-        
-        const infoDiv = document.createElement('div');
-        infoDiv.id = 'selectionInfo';
-        infoDiv.className = 'alert alert-info mb-3';
-        
-        const hours = Math.floor(durationMinutes / 60);
-        const minutes = durationMinutes % 60;
-        let durationText = `${hours} час`;
-        
-        if (hours === 1) {
-            durationText = '1 час';
-        } else if (hours >= 2 && hours <= 4) {
-            durationText = `${hours} часа`;
-        } else if (hours >= 5) {
-            durationText = `${hours} часов`;
-        }
-        
-        if (minutes > 0) {
-            durationText += ` ${minutes} минут`;
-        }
-        
-        infoDiv.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <i class="bi bi-info-circle me-2"></i>
-                    <strong>Выбрано:</strong> Стол ${tableName}, время: ${startTime}-${endTime} (${durationText})
-                </div>
-                <button type="button" class="btn-close" onclick="this.parentElement.parentElement.remove()"></button>
+    
+    const infoDiv = document.createElement('div');
+    infoDiv.id = 'selectionInfo';
+    infoDiv.className = 'alert alert-info mb-3';
+    
+    const hours = Math.floor(durationMinutes / 60);
+    const minutes = durationMinutes % 60;
+    let durationText = `${hours} час`;
+    
+    if (hours === 1) {
+        durationText = '1 час';
+    } else if (hours >= 2 && hours <= 4) {
+        durationText = `${hours} часа`;
+    } else if (hours >= 5) {
+        durationText = `${hours} часов`;
+    }
+    
+    if (minutes > 0) {
+        durationText += ` ${minutes} минут`;
+    }
+    
+    infoDiv.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>Выбрано:</strong> Стол ${tableName}, время: ${startTime}-${endTime} (${durationText})
             </div>
-        `;
-        
-        const modalBody = document.querySelector('#createTableModal .modal-body');
-        if (modalBody) {
-            modalBody.insertBefore(infoDiv, modalBody.firstChild);
-        }
+            <button type="button" class="btn-close" onclick="this.parentElement.parentElement.remove()"></button>
+        </div>
+    `;
+    
+    const modalBody = document.querySelector('#createTableModal .modal-body');
+    if (modalBody) {
+        modalBody.insertBefore(infoDiv, modalBody.firstChild);
     }
+}
 
-    // Обработчик двойного клика для быстрого создания
-    function handleDoubleClick(e) {
-        const cellElement = e.target.closest('td.table-cell-selectable');
-        if (!cellElement) return;
-        
-        const cellData = findCellInGrid(cellElement);
-        if (!cellData || !cellData.isSelectable) return;
-        
-        // Выделяем одну ячейку
-        clearSelection();
-        cellElement.classList.add('table-cell-selected');
-        
-        selectionState.selectedGrid = [cellData];
-        selectionState.startCell = cellData;
-        selectionState.startTable = cellData.tableName;
-        selectionState.startTime = cellData.time;
-        selectionState.endTime = cellData.time;
-        
-        // Показываем модальное окно
-        showCreateModalWithSelection();
-    }
-
-    // Инициализация
-    document.addEventListener('DOMContentLoaded', function() {
-        setTimeout(() => {
-            initCellSelection();
-        }, 300);
-        
-        document.addEventListener('dblclick', handleDoubleClick);
-        
-        document.addEventListener('click', function(e) {
-            if (!e.target.closest('table.table-bordered tbody td') && 
-                selectionState.selectedGrid.length > 0) {
-                clearSelection();
-            }
-        });
-        
-        const createTableModal = document.getElementById('createTableModal');
-        if (createTableModal) {
-            createTableModal.addEventListener('hidden.bs.modal', function() {
-                clearSelection();
-            });
-        }
+// Обработчик двойного клика
+function handleDoubleClick(e) {
+    const cell = e.target.closest('td.table-cell-selectable');
+    if (!cell) return;
+    
+    clearSelection();
+    cell.classList.add('table-cell-selected');
+    
+    selectionState.selectedCells = [cell];
+    selectionState.startCell = cell;
+    selectionState.startRow = parseInt(cell.dataset.rowIndex);
+    selectionState.startCol = parseInt(cell.dataset.colIndex);
+    selectionState.startTableId = getTableIdForColumn(selectionState.startCol);
+    
+    console.log('Двойной клик по ячейке:', {
+        row: selectionState.startRow,
+        col: selectionState.startCol,
+        tableId: selectionState.startTableId
     });
+    
+    showCreateModalWithSelection();
+}
 
-    // Наблюдатель за изменениями таблицы
-    function initTableObserver() {
-        const table = document.querySelector('table.table-bordered tbody');
-        if (!table) return;
+// =============== ОБНОВЛЕНИЕ ПРИ ИЗМЕНЕНИЯХ В ТАБЛИЦЕ ===============
+
+function initTableObserver() {
+    const table = document.querySelector('table.table-bordered tbody');
+    if (!table) return;
+    
+    // Отключаем старый observer если есть
+    if (window.tableObserver) {
+        window.tableObserver.disconnect();
+    }
+    
+    // Создаем новый observer
+    window.tableObserver = new MutationObserver(function(mutations) {
+        let shouldUpdate = false;
         
-        const observer = new MutationObserver(function(mutations) {
-            let shouldUpdate = false;
-            
-            mutations.forEach(function(mutation) {
-                if (mutation.type === 'childList') {
-                    shouldUpdate = true;
+        for (let mutation of mutations) {
+            if (mutation.type === 'childList') {
+                // Проверяем, были ли добавлены или удалены строки
+                for (let node of mutation.addedNodes) {
+                    if (node.nodeType === 1 && (node.tagName === 'TR' || node.querySelector('tr'))) {
+                        shouldUpdate = true;
+                        break;
+                    }
                 }
                 
-                if (mutation.type === 'attributes' && 
-                    (mutation.attributeName === 'rowspan' || 
-                    mutation.attributeName === 'class')) {
-                    shouldUpdate = true;
+                for (let node of mutation.removedNodes) {
+                    if (node.nodeType === 1 && (node.tagName === 'TR' || node.querySelector('tr'))) {
+                        shouldUpdate = true;
+                        break;
+                    }
                 }
-            });
-            
-            if (shouldUpdate) {
-                setTimeout(() => {
-                    initCellSelection();
-                }, 50);
             }
-        });
+        }
         
-        observer.observe(table, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['rowspan', 'class']
-        });
-    }
+        if (shouldUpdate) {
+            console.log('Обнаружены изменения в таблице, обновляем выделение...');
+            // Используем debounce чтобы избежать множественных обновлений
+            clearTimeout(window.reinitTimeout);
+            window.reinitTimeout = setTimeout(() => {
+                initCellSelection();
+            }, 300);
+        }
+    });
+    
+    // Начинаем наблюдение
+    window.tableObserver.observe(table, {
+        childList: true,
+        subtree: true,
+        attributes: false,
+        characterData: false
+    });
+}
 
-    window.addEventListener('load', function() {
+// =============== ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ ===============
+
+// Добавляем в конец функции initializeAll() или в DOMContentLoaded:
+function initializeCellSelection() {
+    // Инициализируем выделение через 1 секунду после загрузки
+    setTimeout(() => {
+        console.log('Запуск инициализации выделения ячеек...');
         initCellSelection();
         initTableObserver();
-    });
-
-    // =============== КОНЕЦ БЛОКА ВЫДЕЛЕНИЯ ЯЧЕЕК ===============
-
-    // =============== ИНИЦИАЛИЗАЦИЯ ВСЕГО ===============
-
-    initPaymentMethodHandler();
-    initDiscountLogic();
-    setTimeout(initCashCalculator, 500);
-
-    // Инициализация обработчиков бонусов
-    document.addEventListener('DOMContentLoaded', function() {
-        // Инициализация обработчиков для чекбокса бонусов
-        const useBonusesCheckbox = document.getElementById('useBonuses');
-        if (useBonusesCheckbox) {
-            useBonusesCheckbox.addEventListener('change', function() {
-                console.log('Чекбокс бонусов изменился:', this.checked);
-                calculateCloseTotal();
-            });
-        }
-        
-        // Инициализация обработчиков для поля бонусов
-        const bonusPointsInput = document.getElementById('bonusPointsToUse');
-        if (bonusPointsInput) {
-            bonusPointsInput.addEventListener('input', function() {
-                console.log('Поле бонусов изменилось:', this.value);
-                calculateCloseTotal();
-            });
+    }, 1000);
+    
+    // Добавляем обработчик двойного клика
+    document.addEventListener('dblclick', handleDoubleClick);
+    
+    // Очистка выделения при клике вне таблицы
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('table.table-bordered tbody td') && 
+            selectionState.selectedCells.length > 0) {
+            clearSelection();
         }
     });
-
-    const saleProductsModal = document.getElementById('saleProductsModal');
-    if (saleProductsModal) {
-        saleProductsModal.addEventListener('show.bs.modal', function(event) {
-            const button = event.relatedTarget;
-            if (button) {
-                const tableId = button.getAttribute('data-table-id');
-                const saleId = button.getAttribute('data-sale-id');
-                const tableName = button.getAttribute('data-table-name');
-                const guestName = button.getAttribute('data-guest-name');
-                
-                // Сохраняем ID стола и продажи
-                window.tableProducts.currentTableId = tableId;
-                window.tableProducts.currentSaleId = saleId;
-                
-                // Обновляем информацию в заголовке
-                const infoElement = document.getElementById('currentTableInfo');
-                if (infoElement) {
-                    infoElement.innerHTML = `<strong>Стол ${tableName}</strong> - ${guestName}`;
-                }
-                
-                // Загружаем товары для этого стола
-                if (typeof window.TableProductManager !== 'undefined') {
-                    window.TableProductManager.loadTableProducts(tableId);
-                }
-                
-                // Сбрасываем фильтры
-                const categoryFilter = document.getElementById('categoryFilterProducts');
-                const searchInput = document.getElementById('searchTableProduct');
-                if (categoryFilter) categoryFilter.value = 'all';
-                if (searchInput) searchInput.value = '';
-                
-                // Фильтруем товары
-                setTimeout(() => {
-                    if (typeof window.TableProductManager !== 'undefined') {
-                        window.TableProductManager.filterTableProducts();
-                    }
-                }, 100);
-            }
-        });
-        
-        saleProductsModal.addEventListener('hidden.bs.modal', function() {
-            // Сбрасываем состояние
-            window.tableProducts.currentTableId = null;
-            window.tableProducts.currentSaleId = null;
-            
-            // Сбрасываем форму
-            const productSelect = document.getElementById('productSelect');
-            const productQuantity = document.getElementById('productQuantity');
-            const productPrice = document.getElementById('productPrice');
-            
-            if (productSelect) productSelect.selectedIndex = 0;
-            if (productQuantity) productQuantity.value = '1';
-            if (productPrice) productPrice.value = '';
-            
-            // Скрываем предупреждения
-            const availabilityInfo = document.getElementById('productAvailabilityInfo');
-            if (availabilityInfo) availabilityInfo.style.display = 'none';
+    
+    // Очистка выделения при закрытии модалки
+    const createTableModal = document.getElementById('createTableModal');
+    if (createTableModal) {
+        createTableModal.addEventListener('hidden.bs.modal', function() {
+            clearSelection();
         });
     }
+}
 
-    console.log('Table Manager initialized successfully');
 
-   document.addEventListener('submit', async function(e) {
-        const form = e.target;
-        if (!form.action || !form.action.includes('change-status')) return;
-        
-        e.preventDefault();
-        
-        const button = form.querySelector('button[type="submit"]');
-        const originalText = button.innerHTML;
-        button.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-        button.disabled = true;
-        
-        try {
-            const response = await fetch(form.action, {
-                method: 'POST',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-                },
-                body: new FormData(form)
-            });
-            
-            const data = await response.json();
-            
-            button.innerHTML = originalText;
-            button.disabled = false;
-            
-            if (data.success) {
-                showToast('success', 'Успешно', data.message || 'Стол открыт!');
-                
-                // Обновляем только нужную часть страницы, а не всю страницу
-                setTimeout(() => {
-                    // Получаем текущую дату из URL или из формы
-                    const dateInput = document.querySelector('input[name="date"]');
-                    const selectedDate = dateInput ? dateInput.value : '';
-                    
-                    // Перезагружаем столы через AJAX
-                    loadTablesForDate(selectedDate);
-                }, 500);
-            } else {
-                showToast('danger', 'Ошибка', data.message || 'Не удалось открыть стол');
-            }
-            
-        } catch (error) {
-            console.error('Ошибка:', error);
-            button.innerHTML = originalText;
-            button.disabled = false;
-            showToast('danger', 'Ошибка', 'Ошибка соединения с сервером');
-        }
-    });
+initializeCellSelection();
 
-    // Функция для загрузки столов через AJAX
-    function loadTablesForDate(date) {
-        if (!date) {
-            location.reload();
-            return;
-        }
-        
-        // Показываем индикатор загрузки
-        const loadingIndicator = document.createElement('div');
-        loadingIndicator.className = 'position-fixed top-50 start-50 translate-middle';
-        loadingIndicator.innerHTML = `
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Загрузка...</span>
-            </div>
-        `;
-        document.body.appendChild(loadingIndicator);
-        
-        // Загружаем таблицу столов
-        fetch(`/tables?date=${date}`, {
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        })
-        .then(response => response.text())
-        .then(html => {
-            // Находим основную таблицу и заменяем ее содержимое
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const newTable = doc.querySelector('.table-responsive');
-            const currentTable = document.querySelector('.table-responsive');
-            
-            if (newTable && currentTable) {
-                currentTable.innerHTML = newTable.innerHTML;
-                
-                // Инициализируем таймеры заново
-                if (typeof initTableTimers === 'function') {
-                    initTableTimers();
-                }
-                
-                // Инициализируем обработчики заново
-                setTimeout(() => {
-                    initCellSelection();
-                    if (typeof window.HookahTimerManager !== 'undefined') {
-                        window.HookahTimerManager.init();
-                    }
-                }, 100);
-            } else {
-                // Если не удалось обновить через AJAX, перезагружаем всю страницу
-                location.reload();
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка загрузки:', error);
-            location.reload();
-        })
-        .finally(() => {
-            // Убираем индикатор загрузки
-            if (loadingIndicator.parentNode) {
-                loadingIndicator.parentNode.removeChild(loadingIndicator);
-            }
-        });
-    }
 
 });
 
@@ -3623,6 +3547,41 @@ document.addEventListener('DOMContentLoaded', function() {
     
     .table-cell-selecting {
         background-color: rgba(0, 123, 255, 0.2) !important;
+    }
+    .table-cell-selectable {
+        cursor: pointer;
+        position: relative;
+        transition: background-color 0.2s;
+    }
+
+    .table-cell-selectable:hover {
+        background-color: rgba(0, 123, 255, 0.1) !important;
+        box-shadow: inset 0 0 0 1px rgba(0, 123, 255, 0.3);
+    }
+
+    .table-cell-selected {
+        background-color: rgba(0, 123, 255, 0.3) !important;
+        box-shadow: inset 0 0 0 2px #007bff;
+    }
+
+    .table-cell-selecting {
+        background-color: rgba(0, 123, 255, 0.2) !important;
+        box-shadow: inset 0 0 0 1px #007bff;
+    }
+
+    /* Для отладки - подсветка занятых ячеек */
+    td[rowspan] {
+        position: relative;
+    }
+
+    td[rowspan]::after {
+        content: '✓';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 10px;
+        color: #28a745;
+        opacity: 0.5;
     }
 </style>
 

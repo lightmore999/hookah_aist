@@ -20,10 +20,25 @@ class ProductController extends Controller
             $query->where('product_category_id', $request->category_id);
         }
         
+        // Фильтр по активности
+        if ($request->filled('is_active')) {
+            $isActive = $request->is_active === 'true';
+            $query->where('is_active', $isActive);
+        }
+        
+        // Сортировка по популярности (по желанию)
+        if ($request->filled('sort_by')) {
+            if ($request->sort_by === 'popularity') {
+                $query->orderBy('popularity', 'desc');
+            } elseif ($request->sort_by === 'name') {
+                $query->orderBy('name');
+            }
+        }
+        
         $products = $query->get();
         
-        // Все продукты для селектов
-        $allProducts = Product::orderBy('name')->get(['id', 'name', 'unit', 'cost']);
+        // Все продукты для селектов (только активные)
+        $allProducts = Product::active()->orderBy('name')->get(['id', 'name', 'unit', 'cost']);
         
         return view('products.index', compact('products', 'categories', 'allProducts'));
     }
@@ -46,10 +61,14 @@ class ProductController extends Controller
             'unit' => 'required|in:шт,г,мл,кг,л',
             'barcode' => 'nullable|string|max:255|unique:products,barcode',
             'article_number' => 'nullable|string|max:255|unique:products,article_number',
+            'is_active' => 'boolean', // Добавляем валидацию
+            'popularity' => 'integer|min:0', // Добавляем валидацию
             'components_data' => 'nullable|string',
         ]);
         
-        // Удалена валидация для packaging
+        // Установка значений по умолчанию, если не переданы
+        $validated['is_active'] = $request->has('is_active') ? $request->is_active : true;
+        $validated['popularity'] = $request->filled('popularity') ? $request->popularity : 0;
         
         // Создаем продукт
         $product = Product::create($validated);
@@ -83,9 +102,6 @@ class ProductController extends Controller
     {
         $product->load(['recipeComponents.component', 'category']);
         
-        // Удален расчет price_per_unit через packaging
-        // Теперь цена указывается за указанную единицу измерения
-        
         return view('products.show', compact('product'));
     }
 
@@ -109,10 +125,18 @@ class ProductController extends Controller
             'unit' => 'required|in:шт,г,мл,кг,л',
             'barcode' => 'nullable|string|max:255|unique:products,barcode,' . $product->id,
             'article_number' => 'nullable|string|max:255|unique:products,article_number,' . $product->id,
-            'components_data' => 'nullable|string', // Добавляем это
+            'is_active' => 'boolean', // Добавляем валидацию
+            'popularity' => 'integer|min:0', // Добавляем валидацию
+            'components_data' => 'nullable|string',
         ]);
         
-        // Удалена валидация и проверка для packaging
+        // Убеждаемся, что значение popularity есть (если не передано, оставляем текущее)
+        if (!$request->filled('popularity')) {
+            unset($validated['popularity']); // Не обновляем, если не передано
+        }
+        
+        // Обработка checkbox (если не отмечен, значит false)
+        $validated['is_active'] = $request->has('is_active');
         
         // Обновляем продукт
         $product->update($validated);
@@ -169,13 +193,11 @@ class ProductController extends Controller
             ->with('success', 'Товар успешно удалён!');
     }
     
-    // УДАЛЕН метод calculatePricePerUnit, так как он был связан с packaging
-    
     public function byCategory($categoryId)
     {
         $products = Product::where('product_category_id', $categoryId)
             ->orderBy('name')
-            ->get(['id', 'name', 'unit', 'price']); // Удалено packaging
+            ->get(['id', 'name', 'unit', 'price']);
         
         return response()->json($products);
     }
@@ -238,10 +260,10 @@ class ProductController extends Controller
 
     public function getAvailableComponents(Product $product)
     {
-        // Для создания продукта (product=0) показываем все продукты
+        // Для создания продукта (product=0) показываем все активные продукты
         if ($product->id == 0) {
-            $availableProducts = Product::orderBy('name')
-                ->get(['id', 'name', 'unit', 'price', 'cost']);
+            $availableProducts = Product::active()->orderBy('name')
+                ->get(['id', 'name', 'unit', 'price', 'cost', 'is_active']);
         } else {
             // Для редактирования - исключаем уже добавленные и сам продукт
             $existingIds = $product->recipeComponents()->pluck('component_product_id')->toArray();
@@ -256,8 +278,9 @@ class ProductController extends Controller
             $existingIds = array_merge($existingIds, $productsThatContainThis);
             
             $availableProducts = Product::whereNotIn('id', array_unique($existingIds))
+                ->active() // Только активные товары
                 ->orderBy('name')
-                ->get(['id', 'name', 'unit', 'price', 'cost']);
+                ->get(['id', 'name', 'unit', 'price', 'cost', 'is_active']);
         }
         
         return response()->json($availableProducts);
@@ -286,14 +309,82 @@ class ProductController extends Controller
 
     /**
      * Рассчитать стоимость компонента
-     * Упрощенная версия без учета packaging
      */
     private function calculateComponentCost($product, $quantity)
     {
-        // Просто умножаем стоимость на количество
-        // Вся сложная логика с преобразованием единиц удалена
         $cost = $product->cost * $quantity;
-        
         return round($cost, 2);
+    }
+
+    /**
+     * Быстрое изменение активности товара (AJAX)
+     */
+    public function toggleActive(Request $request, Product $product)
+    {
+        $request->validate([
+            'is_active' => 'required|boolean',
+        ]);
+        
+        $product->update(['is_active' => $request->is_active]);
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Статус товара обновлен',
+            'is_active' => $product->is_active,
+        ]);
+    }
+
+    /**
+     * Обновление популярности (AJAX)
+     */
+    public function updatePopularity(Request $request, Product $product)
+    {
+        $request->validate([
+            'popularity' => 'required|integer|min:0',
+        ]);
+        
+        $product->update(['popularity' => $request->popularity]);
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Популярность обновлена',
+            'popularity' => $product->popularity,
+        ]);
+    }
+
+    /**
+     * Сброс популярности (AJAX)
+     */
+    public function resetPopularity(Product $product)
+    {
+        $product->resetPopularity();
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Популярность сброшена',
+            'popularity' => $product->popularity,
+        ]);
+    }
+
+    /**
+     * Получить популярные товары (API)
+     */
+    public function getPopularProducts(Request $request)
+    {
+        $limit = $request->get('limit', 10);
+        $categoryId = $request->get('category_id');
+        
+        $query = Product::active()->popular($limit);
+        
+        if ($categoryId) {
+            $query->where('product_category_id', $categoryId);
+        }
+        
+        $products = $query->get(['id', 'name', 'price', 'unit', 'popularity']);
+        
+        return response()->json([
+            'success' => true,
+            'products' => $products,
+        ]);
     }
 }

@@ -38,7 +38,7 @@
 const API_URLS = {
     revenueProfit: '{{ url("/statistics/revenue-profit") }}',
     averageCheck: '{{ url("/statistics/average-check") }}',
-    expenses: '{{ url("/statistics/expenses") }}'
+    expenses: '{{ url("/statistics/expenses-stats") }}'
 };
 
 let charts = {};
@@ -91,7 +91,6 @@ async function loadFinancialData() {
 async function fetchData(url, params = {}) {
     const queryString = new URLSearchParams(params).toString();
     const fullUrl = `${url}?${queryString}`;
-    console.log('Fetching:', fullUrl);
     
     const response = await fetch(fullUrl);
     
@@ -100,7 +99,6 @@ async function fetchData(url, params = {}) {
     }
     
     const data = await response.json();
-    console.log('Response data:', data); // Добавьте эту строку
     
     if (!data.success) {
         console.error('API error:', data.error);
@@ -109,9 +107,11 @@ async function fetchData(url, params = {}) {
     return data;
 }
 
+// ============= ГРАФИК 1: ВЫРУЧКА И ПРИБЫЛЬ =============
 async function renderRevenueProfitChart() {
     const container = document.getElementById('dataContainer');
     const chartId = 'revenue-profit-chart-' + Date.now();
+    const scrollbarId = 'revenue-scrollbar-' + Date.now();
     
     const html = `
         <div class="row mb-4">
@@ -133,13 +133,35 @@ async function renderRevenueProfitChart() {
                                     По месяцам
                                 </button>
                             </div>
-                            <span class="ms-3 small text-muted" id="revenue-period-text">Последние 30 дней</span>
+                            <span class="ms-3 small text-muted" id="revenue-period-text">Вся история (по дням)</span>
                         </div>
                     </div>
                     <div class="card-body">
-                        <div style="height: 400px;">
-                            <canvas id="${chartId}"></canvas>
+                        <!-- График с overflow скрытым -->
+                        <div class="chart-wrapper" style="position: relative; overflow: hidden; height: 400px; width: 100%;">
+                            <div class="chart-inner" style="position: absolute; left: 0; top: 0; height: 100%;">
+                                <canvas id="${chartId}" style="display: block;"></canvas>
+                            </div>
+                            <!-- Затемнение для скрытых частей -->
+                            <div class="fade-left" style="position: absolute; top: 0; left: 0; width: 20px; height: 100%; background: linear-gradient(to right, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 100%); pointer-events: none; z-index: 10;"></div>
+                            <div class="fade-right" style="position: absolute; top: 0; right: 0; width: 20px; height: 100%; background: linear-gradient(to left, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 100%); pointer-events: none; z-index: 10;"></div>
                         </div>
+                        
+                        <!-- Кастомный горизонтальный скроллбар -->
+                        <div class="mt-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <small id="revenue-visible-start" class="text-muted"></small>
+                                <small id="revenue-visible-end" class="text-muted"></small>
+                            </div>
+                            <div class="custom-scrollbar" style="position: relative; height: 8px; background: #e9ecef; border-radius: 4px; cursor: pointer;">
+                                <div id="${scrollbarId}" class="scrollbar-thumb" style="position: absolute; left: 66.67%; width: 33.33%; height: 100%; background: #0d6efd; border-radius: 4px; cursor: grab;"></div>
+                            </div>
+                            <div class="d-flex justify-content-between mt-1">
+                                <small class="text-muted">Перетащите для просмотра</small>
+                                <small class="text-muted" id="revenue-zoom-percentage">Показано: 33%</small>
+                            </div>
+                        </div>
+                        
                         <div class="row text-center mt-4">
                             <div class="col-md-4">
                                 <div class="text-primary">
@@ -168,11 +190,20 @@ async function renderRevenueProfitChart() {
     
     container.insertAdjacentHTML('beforeend', html);
     
-    // Загружаем данные по умолчанию (последние 30 дней)
+    // Загружаем данные по умолчанию (по дням)
     const data = await fetchData(API_URLS.revenueProfit, { period: 'day' });
-    renderRevenueProfitChartData(chartId, data);
-    updateRevenueStats(data);
-    document.getElementById('revenue-period-text').textContent = 'Последние 30 дней';
+    
+    if (data.success) {
+        // Рендерим ВЕСЬ график
+        const chartInfo = renderRevenueChart(chartId, data);
+        
+        // Инициализируем скролл - начинаем с КОНЦА графика
+        initChartScroll(chartId, scrollbarId, data, chartInfo, 'revenue');
+        
+        // Обновляем текст и статистику
+        document.getElementById('revenue-period-text').textContent = 'Вся история (по дням)';
+        updateRevenueStats(data);
+    }
     
     // Вешаем обработчики на кнопки периода
     document.querySelectorAll('.revenue-period-btn').forEach(btn => {
@@ -184,27 +215,39 @@ async function renderRevenueProfitChart() {
             
             const period = this.dataset.period;
             const newData = await fetchData(API_URLS.revenueProfit, { period: period });
-            renderRevenueProfitChartData(chartId, newData);
-            updateRevenueStats(newData);
             
-            // Обновляем текст периода
-            const periodText = document.getElementById('revenue-period-text');
-            if (period === 'day') {
-                periodText.textContent = 'Последние 30 дней';
-            } else if (period === 'week') {
-                periodText.textContent = 'Последние 12 недель';
-            } else {
-                periodText.textContent = 'Последние 12 месяцев';
+            if (newData.success) {
+                // Перерисовываем весь график
+                const chartInfo = renderRevenueChart(chartId, data);
+                if (chartInfo) {
+                    initChartScroll(chartId, scrollbarId, data, chartInfo, 'revenue');
+                }
+                
+                // Обновляем текст периода и статистику
+                const periodText = document.getElementById('revenue-period-text');
+                let periodLabel = '';
+                if (period === 'day') {
+                    periodLabel = 'по дням';
+                } else if (period === 'week') {
+                    periodLabel = 'по неделям';
+                } else {
+                    periodLabel = 'по месяцам';
+                }
+                periodText.textContent = `Вся история (${periodLabel})`;
+                updateRevenueStats(newData);
             }
         });
     });
 }
 
-function renderRevenueProfitChartData(chartId, data) {
-    if (!data.success) return;
-    
+function renderRevenueChart(chartId, data) {
     const canvas = document.getElementById(chartId);
-    if (!canvas) return;
+    const chartWrapper = canvas?.closest('.chart-wrapper');
+    
+    if (!canvas || !chartWrapper) {
+        console.error('Не найден canvas или chart-wrapper для:', chartId);
+        return null;
+    }
     
     if (charts[chartId]) {
         charts[chartId].destroy();
@@ -212,39 +255,47 @@ function renderRevenueProfitChartData(chartId, data) {
     
     const ctx = canvas.getContext('2d');
     
+    // Устанавливаем реальные размеры canvas
+    canvas.width = chartWrapper.offsetWidth * 3; // 300% ширины
+    canvas.height = chartWrapper.offsetHeight;
+    
+    // Создаем график
     charts[chartId] = new Chart(ctx, {
-        type: 'bar',
+        type: 'line',
         data: {
             labels: data.labels,
             datasets: [
                 {
                     label: 'Выручка',
                     data: data.revenue_data,
-                    backgroundColor: 'rgba(54, 162, 235, 0.7)',
                     borderColor: 'rgb(54, 162, 235)',
-                    borderWidth: 1,
-                    yAxisID: 'y'
+                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.3,
+                    fill: true
                 },
                 {
                     label: 'Прибыль',
                     data: data.profit_data,
-                    backgroundColor: 'rgba(75, 192, 192, 0.7)',
                     borderColor: 'rgb(75, 192, 192)',
-                    borderWidth: 1,
-                    yAxisID: 'y'
+                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.3,
+                    fill: true
                 },
                 {
                     label: 'Расходы',
                     data: data.expenses_data,
-                    backgroundColor: 'rgba(255, 99, 132, 0.7)',
                     borderColor: 'rgb(255, 99, 132)',
-                    borderWidth: 1,
-                    yAxisID: 'y'
+                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.3,
+                    fill: true
                 }
             ]
         },
         options: {
-            responsive: true,
+            responsive: false,
             maintainAspectRatio: false,
             plugins: {
                 tooltip: {
@@ -274,13 +325,16 @@ function renderRevenueProfitChartData(chartId, data) {
                     display: true,
                     ticks: {
                         maxRotation: 45,
-                        minRotation: 45
+                        minRotation: 45,
+                        autoSkip: true,
+                        maxTicksLimit: 20
+                    },
+                    grid: {
+                        display: true
                     }
                 },
                 y: {
                     display: true,
-                    type: 'linear',
-                    position: 'left',
                     beginAtZero: true,
                     ticks: {
                         callback: function(value) {
@@ -296,9 +350,26 @@ function renderRevenueProfitChartData(chartId, data) {
                         text: 'Сумма (руб.)'
                     }
                 }
+            },
+            elements: {
+                point: {
+                    radius: function(context) {
+                        return context.raw === 0 ? 0 : 3;
+                    },
+                    hoverRadius: function(context) {
+                        return context.raw === 0 ? 0 : 6;
+                    }
+                }
             }
         }
     });
+    
+    // Возвращаем данные для скролла
+    return {
+        totalWidth: canvas.width,
+        visibleWidth: chartWrapper.offsetWidth,
+        totalPoints: data.labels.length
+    };
 }
 
 function updateRevenueStats(data) {
@@ -317,9 +388,11 @@ function updateRevenueStats(data) {
     document.getElementById('total-expenses').textContent = formatCurrency(data.total_expenses);
 }
 
+// ============= ГРАФИК 2: СРЕДНИЙ ЧЕК =============
 async function renderAverageCheckChart() {
     const container = document.getElementById('dataContainer');
     const chartId = 'average-check-chart-' + Date.now();
+    const scrollbarId = 'average-scrollbar-' + Date.now();
     
     const html = `
         <div class="row mb-4">
@@ -341,13 +414,35 @@ async function renderAverageCheckChart() {
                                     По месяцам
                                 </button>
                             </div>
-                            <span class="ms-3 small text-muted" id="average-period-text">Последние 30 дней</span>
+                            <span class="ms-3 small text-muted" id="average-period-text">Вся история (по дням)</span>
                         </div>
                     </div>
                     <div class="card-body">
-                        <div style="height: 400px;">
-                            <canvas id="${chartId}"></canvas>
+                        <!-- График с overflow скрытым -->
+                        <div class="chart-wrapper" style="position: relative; overflow: hidden; height: 400px; width: 100%;">
+                            <div class="chart-inner" style="position: absolute; left: 0; top: 0; height: 100%;">
+                                <canvas id="${chartId}" style="display: block;"></canvas>
+                            </div>
+                            <!-- Затемнение для скрытых частей -->
+                            <div class="fade-left" style="position: absolute; top: 0; left: 0; width: 20px; height: 100%; background: linear-gradient(to right, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 100%); pointer-events: none; z-index: 10;"></div>
+                            <div class="fade-right" style="position: absolute; top: 0; right: 0; width: 20px; height: 100%; background: linear-gradient(to left, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 100%); pointer-events: none; z-index: 10;"></div>
                         </div>
+                        
+                        <!-- Кастомный горизонтальный скроллбар -->
+                        <div class="mt-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <small id="average-visible-start" class="text-muted"></small>
+                                <small id="average-visible-end" class="text-muted"></small>
+                            </div>
+                            <div class="custom-scrollbar" style="position: relative; height: 8px; background: #e9ecef; border-radius: 4px; cursor: pointer;">
+                                <div id="${scrollbarId}" class="scrollbar-thumb" style="position: absolute; left: 66.67%; width: 33.33%; height: 100%; background: #0d6efd; border-radius: 4px; cursor: grab;"></div>
+                            </div>
+                            <div class="d-flex justify-content-between mt-1">
+                                <small class="text-muted">Перетащите для просмотра</small>
+                                <small class="text-muted" id="average-zoom-percentage">Показано: 33%</small>
+                            </div>
+                        </div>
+                        
                         <div class="row text-center mt-4">
                             <div class="col-md-6">
                                 <div class="text-info">
@@ -372,9 +467,18 @@ async function renderAverageCheckChart() {
     
     // Загружаем данные по умолчанию
     const data = await fetchData(API_URLS.averageCheck, { period: 'day' });
-    renderAverageCheckChartData(chartId, data);
-    updateAverageCheckStats(data);
-    document.getElementById('average-period-text').textContent = 'Последние 30 дней';
+    
+    if (data.success) {
+        // Рендерим ВЕСЬ график
+        const chartInfo = renderAverageChart(chartId, data);
+        if (chartInfo) {
+            initChartScroll(chartId, scrollbarId, data, chartInfo, 'average');
+        }
+        
+        // Обновляем текст и статистику
+        document.getElementById('average-period-text').textContent = 'Вся история (по дням)';
+        updateAverageCheckStats(data);
+    }
     
     // Вешаем обработчики на кнопки периода
     document.querySelectorAll('.average-period-btn').forEach(btn => {
@@ -386,27 +490,37 @@ async function renderAverageCheckChart() {
             
             const period = this.dataset.period;
             const newData = await fetchData(API_URLS.averageCheck, { period: period });
-            renderAverageCheckChartData(chartId, newData);
-            updateAverageCheckStats(newData);
             
-            // Обновляем текст периода
-            const periodText = document.getElementById('average-period-text');
-            if (period === 'day') {
-                periodText.textContent = 'Последние 30 дней';
-            } else if (period === 'week') {
-                periodText.textContent = 'Последние 12 недель';
-            } else {
-                periodText.textContent = 'Последние 12 месяцев';
+            if (newData.success) {
+                // Перерисовываем весь график
+                const chartInfo = renderExpensesOnlyChart(chartId, data);
+                if (chartInfo) {
+                    initChartScroll(chartId, scrollbarId, data, chartInfo, 'expenses');
+                }
+                
+                // Обновляем текст периода и статистику
+                const periodText = document.getElementById('average-period-text');
+                let periodLabel = '';
+                if (period === 'day') {
+                    periodLabel = 'по дням';
+                } else if (period === 'week') {
+                    periodLabel = 'по неделям';
+                } else {
+                    periodLabel = 'по месяцам';
+                }
+                periodText.textContent = `Вся история (${periodLabel})`;
+                updateAverageCheckStats(newData);
             }
         });
     });
 }
 
-function renderAverageCheckChartData(chartId, data) {
-    if (!data.success) return;
-    
+function renderAverageChart(chartId, data) {
     const canvas = document.getElementById(chartId);
-    if (!canvas) return;
+    const chartInner = canvas.closest('.chart-inner');
+    const chartWrapper = canvas.closest('.chart-wrapper');
+    
+    if (!canvas || !chartInner || !chartWrapper) return;
     
     if (charts[chartId]) {
         charts[chartId].destroy();
@@ -414,6 +528,11 @@ function renderAverageCheckChartData(chartId, data) {
     
     const ctx = canvas.getContext('2d');
     
+    // Устанавливаем реальные размеры canvas
+    canvas.width = chartWrapper.offsetWidth * 3; // 300% ширины
+    canvas.height = chartWrapper.offsetHeight;
+    
+    // Создаем график
     charts[chartId] = new Chart(ctx, {
         type: 'line',
         data: {
@@ -424,7 +543,7 @@ function renderAverageCheckChartData(chartId, data) {
                     data: data.average_check_data,
                     borderColor: 'rgb(54, 162, 235)',
                     backgroundColor: 'rgba(54, 162, 235, 0.1)',
-                    borderWidth: 2,
+                    borderWidth: 3,
                     tension: 0.3,
                     fill: true,
                     yAxisID: 'y'
@@ -434,7 +553,7 @@ function renderAverageCheckChartData(chartId, data) {
                     data: data.sales_count_data,
                     borderColor: 'rgb(255, 159, 64)',
                     backgroundColor: 'rgba(255, 159, 64, 0.1)',
-                    borderWidth: 2,
+                    borderWidth: 3,
                     tension: 0.3,
                     fill: true,
                     yAxisID: 'y1'
@@ -442,7 +561,7 @@ function renderAverageCheckChartData(chartId, data) {
             ]
         },
         options: {
-            responsive: true,
+            responsive: false,
             maintainAspectRatio: false,
             plugins: {
                 tooltip: {
@@ -478,7 +597,12 @@ function renderAverageCheckChartData(chartId, data) {
                     display: true,
                     ticks: {
                         maxRotation: 45,
-                        minRotation: 45
+                        minRotation: 45,
+                        autoSkip: true,
+                        maxTicksLimit: 20
+                    },
+                    grid: {
+                        display: true
                     }
                 },
                 y: {
@@ -514,18 +638,33 @@ function renderAverageCheckChartData(chartId, data) {
                         precision: 0
                     }
                 }
+            },
+            elements: {
+                point: {
+                    radius: function(context) {
+                        return context.raw === 0 ? 0 : 3;
+                    },
+                    hoverRadius: function(context) {
+                        return context.raw === 0 ? 0 : 6;
+                    }
+                }
             }
         }
     });
+    
+    // Возвращаем данные для скролла
+    return {
+        totalWidth: canvas.width,
+        visibleWidth: chartWrapper.offsetWidth,
+        totalPoints: data.labels.length
+    };
 }
 
 function updateAverageCheckStats(data) {
     if (!data.success || !data) return;
     
     const formatCurrency = (amount) => {
-        // Добавьте проверку
         if (amount === undefined || amount === null) {
-            console.error('Amount is undefined:', data);
             return '0 ₽';
         }
         return amount.toLocaleString('ru-RU', {
@@ -535,7 +674,6 @@ function updateAverageCheckStats(data) {
         });
     };
     
-    // Используйте правильное поле
     const avgCheckValue = data.total_average_check !== undefined ? data.total_average_check : 0;
     const salesCount = data.total_sales !== undefined ? data.total_sales : 0;
     
@@ -543,9 +681,11 @@ function updateAverageCheckStats(data) {
     document.getElementById('total-sales-count').textContent = salesCount.toLocaleString('ru-RU');
 }
 
+// ============= ГРАФИК 3: РАСХОДЫ =============
 async function renderExpensesChart() {
     const container = document.getElementById('dataContainer');
     const chartId = 'expenses-chart-' + Date.now();
+    const scrollbarId = 'expenses-scrollbar-' + Date.now();
     
     const html = `
         <div class="row mb-4">
@@ -567,13 +707,35 @@ async function renderExpensesChart() {
                                     По месяцам
                                 </button>
                             </div>
-                            <span class="ms-3 small text-muted" id="expenses-period-text">Последние 30 дней</span>
+                            <span class="ms-3 small text-muted" id="expenses-period-text">Вся история (по дням)</span>
                         </div>
                     </div>
                     <div class="card-body">
-                        <div style="height: 400px;">
-                            <canvas id="${chartId}"></canvas>
+                        <!-- График с overflow скрытым -->
+                        <div class="chart-wrapper" style="position: relative; overflow: hidden; height: 400px; width: 100%;">
+                            <div class="chart-inner" style="position: absolute; left: 0; top: 0; height: 100%;">
+                                <canvas id="${chartId}" style="display: block;"></canvas>
+                            </div>
+                            <!-- Затемнение для скрытых частей -->
+                            <div class="fade-left" style="position: absolute; top: 0; left: 0; width: 20px; height: 100%; background: linear-gradient(to right, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 100%); pointer-events: none; z-index: 10;"></div>
+                            <div class="fade-right" style="position: absolute; top: 0; right: 0; width: 20px; height: 100%; background: linear-gradient(to left, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 100%); pointer-events: none; z-index: 10;"></div>
                         </div>
+                        
+                        <!-- Кастомный горизонтальный скроллбар -->
+                        <div class="mt-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <small id="expenses-visible-start" class="text-muted"></small>
+                                <small id="expenses-visible-end" class="text-muted"></small>
+                            </div>
+                            <div class="custom-scrollbar" style="position: relative; height: 8px; background: #e9ecef; border-radius: 4px; cursor: pointer;">
+                                <div id="${scrollbarId}" class="scrollbar-thumb" style="position: absolute; left: 66.67%; width: 33.33%; height: 100%; background: #0d6efd; border-radius: 4px; cursor: grab;"></div>
+                            </div>
+                            <div class="d-flex justify-content-between mt-1">
+                                <small class="text-muted">Перетащите для просмотра</small>
+                                <small class="text-muted" id="expenses-zoom-percentage">Показано: 33%</small>
+                            </div>
+                        </div>
+                        
                         <div class="text-center mt-4">
                             <div class="text-danger">
                                 <div class="h3 fw-bold mb-1" id="total-expenses-detail">0 ₽</div>
@@ -590,9 +752,18 @@ async function renderExpensesChart() {
     
     // Загружаем данные по умолчанию
     const data = await fetchData(API_URLS.expenses, { period: 'day' });
-    renderExpensesChartData(chartId, data);
-    updateExpensesStats(data);
-    document.getElementById('expenses-period-text').textContent = 'Последние 30 дней';
+    
+    if (data.success) {
+        // Рендерим ВЕСЬ график
+        const chartInfo = renderExpensesOnlyChart(chartId, data);
+        
+        // Инициализируем скролл - начинаем с КОНЦА графика
+        initChartScroll(chartId, scrollbarId, data, chartInfo, 'expenses');
+        
+        // Обновляем текст и статистику
+        document.getElementById('expenses-period-text').textContent = 'Вся история (по дням)';
+        updateExpensesStats(data);
+    }
     
     // Вешаем обработчики на кнопки периода
     document.querySelectorAll('.expenses-period-btn').forEach(btn => {
@@ -604,27 +775,37 @@ async function renderExpensesChart() {
             
             const period = this.dataset.period;
             const newData = await fetchData(API_URLS.expenses, { period: period });
-            renderExpensesChartData(chartId, newData);
-            updateExpensesStats(newData);
             
-            // Обновляем текст периода
-            const periodText = document.getElementById('expenses-period-text');
-            if (period === 'day') {
-                periodText.textContent = 'Последние 30 дней';
-            } else if (period === 'week') {
-                periodText.textContent = 'Последние 12 недель';
-            } else {
-                periodText.textContent = 'Последние 12 месяцев';
+            if (newData.success) {
+                // Перерисовываем весь график
+                const chartInfo = renderExpensesOnlyChart(chartId, newData);
+                
+                // Инициализируем скролл снова
+                initChartScroll(chartId, scrollbarId, newData, chartInfo, 'expenses');
+                
+                // Обновляем текст периода и статистику
+                const periodText = document.getElementById('expenses-period-text');
+                let periodLabel = '';
+                if (period === 'day') {
+                    periodLabel = 'по дням';
+                } else if (period === 'week') {
+                    periodLabel = 'по неделям';
+                } else {
+                    periodLabel = 'по месяцам';
+                }
+                periodText.textContent = `Вся история (${periodLabel})`;
+                updateExpensesStats(newData);
             }
         });
     });
 }
 
-function renderExpensesChartData(chartId, data) {
-    if (!data.success) return;
-    
+function renderExpensesOnlyChart(chartId, data) {
     const canvas = document.getElementById(chartId);
-    if (!canvas) return;
+    const chartInner = canvas.closest('.chart-inner');
+    const chartWrapper = canvas.closest('.chart-wrapper');
+    
+    if (!canvas || !chartInner || !chartWrapper) return;
     
     if (charts[chartId]) {
         charts[chartId].destroy();
@@ -632,6 +813,11 @@ function renderExpensesChartData(chartId, data) {
     
     const ctx = canvas.getContext('2d');
     
+    // Устанавливаем реальные размеры canvas
+    canvas.width = chartWrapper.offsetWidth * 3; // 300% ширины
+    canvas.height = chartWrapper.offsetHeight;
+    
+    // Создаем график
     charts[chartId] = new Chart(ctx, {
         type: 'line',
         data: {
@@ -649,7 +835,7 @@ function renderExpensesChartData(chartId, data) {
             ]
         },
         options: {
-            responsive: true,
+            responsive: false,
             maintainAspectRatio: false,
             plugins: {
                 tooltip: {
@@ -679,7 +865,12 @@ function renderExpensesChartData(chartId, data) {
                     display: true,
                     ticks: {
                         maxRotation: 45,
-                        minRotation: 45
+                        minRotation: 45,
+                        autoSkip: true,
+                        maxTicksLimit: 20
+                    },
+                    grid: {
+                        display: true
                     }
                 },
                 y: {
@@ -699,9 +890,26 @@ function renderExpensesChartData(chartId, data) {
                         text: 'Сумма расходов (руб.)'
                     }
                 }
+            },
+            elements: {
+                point: {
+                    radius: function(context) {
+                        return context.raw === 0 ? 0 : 3;
+                    },
+                    hoverRadius: function(context) {
+                        return context.raw === 0 ? 0 : 6;
+                    }
+                }
             }
         }
     });
+    
+    // Возвращаем данные для скролла
+    return {
+        totalWidth: canvas.width,
+        visibleWidth: chartWrapper.offsetWidth,
+        totalPoints: data.labels.length
+    };
 }
 
 function updateExpensesStats(data) {
@@ -716,6 +924,176 @@ function updateExpensesStats(data) {
     };
     
     document.getElementById('total-expenses-detail').textContent = formatCurrency(data.total_expenses);
+}
+
+// ============= ОБЩАЯ ЛОГИКА СКРОЛЛА (ИСПРАВЛЕННАЯ) =============
+function initChartScroll(chartId, scrollbarId, data, chartInfo, prefix) {
+    const scrollbar = document.getElementById(scrollbarId);
+    const container = scrollbar?.closest('.custom-scrollbar');
+    const chartWrapper = scrollbar?.closest('.card-body')?.querySelector('.chart-wrapper');
+    
+    if (!scrollbar || !container || !chartWrapper) {
+        console.error('Не найден один из элементов для скролла:', { scrollbarId, chartId });
+        return;
+    }
+    
+    // Параметры
+    const visiblePercentage = 0.3333; // Показываем 33% за раз
+    const scrollbarWidth = visiblePercentage * 100;
+    
+    // Начинаем с конца графика
+    const startLeft = 100 - scrollbarWidth; // 66.67%
+    
+    // Устанавливаем начальную позицию
+    scrollbar.style.left = startLeft + '%';
+    scrollbar.style.width = scrollbarWidth + '%';
+    
+    const chartInner = chartWrapper.querySelector('.chart-inner');
+    if (!chartInner) {
+        console.error('Не найден chart-inner для:', chartId);
+        return;
+    }
+    
+    // Рассчитываем начальное смещение для показа конца графика
+    const totalWidth = chartInfo?.totalWidth || chartWrapper.offsetWidth * 3;
+    const visibleWidth = chartInfo?.visibleWidth || chartWrapper.offsetWidth;
+    const maxShift = Math.max(0, totalWidth - visibleWidth); // Максимальное смещение
+    const initialShift = maxShift; // Начинаем с конца (максимальное смещение)
+    
+    chartInner.style.transform = `translateX(-${initialShift}px)`;
+    
+    // Состояние скролла
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartLeft = startLeft;
+    let currentShift = initialShift;
+    
+    // Обработчики для ползунка
+    scrollbar.addEventListener('mousedown', startDrag);
+    container.addEventListener('mousedown', jumpToPosition);
+    
+    // Обработчик для touch-устройств
+    scrollbar.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        startDrag(e.touches[0]);
+    });
+    
+    function startDrag(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartLeft = parseFloat(scrollbar.style.left) || startLeft;
+        
+        scrollbar.style.cursor = 'grabbing';
+        scrollbar.style.userSelect = 'none';
+        
+        document.addEventListener('mousemove', handleDrag);
+        document.addEventListener('mouseup', stopDrag);
+        document.addEventListener('touchmove', handleTouchDrag, { passive: false });
+        document.addEventListener('touchend', stopDrag);
+    }
+    
+    function handleTouchDrag(e) {
+        if (!isDragging || !e.touches[0]) return;
+        e.preventDefault();
+        handleDrag(e.touches[0]);
+    }
+    
+    function jumpToPosition(e) {
+        if (e.target === scrollbar || isDragging) return;
+        
+        const rect = container.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const clickPercent = (clickX / rect.width) * 100;
+        
+        // Центрируем ползунок на точке клика
+        const newLeft = Math.max(0, Math.min(clickPercent - (scrollbarWidth / 2), 100 - scrollbarWidth));
+        
+        updateScrollAndChart(newLeft);
+        updateVisibleRange(newLeft, data, prefix);
+    }
+    
+    function handleDrag(e) {
+        if (!isDragging) return;
+        
+        const rect = container.getBoundingClientRect();
+        const deltaX = e.clientX - dragStartX;
+        const deltaPercent = (deltaX / rect.width) * 100;
+        
+        const newLeft = Math.max(0, Math.min(dragStartLeft + deltaPercent, 100 - scrollbarWidth));
+        
+        updateScrollAndChart(newLeft);
+        updateVisibleRange(newLeft, data, prefix);
+    }
+    
+    function stopDrag() {
+        isDragging = false;
+        
+        scrollbar.style.cursor = 'grab';
+        scrollbar.style.userSelect = 'auto';
+        
+        document.removeEventListener('mousemove', handleDrag);
+        document.removeEventListener('mouseup', stopDrag);
+        document.removeEventListener('touchmove', handleTouchDrag);
+        document.removeEventListener('touchend', stopDrag);
+    }
+    
+    function updateScrollAndChart(leftPercent) {
+        // Обновляем положение ползунка
+        scrollbar.style.left = leftPercent + '%';
+        
+        // Рассчитываем смещение графика
+        const shift = (leftPercent / (100 - scrollbarWidth)) * maxShift;
+        currentShift = shift;
+        
+        if (chartInner) {
+            chartInner.style.transform = `translateX(-${shift}px)`;
+        }
+        
+        // Обновляем процент видимой области
+        const percentageElement = document.getElementById(`${prefix}-zoom-percentage`);
+        if (percentageElement) {
+            percentageElement.textContent = `Показано: ${Math.round(scrollbarWidth)}%`;
+        }
+    }
+    
+    function updateVisibleRange(leftPercent, data, prefix) {
+        if (!data || !data.labels || data.labels.length === 0) return;
+        
+        const totalPoints = data.labels.length;
+        
+        // Рассчитываем индексы видимых точек
+        const startRatio = leftPercent / 100;
+        const endRatio = startRatio + visiblePercentage;
+        
+        const startIndex = Math.floor(startRatio * totalPoints);
+        const endIndex = Math.min(Math.ceil(endRatio * totalPoints), totalPoints - 1);
+        
+        const startLabel = data.labels[startIndex] || data.labels[0];
+        const endLabel = data.labels[endIndex] || data.labels[data.labels.length - 1];
+        
+        const startElement = document.getElementById(`${prefix}-visible-start`);
+        const endElement = document.getElementById(`${prefix}-visible-end`);
+        
+        if (startElement) startElement.textContent = startLabel;
+        if (endElement) endElement.textContent = endLabel;
+    }
+    
+    // Инициализируем начальное положение
+    updateVisibleRange(startLeft, data, prefix);
+    
+    // Обработчик ресайза окна
+    let resizeTimeout;
+    window.addEventListener('resize', function() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(function() {
+            // Пересчитываем позицию при изменении размера окна
+            const currentLeft = parseFloat(scrollbar.style.left) || startLeft;
+            updateScrollAndChart(currentLeft);
+        }, 250);
+    });
 }
 </script>
 
@@ -734,6 +1112,48 @@ function updateExpensesStats(data) {
 .btn-group-sm .btn {
     padding: 0.25rem 0.75rem;
     font-size: 0.875rem;
+}
+
+/* Стили для скроллируемых графиков */
+.chart-wrapper {
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    background: white;
+    position: relative;
+    overflow: hidden !important;
+}
+
+.chart-inner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: transform 0.3s ease;
+}
+
+.custom-scrollbar {
+    transition: background-color 0.2s;
+}
+
+.custom-scrollbar:hover {
+    background: #dee2e6;
+}
+
+.scrollbar-thumb {
+    transition: background-color 0.2s;
+    cursor: grab;
+}
+
+.scrollbar-thumb:hover {
+    background: #0b5ed7;
+}
+
+.scrollbar-thumb:active {
+    cursor: grabbing;
+}
+
+/* Важно: canvas должен быть inline-block */
+canvas {
+    display: block;
 }
 
 /* Адаптивные стили */

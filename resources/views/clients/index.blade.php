@@ -14,7 +14,6 @@
         </div>
         
         <div class="d-flex gap-2">
-            <!-- Кнопка экспорта в Excel -->
             <a href="{{ route('clients.export-excel') }}" 
             class="btn btn-success"
             title="Экспорт в Excel">
@@ -31,6 +30,56 @@
             <a href="{{ route('bonus-cards.index') }}" class="btn btn-outline-primary">
                 <i class="bi bi-credit-card me-1"></i> Бонусные карты
             </a>
+        </div>
+    </div>
+    
+    <!-- Панель поиска и сортировки -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <form action="{{ route('clients.index') }}" method="GET" class="row g-3 align-items-end">
+                <div class="col-md-5">
+                    <label for="search" class="form-label">Поиск клиента</label>
+                    <div class="input-group">
+                        <input type="text" 
+                               class="form-control" 
+                               id="search" 
+                               name="search" 
+                               value="{{ request('search') }}"
+                               placeholder="Поиск по имени или телефону...">
+                        <button class="btn btn-outline-secondary" type="submit">
+                            <i class="bi bi-search"></i>
+                        </button>
+                        @if(request('search'))
+                            <a href="{{ route('clients.index') }}" class="btn btn-outline-danger">
+                                <i class="bi bi-x"></i>
+                            </a>
+                        @endif
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <label for="sort_by" class="form-label">Сортировка</label>
+                    <select class="form-select" id="sort_by" name="sort_by">
+                        <option value="created_at" {{ request('sort_by') == 'created_at' ? 'selected' : '' }}>Дата регистрации</option>
+                        <option value="name" {{ request('sort_by') == 'name' ? 'selected' : '' }}>Имя</option>
+                        <option value="total_spent" {{ request('sort_by') == 'total_spent' ? 'selected' : '' }}>Сумма покупок</option>
+                        <option value="visits_count" {{ request('sort_by') == 'visits_count' ? 'selected' : '' }}>Количество посещений</option>
+                        <option value="bonus_points" {{ request('sort_by') == 'bonus_points' ? 'selected' : '' }}>Бонусные баллы</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-2">
+                    <label for="sort_order" class="form-label">Порядок</label>
+                    <select class="form-select" id="sort_order" name="sort_order">
+                        <option value="desc" {{ request('sort_order') == 'desc' ? 'selected' : '' }}>По убыванию</option>
+                        <option value="asc" {{ request('sort_order') == 'asc' ? 'selected' : '' }}>По возрастанию</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-1">
+                    <button type="submit" class="btn btn-primary w-100">Применить</button>
+                </div>
+            </form>
         </div>
     </div>
     
@@ -72,7 +121,18 @@
                                 <th>Имя</th>
                                 <th>Телефон</th>
                                 <th>Бонусная карта</th>
-                                <th>Потрачено за всё время</th> <!-- НОВЫЙ СТОЛБЕЦ -->
+                                <th>
+                                    Потрачено
+                                    @if(request('sort_by') == 'total_spent')
+                                        <i class="bi bi-arrow-{{ request('sort_order') == 'desc' ? 'down' : 'up' }}"></i>
+                                    @endif
+                                </th>
+                                <th>
+                                    Посещений
+                                    @if(request('sort_by') == 'visits_count')
+                                        <i class="bi bi-arrow-{{ request('sort_order') == 'desc' ? 'down' : 'up' }}"></i>
+                                    @endif
+                                </th>
                                 <th>Бонусы</th>
                                 <th>Дата рождения</th>
                                 <th>Комментарий</th>
@@ -100,12 +160,24 @@
                                     @endif
                                 </td>
                                 
-                                <!-- НОВЫЙ СТОЛБЕЦ: "Потрачено за всё время" -->
+                                <!-- Столбец "Потрачено" -->
                                 <td>
                                     <div class="fw-bold">
                                         {{ number_format($client->total_spent, 2) }} ₽
                                     </div>
-                                    
+                                    @if($client->visits_count > 0)
+                                        <div class="small text-muted">
+                                            Средний чек: {{ number_format($client->total_spent / $client->visits_count, 2) }} ₽
+                                        </div>
+                                    @endif
+                                </td>
+                                
+                                <!-- Столбец "Посещений" -->
+                                <td>
+                                    <span class="badge bg-secondary">
+                                        <i class="bi bi-cart-check me-1"></i>
+                                        {{ $client->visits_count }}
+                                    </span>
                                 </td>
                                 
                                 <!-- Столбец "Бонусы" -->
@@ -182,19 +254,6 @@
                             </tr>
                             @endforeach
                         </tbody>
-                        <!-- Итоговая строка -->
-                        <tfoot class="table-light">
-                            <tr>
-                                <th colspan="3" class="text-end">Итого:</th>
-                                <th class="fw-bold">
-                                    {{ number_format($clients->sum('total_spent'), 2) }} ₽
-                                </th>
-                                <th class="fw-bold">
-                                    {{ $clients->sum('bonus_points') }} бон.
-                                </th>
-                                <th colspan="3"></th>
-                            </tr>
-                        </tfoot>
                     </table>
                 </div>
             @endif

@@ -14,23 +14,27 @@ class Product extends Model
         'unit',
         'barcode',
         'article_number',
+        'popularity',      // Добавляем новое поле
+        'is_active',       // Добавляем новое поле
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
         'cost' => 'decimal:2',
+        'popularity' => 'integer',     // Добавляем кастинг
+        'is_active' => 'boolean',      // Добавляем кастинг
     ];
 
+    protected $attributes = [
+        'popularity' => 0,    // Значение по умолчанию
+        'is_active' => true,  // Значение по умолчанию
+    ];
+
+    // Остальные методы остаются без изменений...
     public function category()
     {
         return $this->belongsTo(ProductCategory::class, 'product_category_id');
     }
-
-    // УДАЛИТЕ или ЗАКОММЕНТИРУЙТЕ эту связь, если она не используется
-    // public function recipeItems()
-    // {
-    //     return $this->hasMany(RecipeItem::class);
-    // }
 
     public function stocks()
     {
@@ -100,6 +104,62 @@ class Product extends Model
     public function getIsWeightOrVolumeAttribute()
     {
         return in_array($this->unit, ['г', 'мл', 'кг', 'л']);
+    }
+
+    // Новый scope для популярных товаров
+    public function scopePopular($query, $limit = 10)
+    {
+        return $query->where('is_active', true)
+                     ->orderBy('popularity', 'desc')
+                     ->orderBy('name')
+                     ->limit($limit);
+    }
+
+    // Новый scope для активных товаров
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    // Новый scope для неактивных товаров
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
+    }
+
+    // Метод для увеличения популярности
+    public function incrementPopularity($amount = 1)
+    {
+        $this->increment('popularity', $amount);
+        return $this;
+    }
+
+    // Метод для уменьшения популярности
+    public function decrementPopularity($amount = 1)
+    {
+        $this->decrement('popularity', $amount);
+        return $this;
+    }
+
+    // Метод для сброса популярности
+    public function resetPopularity()
+    {
+        $this->update(['popularity' => 0]);
+        return $this;
+    }
+
+    // Метод для активации товара
+    public function activate()
+    {
+        $this->update(['is_active' => true]);
+        return $this;
+    }
+
+    // Метод для деактивации товара
+    public function deactivate()
+    {
+        $this->update(['is_active' => false]);
+        return $this;
     }
 
     public function scopeByCategory($query, $categoryId)

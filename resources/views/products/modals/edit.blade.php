@@ -103,6 +103,41 @@
                                         placeholder="Штрихкод">
                                 </div>
                             </div>
+                            <!-- В модалке редактирования, после блока с артикулом и штрихкодом -->
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label for="edit_product_popularity" class="form-label fw-bold">Популярность</label>
+                                    <div class="input-group">
+                                        <input type="number" 
+                                            min="0"
+                                            class="form-control" 
+                                            id="edit_product_popularity" 
+                                            name="popularity" 
+                                            placeholder="0">
+                                        <button type="button" 
+                                                class="btn btn-outline-secondary" 
+                                                id="reset_popularity_btn"
+                                                title="Сбросить популярность">
+                                            <i class="bi bi-arrow-counterclockwise"></i>
+                                        </button>
+                                    </div>
+                                    <div class="form-text">Чем выше число, тем выше в списках</div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <div class="form-check mt-4">
+                                        <input class="form-check-input" 
+                                            type="checkbox" 
+                                            id="edit_product_is_active" 
+                                            name="is_active" 
+                                            value="1">
+                                        <label class="form-check-label fw-bold" for="edit_product_is_active">
+                                            Активный товар
+                                        </label>
+                                    </div>
+                                    <div class="form-text">Неактивные товары не отображаются в продажах</div>
+                                </div>
+                            </div>
                         </div>
                         
                         <!-- Правая колонка - Компоненты -->

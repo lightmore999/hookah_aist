@@ -135,6 +135,37 @@
                                     @enderror
                                 </div>
                             </div>
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label for="popularity" class="form-label">Популярность</label>
+                                    <input type="number" 
+                                        class="form-control @error('popularity') is-invalid @enderror" 
+                                        id="popularity" 
+                                        name="popularity" 
+                                        value="{{ old('popularity', 0) }}" 
+                                        min="0"
+                                        placeholder="0">
+                                    @error('popularity')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                    <div class="form-text">Чем выше число, тем выше в списках</div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <div class="form-check mt-4">
+                                        <input class="form-check-input" 
+                                            type="checkbox" 
+                                            id="is_active" 
+                                            name="is_active" 
+                                            value="1" 
+                                            checked>
+                                        <label class="form-check-label" for="is_active">
+                                            Активный товар
+                                        </label>
+                                    </div>
+                                    <div class="form-text">Неактивные товары не будут отображаться в продажах</div>
+                                </div>
+                            </div>
                         </div>
                         
                         <!-- Правая колонка - Компоненты -->

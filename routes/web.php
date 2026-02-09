@@ -23,6 +23,9 @@ use App\Http\Controllers\BonusHistoryController;
 use App\Http\Controllers\PaymentMethodController;
 use App\Http\Controllers\OperationHistoryController;
 use App\Http\Controllers\StatisticsController;
+use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\Admin\TableNameController;
+use App\Http\Controllers\SalaryController;
 
 /*
 |--------------------------------------------------------------------------
@@ -44,18 +47,132 @@ Route::get('/dashboard', function () {
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
-    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    Route::resource('hookahs', HookahController::class);
-    Route::resource('product_categories', ProductCategoryController::class);
-    Route::resource('products', ProductController::class);
-    Route::prefix('products/{product}/components')->group(function () {
-        Route::get('/', [ProductController::class, 'getComponents'])->name('products.components');
-        Route::post('/add', [ProductController::class, 'addComponent'])->name('products.components.add');
-        Route::delete('/{component}/remove', [ProductController::class, 'removeComponent'])->name('products.components.remove');
-        Route::get('/available', [ProductController::class, 'getAvailableComponents'])->name('products.components.available');
+
+    // Только для администраторов
+    Route::middleware(['auth', 'admin'])->group(function () {
+        Route::resource('hookahs', HookahController::class);
+        Route::resource('product_categories', ProductCategoryController::class);
+        Route::resource('products', ProductController::class);
+        
+        Route::prefix('products/{product}/components')->group(function () {
+            Route::get('/', [ProductController::class, 'getComponents'])->name('products.components');
+            Route::post('/add', [ProductController::class, 'addComponent'])->name('products.components.add');
+            Route::delete('/{component}/remove', [ProductController::class, 'removeComponent'])->name('products.components.remove');
+            Route::get('/available', [ProductController::class, 'getAvailableComponents'])->name('products.components.available');
+        });
+
+        Route::resource('write-offs', WriteOffController::class);
+
+        Route::resource('employees', EmployeeController::class);
+
+        Route::resource('fines', FineController::class);
+
+        Route::resource('inventories', InventoryController::class);
+        
+
+        Route::prefix('inventories/{inventory}')->group(function () {
+            // Закрытие инвентаризации
+            Route::post('/close', [InventoryController::class, 'close'])->name('inventories.close');
+            
+            // Работа с товарами инвентаризации
+            Route::prefix('items')->group(function () {
+                Route::post('/', [InventoryController::class, 'addItem'])->name('inventories.items.store');
+                Route::post('/multiple', [InventoryController::class, 'addMultipleItems'])->name('inventories.items.store-multiple');
+                Route::put('/{item}', [InventoryController::class, 'updateItem'])->name('inventories.items.update');
+                Route::delete('/{item}', [InventoryController::class, 'removeItem'])->name('inventories.items.destroy');
+                Route::get('/', [InventoryController::class, 'getItems'])->name('inventories.items.index');
+            });
+            
+            // Получение доступных товаров для добавления
+            Route::get('/available-products', [InventoryController::class, 'getAvailableProducts'])->name('inventories.available-products');
+        });
+
+        Route::resource('expenditure-types', ExpenditureTypeController::class);
+        Route::get('expenditures/{expenditure}/confirm-delete', [ExpenditureController::class, 'confirmDelete'])->name('expenditures.confirm-delete');
+        Route::get('expenditures/{expenditure}/history', [ExpenditureController::class, 'history'])->name('expenditures.history');
+        Route::post('expenditures/{expenditure}/quick-delete', [ExpenditureController::class, 'quickDestroy'])->name('expenditures.quick-destroy');
+
+        // Основные маршруты (если еще нет)
+        Route::resource('expenditures', ExpenditureController::class);
+
+        // Payment Methods Routes
+        Route::resource('payment-methods', PaymentMethodController::class);
+
+        Route::get('operation-history', [OperationHistoryController::class, 'index'])->name('operation-history.index');
+        Route::get('operation-history/{operationHistory}', [OperationHistoryController::class, 'show'])->name('operation-history.show');
+        
+        // Статистика
+        Route::get('/statistics', [StatisticsController::class, 'index'])->name('statistics.index');
+        Route::get('/statistics/accounting', [StatisticsController::class, 'accounting'])->name('statistics.accounting');
+
+        // API маршруты для статистики
+        Route::get('/statistics/visit-dynamics', [StatisticsController::class, 'visitDynamics']);
+        Route::get('/statistics/popular-tables', [StatisticsController::class, 'popularTables']);
+        Route::get('/statistics/popular-hours', [StatisticsController::class, 'popularHours']);
+        Route::get('/statistics/popular-weekdays', [StatisticsController::class, 'popularWeekdays']);
+
+        Route::get('/statistics/summary', [StatisticsController::class, 'summary']);
+
+        // Новые API маршруты для финансовой статистики
+        Route::get('/statistics/payment-methods', [StatisticsController::class, 'paymentMethods']);
+        Route::get('/statistics/revenue-profit', [StatisticsController::class, 'revenueProfitStats']);
+        Route::get('/statistics/average-check', [StatisticsController::class, 'averageCheckStats']);
+        Route::get('/statistics/expenses', [StatisticsController::class, 'expensesStats']);
+
+        Route::get('/statistics/hookah', [StatisticsController::class, 'hookahPage'])->name('statistics.hookah');
+        Route::get('/statistics/hookah/data', [StatisticsController::class, 'hookahStatistics'])->name('statistics.hookah.data');
+
+        Route::get('/statistics/products', [StatisticsController::class, 'productsPage'])->name('statistics.products');
+        Route::get('/statistics/products/data', [StatisticsController::class, 'productsStatistics'])->name('statistics.products.data');
+
+        Route::get('/statistics/expenses', [StatisticsController::class, 'expensesPage'])->name('statistics.expenses');
+        Route::get('/statistics/expenses-stats', [StatisticsController::class, 'expensesStatistics'])->name('statistics.expenses.stats');
+
+
+    Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
+
+        // Tables management (RESTful except views)
+        Route::prefix('admin')->name('admin.')->group(function () {
+            Route::resource('table-names', TableNameController::class)->except([
+                'index', 'create', 'edit', 'show'
+            ]);
+            
+            Route::put('table-names/{table}/status', [TableNameController::class, 'updateStatus'])
+                ->name('table-names.status');
+            
+            Route::post('table-names/update-order', [TableNameController::class, 'updateOrder'])
+                ->name('table-names.update-order'); // Изменено на POST
+            
+            Route::get('table-names/partial', [TableNameController::class, 'getTablesPartial'])
+                ->name('table-names.partial');
+        });
+
+        // Payment methods management (RESTful except views)
+        Route::resource('payment-methods', PaymentMethodController::class)->except([
+            'index', 'create', 'edit', 'show'
+        ]);
+
+        // Settings API endpoints
+        Route::prefix('settings')->name('settings.')->group(function () {
+            Route::get('tables-data', [SettingsController::class, 'getTablesData'])
+                ->name('tables.data');
+            
+            Route::get('payment-methods-data', [SettingsController::class, 'getPaymentMethodsData'])
+                ->name('payment-methods.data');
+        });
+
+        // Legacy routes for backward compatibility (redirect to settings)
+        Route::get('/admin/table-names', function () {
+            return redirect()->route('settings.index')->with('active_tab', 'tables');
+        })->name('admin.table-names.index');
+
+        Route::get('/payment-methods', function () {
+            return redirect()->route('settings.index')->with('active_tab', 'payment-methods');
+        })->name('payment-methods.index');
+
+        Route::get('/employees/{user}/salary', [SalaryController::class, 'showEmployeeSalary'])->name('employees.salary');
+
     });
 
     Route::get('/clients/export-excel', [ClientController::class, 'exportExcel'])
@@ -76,6 +193,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/clients/{client}/total-spent', [SaleController::class, 'getClientTotalSpent']);
 
     Route::resource('warehouses', WarehouseController::class);
+    Route::post('/warehouses/transfer-stock', [WarehouseController::class, 'transferStock'])
+        ->name('warehouses.transfer-stock');
+    Route::post('/warehouses/{warehouse}/remove-stock', [WarehouseController::class, 'removeStock'])
+        ->name('warehouses.remove-stock');
+
     Route::resource('purchases', PurchaseController::class)->except(['index', 'show']);
 
     // Старые маршруты продаж (можно оставить для совместимости или удалить)
@@ -115,7 +237,6 @@ Route::middleware('auth')->group(function () {
     Route::resource('tables', TableController::class)->except(['show']);
     Route::delete('/tables/{table}', [TableController::class, 'destroy'])->name('tables.destroy');
     Route::post('tables/{table}/change-status', [TableController::class, 'changeStatus'])->name('tables.change-status');
-     Route::resource('recipe-items', RecipeItemController::class);
 
     // НОВЫЕ маршруты для модальных окон столов
     Route::prefix('tables/{table}')->group(function () {
@@ -144,8 +265,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/tables/{table}/products/{item}/update-price', [TableController::class, 'updateProductPrice'])
         ->name('tables.products.update-price');
 
-    Route::resource('write-offs', WriteOffController::class);
-    Route::resource('employees', EmployeeController::class);
+    
 
    // Смены
     Route::prefix('shifts')->name('shifts.')->group(function () {
@@ -168,119 +288,55 @@ Route::middleware('auth')->group(function () {
         Route::get('/{shift}/get-employees-data', [ShiftController::class, 'getEmployeesData'])->name('get-employees-data');
         Route::get('/current-shift', [ShiftController::class, 'getCurrentShift'])->name('shifts.current');
     });
+    Route::post('/shifts/{shift}/reopen', [ShiftController::class, 'reopen'])->name('shifts.reopen');
     Route::get('/shifts/{shift}/json-data', [ShiftController::class, 'jsonData'])->name('shifts.json-data');
     Route::post('/shifts/{shift}/note', [ShiftController::class, 'updateNote'])->name('shifts.update-note');
     Route::post('/shifts/manage-or-create', [ShiftController::class, 'manageOrCreate'])
         ->name('shifts.manage-or-create');
 
     Route::resource('bonus-cards', BonusCardController::class);
-    Route::resource('fines', FineController::class);
-
-    // Инвентаризация
-    Route::resource('inventories', InventoryController::class);
-
-    Route::prefix('inventories/{inventory}')->group(function () {
-        // Закрытие инвентаризации
-        Route::post('/close', [InventoryController::class, 'close'])->name('inventories.close');
-        
-        // Работа с товарами инвентаризации
-        Route::prefix('items')->group(function () {
-            Route::post('/', [InventoryController::class, 'addItem'])->name('inventories.items.store');
-            Route::post('/multiple', [InventoryController::class, 'addMultipleItems'])->name('inventories.items.store-multiple');
-            Route::put('/{item}', [InventoryController::class, 'updateItem'])->name('inventories.items.update');
-            Route::delete('/{item}', [InventoryController::class, 'removeItem'])->name('inventories.items.destroy');
-            Route::get('/', [InventoryController::class, 'getItems'])->name('inventories.items.index');
-        });
-        
-        // Получение доступных товаров для добавления
-        Route::get('/available-products', [InventoryController::class, 'getAvailableProducts'])->name('inventories.available-products');
-    });
-
-    Route::resource('expenditure-types', ExpenditureTypeController::class);
-    Route::get('expenditures/{expenditure}/confirm-delete', [ExpenditureController::class, 'confirmDelete'])->name('expenditures.confirm-delete');
-    Route::get('expenditures/{expenditure}/history', [ExpenditureController::class, 'history'])->name('expenditures.history');
-    Route::post('expenditures/{expenditure}/quick-delete', [ExpenditureController::class, 'quickDestroy'])->name('expenditures.quick-destroy');
-
-    // Основные маршруты (если еще нет)
-    Route::resource('expenditures', ExpenditureController::class);
-
-        Route::prefix('accounting')->name('accounting.')->group(function () {
-        // Главная страница бухгалтерии
-        Route::get('/', [AccountingController::class, 'index'])->name('index');
-        
-        // Статистика по кальянам
-        Route::get('/hookah-stats', [AccountingController::class, 'hookahStats'])->name('hookah-stats');
-        
-        // Статистика по способам оплаты
-        Route::get('/payment-stats', [AccountingController::class, 'paymentStats'])->name('payment-stats');
-        
-        // Статистика по бонусам
-        Route::get('/bonus-stats', [AccountingController::class, 'bonusStats'])->name('bonus-stats');
-        
-        // Экспорт данных
-        Route::get('/export', [AccountingController::class, 'export'])->name('export');
-        
-        // НОВЫЕ РОУТЫ ДЛЯ ЗАРПЛАТЫ:
-        
-        // Отчет по зарплате
-        Route::get('/salary-report', [AccountingController::class, 'salaryReport'])->name('salary-report');
-        
-        // Экспорт отчета по зарплате
-        Route::get('/export-salary-report', [AccountingController::class, 'exportSalaryReport'])->name('export-salary-report');
-        
-        // Детальный отчет по себестоимости (уже есть в контроллере, но нет роута)
-        Route::get('/cost-report', [AccountingController::class, 'costReport'])->name('cost-report');
-        
-        // API для получения статистики по способам оплаты (уже есть в контроллере, но нет роута)
-        Route::get('/payment-methods-stats', [AccountingController::class, 'getPaymentMethodsStats'])->name('payment-methods-stats');
-    });
+    
 
     // История бонусов - общий доступ для всех авторизованных
     Route::get('/bonus-history', [BonusHistoryController::class, 'index'])
         ->name('bonus-history.index')
         ->middleware('auth');
 
-    // Payment Methods Routes
-    Route::resource('payment-methods', PaymentMethodController::class);
+    Route::prefix('accounting')->name('accounting.')->group(function () {
+                // Главная страница бухгалтерии
+                Route::get('/', [AccountingController::class, 'index'])->name('index');
+                
+                // Статистика по кальянам
+                Route::get('/hookah-stats', [AccountingController::class, 'hookahStats'])->name('hookah-stats');
+                
+                // Статистика по способам оплаты
+                Route::get('/payment-stats', [AccountingController::class, 'paymentStats'])->name('payment-stats');
+                
+                // Статистика по бонусам
+                Route::get('/bonus-stats', [AccountingController::class, 'bonusStats'])->name('bonus-stats');
+                
+                // Экспорт данных
+                Route::get('/export', [AccountingController::class, 'export'])->name('export');
+                
+                // НОВЫЕ РОУТЫ ДЛЯ ЗАРПЛАТЫ:
+                
+                // Отчет по зарплате
+                Route::get('/salary-report', [AccountingController::class, 'salaryReport'])->name('salary-report');
+                
+                // Экспорт отчета по зарплате
+                Route::get('/export-salary-report', [AccountingController::class, 'exportSalaryReport'])->name('export-salary-report');
+                
+                // Детальный отчет по себестоимости (уже есть в контроллере, но нет роута)
+                Route::get('/cost-report', [AccountingController::class, 'costReport'])->name('cost-report');
+                
+                // API для получения статистики по способам оплаты (уже есть в контроллере, но нет роута)
+                Route::get('/payment-methods-stats', [AccountingController::class, 'getPaymentMethodsStats'])->name('payment-methods-stats');
+    });
 
-    Route::get('operation-history', [OperationHistoryController::class, 'index'])->name('operation-history.index');
-    Route::get('operation-history/{operationHistory}', [OperationHistoryController::class, 'show'])->name('operation-history.show');
-    
-    // Статистика
-    Route::get('/statistics', [StatisticsController::class, 'index'])->name('statistics.index');
-    Route::get('/statistics/accounting', [StatisticsController::class, 'accounting'])->name('statistics.accounting');
-
-    // API маршруты для статистики
-    Route::get('/statistics/visit-dynamics', [StatisticsController::class, 'visitDynamics']);
-    Route::get('/statistics/popular-tables', [StatisticsController::class, 'popularTables']);
-    Route::get('/statistics/popular-hours', [StatisticsController::class, 'popularHours']);
-    Route::get('/statistics/popular-weekdays', [StatisticsController::class, 'popularWeekdays']);
-    Route::get('/statistics/payment-methods', [StatisticsController::class, 'paymentMethods']);
-    Route::get('/statistics/summary', [StatisticsController::class, 'summary']);
-
-    // Новые API маршруты для финансовой статистики
-    Route::get('/statistics/revenue-profit', [StatisticsController::class, 'revenueProfitStats']);
-    Route::get('/statistics/average-check', [StatisticsController::class, 'averageCheckStats']);
-    Route::get('/statistics/expenses', [StatisticsController::class, 'expensesStats']);
-
-    Route::get('/statistics/hookah', [StatisticsController::class, 'hookahPage'])->name('statistics.hookah');
-    Route::get('/statistics/hookah/data', [StatisticsController::class, 'hookahStatistics'])->name('statistics.hookah.data');
-
-    Route::get('/statistics/products', [StatisticsController::class, 'productsPage'])->name('statistics.products');
-    Route::get('/statistics/products/data', [StatisticsController::class, 'productsStatistics'])->name('statistics.products.data');
-
-    Route::get('/statistics/expenses/data', [StatisticsController::class, 'expensesStatistics'])->name('statistics.expenses.data');
-    Route::get('/statistics/expenses', [StatisticsController::class, 'expensesPage'])->name('statistics.expenses');
-
-
-    Route::prefix('admin')->name('admin.')->group(function () {
-        Route::prefix('table-names')->name('table-names.')->group(function () {
-            Route::get('/', [\App\Http\Controllers\Admin\TableNameController::class, 'index'])->name('index');
-            Route::post('/', [\App\Http\Controllers\Admin\TableNameController::class, 'store'])->name('store');
-            Route::put('/{table}/status', [\App\Http\Controllers\Admin\TableNameController::class, 'updateStatus'])->name('update-status');
-            Route::put('/update-order', [\App\Http\Controllers\Admin\TableNameController::class, 'updateOrder'])->name('update-order');
-            Route::delete('/{table}', [\App\Http\Controllers\Admin\TableNameController::class, 'destroy'])->name('destroy');
-        });
+    Route::middleware(['auth'])->prefix('profile')->name('profile.')->group(function () {
+        Route::get('/', [ProfileController::class, 'show'])->name('show');
+        Route::get('/edit', [ProfileController::class, 'edit'])->name('edit');
+        Route::put('/update', [ProfileController::class, 'update'])->name('update');
     });
 
 });

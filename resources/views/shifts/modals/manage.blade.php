@@ -47,23 +47,37 @@
                             </div>
                             <div class="card-body d-flex flex-column justify-content-center">
                                 <div class="d-grid gap-2">
+                                    <!-- Кнопка открытия (для planned) -->
                                     <form id="openShiftForm" method="POST" class="d-none">
                                         @csrf
-                                        <button type="submit" class="btn btn-success w-100">
+                                        <button type="submit" class="btn btn-success w-100"
+                                                onclick="return confirm('Вы уверены, что хотите открыть смену?')">
                                             <i class="bi bi-play-circle me-1"></i>Открыть смену
                                         </button>
                                     </form>
                                     
+                                    <!-- Кнопка закрытия (для open) -->
                                     <form id="closeShiftForm" method="POST" class="d-none">
                                         @csrf
-                                        <button type="submit" class="btn btn-danger w-100">
+                                        <button type="submit" class="btn btn-danger w-100"
+                                                onclick="return confirm('Вы уверены, что хотите закрыть смену и рассчитать зарплату?')">
                                             <i class="bi bi-stop-circle me-1"></i>Закрыть смену
                                         </button>
                                     </form>
                                     
-                                    <div id="closedShiftMessage" class="text-center p-3 bg-light rounded d-none">
-                                        <i class="bi bi-lock text-muted fs-4 d-block mb-2"></i>
-                                        <p class="small text-muted mb-0">Смена закрыта</p>
+                                    <!-- Кнопка повторного открытия (для closed) -->
+                                    <form id="reopenShiftForm" method="POST" class="d-none">
+                                        @csrf
+                                        <button type="submit" class="btn btn-warning w-100"
+                                                onclick="return confirm('Вы уверены, что хотите повторно открыть закрытую смену?')">
+                                            <i class="bi bi-arrow-clockwise me-1"></i>Повторно открыть
+                                        </button>
+                                    </form>
+                                    
+                                    <!-- Сообщение, когда ничего нельзя сделать -->
+                                    <div id="noActionsMessage" class="text-center p-3 bg-light rounded d-none">
+                                        <i class="bi bi-slash-circle text-muted fs-4 d-block mb-2"></i>
+                                        <p class="small text-muted mb-0">Действия недоступны</p>
                                     </div>
                                 </div>
                             </div>
@@ -173,17 +187,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     method: 'POST',
                     body: formData,
                     headers: {
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'X-HTTP-Method-Override': 'PUT'
                     }
                 });
                 
                 if (response.ok) {
                     // Показываем уведомление
                     showToast('Комментарий сохранен', 'success');
-                    
-                    // Очищаем поле после сохранения
-                    noteTextarea.value = '';
-                    noteCounter.textContent = '0';
                 } else {
                     showToast('Ошибка при сохранении', 'danger');
                 }
@@ -215,7 +226,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const employeesCount = button.dataset.employeesCount;
         const openedAt = button.dataset.openedAt;
         const closedAt = button.dataset.closedAt;
-        const notes = button.dataset.notes; // Теперь это просто строка
+        const notes = button.dataset.notes;
         
         // Основная информация
         document.getElementById('manage_shift_date').textContent = date;
@@ -228,19 +239,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (noteTextarea) {
             noteTextarea.value = notes || '';
             noteCounter.textContent = notes ? notes.length : 0;
-        }
-        
-        // Показываем текущий комментарий если он есть
-        const currentNoteEl = document.getElementById('currentNote');
-        const currentNoteContainer = document.getElementById('currentNoteContainer');
-        
-        if (currentNoteEl && currentNoteContainer) {
-            if (notes && notes.trim()) {
-                currentNoteEl.textContent = notes;
-                currentNoteContainer.classList.remove('d-none');
-            } else {
-                currentNoteContainer.classList.add('d-none');
-            }
         }
         
         // Время
@@ -277,23 +275,28 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateEmployeesList(employees, count) {
         const container = document.getElementById('manage_shift_employees');
         
-        if (employees && employees.trim() !== '') {
+        if (employees && employees.trim() !== '' && employees !== 'null') {
             // Разделяем строку по запятой
             const employeesArray = employees.split(', ');
             
             if (employeesArray.length > 0) {
-                container.innerHTML = employeesArray.map(emp => `
-                    <div class="d-flex align-items-center mb-2">
-                        <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" 
-                            style="width: 32px; height: 32px; font-size: 0.9rem;">
-                            ${emp.trim().charAt(0).toUpperCase()}
+                container.innerHTML = employeesArray.map(emp => {
+                    const trimmedEmp = emp.trim();
+                    if (!trimmedEmp) return '';
+                    
+                    return `
+                        <div class="d-flex align-items-center mb-2">
+                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" 
+                                style="width: 32px; height: 32px; font-size: 0.9rem;">
+                                ${trimmedEmp.charAt(0).toUpperCase()}
+                            </div>
+                            <div class="flex-grow-1">
+                                <div class="fw-medium">${trimmedEmp}</div>
+                                <div class="small text-muted">Сотрудник</div>
+                            </div>
                         </div>
-                        <div class="flex-grow-1">
-                            <div class="fw-medium">${emp.trim()}</div>
-                            <div class="small text-muted">Сотрудник</div>
-                        </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
             } else {
                 showNoData(container, 'Нет сотрудников', 'bi-person-x');
             }
@@ -306,24 +309,38 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateActionButtons(status, shiftId) {
         const openForm = document.getElementById('openShiftForm');
         const closeForm = document.getElementById('closeShiftForm');
-        const closedMessage = document.getElementById('closedShiftMessage');
+        const reopenForm = document.getElementById('reopenShiftForm');
+        const noActions = document.getElementById('noActionsMessage');
         
+        // Обновляем URL форм
         if (openForm) openForm.action = `/shifts/${shiftId}/open`;
         if (closeForm) closeForm.action = `/shifts/${shiftId}/close`;
+        if (reopenForm) reopenForm.action = `/shifts/${shiftId}/reopen`;
         if (noteForm) noteForm.action = `/shifts/${shiftId}/note`;
         
-        // Скрываем все
-        [openForm, closeForm, closedMessage].forEach(el => {
+        // Скрываем все элементы управления
+        const allActionElements = [openForm, closeForm, reopenForm, noActions];
+        allActionElements.forEach(el => {
             if (el) el.classList.add('d-none');
         });
         
-        // Показываем нужные
-        if (status === 'planned') {
-            if (openForm) openForm.classList.remove('d-none');
-        } else if (status === 'open') {
-            if (closeForm) closeForm.classList.remove('d-none');
-        } else {
-            if (closedMessage) closedMessage.classList.remove('d-none');
+        // Показываем нужные элементы в зависимости от статуса
+        switch (status) {
+            case 'planned':
+                if (openForm) openForm.classList.remove('d-none');
+                break;
+                
+            case 'open':
+                if (closeForm) closeForm.classList.remove('d-none');
+                break;
+                
+            case 'closed':
+                if (reopenForm) reopenForm.classList.remove('d-none');
+                break;
+                
+            default:
+                if (noActions) noActions.classList.remove('d-none');
+                break;
         }
     }
     

@@ -9,11 +9,7 @@
         <h1 class="h3 mb-0">
             <i class="bi bi-calculator me-2"></i>Бухгалтерия
         </h1>
-        <div>
-            <a href="{{ route('accounting.salary-report') }}" class="btn btn-outline-primary">
-                <i class="bi bi-cash-coin me-1"></i> Отчет по зарплате
-            </a>
-        </div>
+
     </div>
 
     <!-- Общая статистика -->
@@ -46,33 +42,9 @@
         <div class="col-md-3 mb-3">
             <div class="card border-dark">
                 <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Общий доход</h6>
+                    <h6 class="text-muted mb-2">Всего</h6>
                     <h3 class="text-dark">
                         {{ number_format($totalStats['total_income'], 0) }} ₽
-                    </h3>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Расходы -->
-        <div class="col-md-3 mb-3">
-            <div class="card border-danger">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Всего расходов</h6>
-                    <h3 class="text-danger">
-                        {{ number_format($totalStats['expenses'], 0) }} ₽
-                    </h3>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Прибыль -->
-        <div class="col-md-3 mb-3">
-            <div class="card border-success">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Чистая прибыль</h6>
-                    <h3 class="text-success">
-                        {{ number_format($totalStats['profit'], 0) }} ₽
                     </h3>
                 </div>
             </div>
@@ -419,102 +391,6 @@
         </div>
     </div>
 
-    <!-- Блок с деталями зарплаты (показывается только для текущей выбранной даты) -->
-    @if($type == 'day' && isset($salaryData) && $salaryData['shift_exists'] && !empty($salaryData['employees']))
-    <div class="card mt-4 border-success">
-        <div class="card-header bg-success text-white">
-            <h5 class="mb-0">
-                <i class="bi bi-cash-coin me-2"></i>Детальный расчет зарплаты за {{ \Carbon\Carbon::parse($salaryData['shift_date'])->format('d.m.Y') }}
-                <span class="badge bg-white text-success ms-2">Текущий день</span>
-            </h5>
-        </div>
-        <div class="card-body">
-            <div class="row mb-3">
-                <div class="col-md-6">
-                    <div class="alert alert-info">
-                        <i class="bi bi-clock-history me-2"></i>
-                        <strong>Время смены:</strong> {{ $salaryData['shift_start'] }} - {{ $salaryData['shift_end'] }} 
-                        ({{ $salaryData['shift_hours'] ?? 'N/A' }} часов)
-                    </div>
-                    <p class="mb-1"><strong>Продажи за период смены:</strong> {{ $salaryData['sales_count'] }}</p>
-                    <p class="mb-1"><strong>Выручка за период смены:</strong> {{ number_format($salaryData['total_revenue'], 0) }} ₽</p>
-                    <p class="mb-1"><strong>Смена ID:</strong> {{ $salaryData['shift_id'] }}</p>
-                </div>
-                <div class="col-md-6">
-                    <div class="alert alert-success">
-                        <i class="bi bi-people me-2"></i>
-                        <strong>Сотрудников на смене:</strong> {{ count($salaryData['employees']) }}
-                    </div>
-                    <p class="mb-1"><strong>Общая зарплата:</strong> <span class="fw-bold">{{ number_format($salaryData['total_salary'], 0) }} ₽</span></p>
-                    <p class="mb-0"><strong>Статус смены:</strong> <span class="badge bg-success">{{ $salaryData['shift_status'] }}</span></p>
-                </div>
-            </div>
-            
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered table-striped">
-                    <thead>
-                        <tr class="table-light">
-                            <th>#</th>
-                            <th>Сотрудник</th>
-                            <th class="text-end">Ставка за смену</th>
-                            <th class="text-end">Процент с выручки</th>
-                            <th class="text-end">Зарплата с процента</th>
-                            <th class="text-end">Штрафы</th>
-                            <th class="text-end">Итого к выплате</th>
-                            <th class="text-end">Доля в выручке</th>
-                            <th class="text-end">Часовая ставка</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($salaryData['employees'] as $index => $employee)
-                        <tr>
-                            <td>{{ $index + 1 }}</td>
-                            <td>
-                                <strong>{{ $employee['name'] }}</strong>
-                                <br><small class="text-muted">{{ $employee['position'] ?? 'Сотрудник' }}</small>
-                            </td>
-                            <td class="text-end">{{ number_format($employee['shift_salary'], 0) }} ₽</td>
-                            <td class="text-end">{{ $employee['revenue_percentage'] }}%</td>
-                            <td class="text-end">{{ number_format($employee['percentage_salary'], 0) }} ₽</td>
-                            <td class="text-end text-danger">{{ number_format($employee['fines'], 0) }} ₽</td>
-                            <td class="text-end fw-bold">{{ number_format($employee['net_salary'], 0) }} ₽</td>
-                            <td class="text-end">{{ $employee['revenue_share'] ?? 0 }}%</td>
-                            <td class="text-end">
-                                {{ number_format($employee['hourly_rate'] ?? ($employee['net_salary'] / max(1, $employee['shift_hours'] ?? 1)), 0) }} ₽/час
-                            </td>
-                        </tr>
-                        @endforeach
-                    </tbody>
-                    <tfoot>
-                        <tr class="table-active">
-                            <td colspan="5" class="text-end fw-bold">Итого по смене:</td>
-                            <td class="text-end fw-bold text-danger">{{ number_format(collect($salaryData['employees'])->sum('fines'), 0) }} ₽</td>
-                            <td class="text-end fw-bold">{{ number_format($salaryData['total_salary'], 0) }} ₽</td>
-                            <td colspan="2"></td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
-            
-            <div class="mt-3 text-end">
-                <a href="{{ route('accounting.export-salary-report', array_merge(request()->all())) }}" 
-                   class="btn btn-success">
-                    <i class="bi bi-file-earmark-excel me-1"></i> Экспорт зарплаты в CSV
-                </a>
-            </div>
-        </div>
-    </div>
-    @elseif($type == 'day' && isset($salaryData) && !$salaryData['shift_exists'])
-    <div class="alert alert-warning mt-4">
-        <i class="bi bi-exclamation-triangle me-2"></i>
-        <strong>Внимание:</strong> На {{ \Carbon\Carbon::parse($salaryData['shift_date'])->format('d.m.Y') }} нет закрытой смены. 
-        Зарплата рассчитывается только для закрытых смен с указанным временем открытия и закрытия.
-        <br>
-        <small class="text-muted">
-            Для расчета зарплаты нужно: 1) закрыть смену, 2) указать время открытия/закрытия в смене
-        </small>
-    </div>
-    @endif
 
     <!-- Кнопки экспорта -->
     <div class="mt-3 text-end">
@@ -526,12 +402,6 @@
            class="btn btn-outline-danger">
             <i class="bi bi-file-earmark-pdf me-1"></i> Экспорт в PDF
         </a>
-        @if($type == 'day' && isset($salaryData) && $salaryData['shift_exists'] && !empty($salaryData['employees']))
-        <a href="{{ route('accounting.export-salary-report', array_merge(request()->all())) }}" 
-           class="btn btn-outline-success">
-            <i class="bi bi-cash-coin me-1"></i> Экспорт зарплаты
-        </a>
-        @endif
     </div>
 </div>
 
@@ -604,15 +474,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Прокрутка к блоку с зарплатой при наличии данных
-    @if($type == 'day' && isset($salaryData) && $salaryData['shift_exists'])
-    setTimeout(function() {
-        const salarySection = document.querySelector('.card.border-success');
-        if (salarySection && !isElementInViewport(salarySection)) {
-            salarySection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-    }, 500);
-    @endif
 });
 
 // Функция проверки видимости элемента

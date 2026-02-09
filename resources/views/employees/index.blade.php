@@ -110,6 +110,11 @@
                                     </div>
                                 </td>
                                 <td class="text-end">
+                                    <a href="{{ route('employees.salary', $employee->id) }}" 
+                                        class="btn btn-info btn-sm me-1"
+                                        title="Просмотр зарплаты">
+                                            <i class="bi bi-cash-stack"></i>
+                                    </a>
                                     <button type="button" 
                                             class="btn btn-warning btn-sm edit-employee-btn"
                                             data-bs-toggle="modal"

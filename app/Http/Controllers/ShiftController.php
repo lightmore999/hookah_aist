@@ -52,14 +52,26 @@ class ShiftController extends Controller
                 $nextMonth = $currentMonth->copy()->addMonth();
                 $month = $currentMonth->format('Y-m');
             }
-                
         }
         
-        // Получаем все смены за месяц с сотрудниками
+        // Создаем календарь на месяц
+        $weeks = [];
+        $firstDayOfMonth = $currentMonth->copy()->startOfMonth();
+        $lastDayOfMonth = $currentMonth->copy()->endOfMonth();
+        
+        // Начинаем с понедельника первой недели месяца
+        $currentDay = $firstDayOfMonth->copy()->startOfWeek(Carbon::MONDAY);
+        $lastDay = $lastDayOfMonth->copy()->endOfWeek(Carbon::SUNDAY);
+        
+        // Определяем диапазон дат для получения смен (весь календарь, включая дни соседних месяцев)
+        $calendarStartDate = $currentDay->copy(); // Первый день календаря
+        $calendarEndDate = $lastDay->copy(); // Последний день календаря
+        
+        // Получаем все смены для ВСЕГО диапазона календаря
         $shifts = Shift::with(['employees']) // employees() - это связь с User где role='employee'
             ->whereBetween('date', [
-                $currentMonth->format('Y-m-01'),
-                $currentMonth->endOfMonth()->format('Y-m-d')
+                $calendarStartDate->format('Y-m-d'),
+                $calendarEndDate->format('Y-m-d')
             ])
             ->get()
             ->keyBy(function($shift) {
@@ -71,15 +83,7 @@ class ShiftController extends Controller
                 return $shift;
             });
         
-        // Создаем календарь на месяц
-        $weeks = [];
-        $firstDayOfMonth = $currentMonth->copy()->startOfMonth();
-        $lastDayOfMonth = $currentMonth->copy()->endOfMonth();
-        
-        // Начинаем с понедельника первой недели месяца
-        $currentDay = $firstDayOfMonth->copy()->startOfWeek(Carbon::MONDAY);
-        $lastDay = $lastDayOfMonth->copy()->endOfWeek(Carbon::SUNDAY);
-        
+        // Формируем недели календаря
         while ($currentDay <= $lastDay) {
             $week = [];
             for ($i = 0; $i < 7; $i++) {
@@ -127,6 +131,10 @@ class ShiftController extends Controller
             $shift->closed_at = $now;
             $shift->addAutoCloseNote();
             $shift->save();
+            
+            // Рассчитываем зарплату
+            $this->calculateShiftSalary($shift);
+            
             $closedCount++;
         }
         
@@ -144,12 +152,16 @@ class ShiftController extends Controller
                 $shift->closed_at = $now;
                 $shift->addAutoCloseNote();
                 $shift->save();
+                
+                // Рассчитываем зарплату
+                $this->calculateShiftSalary($shift);
+                
                 $closedCount++;
             }
         }
         
         if ($closedCount > 0) {
-            \Log::info("Автоматически закрыто $closedCount просроченных смен");
+            \Log::info("Автоматически закрыто $closedCount просроченных смен с расчетом зарплаты");
         }
         
         return $closedCount;
@@ -176,6 +188,53 @@ class ShiftController extends Controller
 
         return redirect()->route('shifts.index')
             ->with('success', 'Смена успешно создана.');
+    }
+
+    private function calculateShiftSalary(Shift $shift)
+    {
+        // Получаем сотрудников на смене
+        $shiftUsers = $shift->employees()->get();
+        
+        if ($shiftUsers->isEmpty()) {
+            return;
+        }
+        
+        // Получаем продажи за период смены
+        $shiftStart = $shift->opened_at ? Carbon::parse($shift->opened_at) : Carbon::parse($shift->date . ' 12:00:00');
+        $shiftEnd = $shift->closed_at ? Carbon::parse($shift->closed_at) : Carbon::parse($shift->date . ' 23:59:59');
+        
+        $sales = \App\Models\Sale::where('status', 'completed')
+            ->whereBetween('created_at', [$shiftStart, $shiftEnd])
+            ->get();
+        
+        $totalRevenue = $sales->sum('total');
+        
+        // Рассчитываем зарплату для каждого сотрудника и сохраняем
+        foreach ($shiftUsers as $employee) {
+            if ($employee->role !== 'employee') {
+                continue;
+            }
+            
+            $shiftSalaryAmount = $employee->shift_salary ?? 0;
+            $revenuePercentage = $employee->revenue_percentage ?? 0;
+            $revenueShareAmount = $totalRevenue * ($revenuePercentage / 100);
+            
+            $finesAmount = \App\Models\Fine::where('user_id', $employee->id)
+                ->whereDate('created_at', $shift->date)
+                ->sum('amount');
+            
+            $totalAmount = max(0, ($shiftSalaryAmount + $revenueShareAmount) - $finesAmount);
+            
+            \App\Models\ShiftSalary::updateOrCreate(
+                [
+                    'user_id' => $employee->id,
+                    'shift_id' => $shift->id,
+                ],
+                [
+                    'amount' => $totalAmount,
+                ]
+            );
+        }
     }
 
     /**
@@ -209,6 +268,35 @@ class ShiftController extends Controller
         
         return redirect()->route('shifts.index', ['month' => $month])
             ->with('success', "Создано $created смен, пропущено $skipped (уже существуют).");
+    }
+
+    public function reopen(Shift $shift)
+    {
+        if (!$shift->isClosed()) {
+            return redirect()->route('shifts.index')->with('error', 'Можно повторно открыть только закрытую смену.');
+        }
+
+        // Проверяем, есть ли сотрудники в смене
+        $employeesCount = $shift->employees()->count();
+        
+        if ($employeesCount === 0) {
+            return redirect()->route('shifts.index')
+                ->with('error', 'Нельзя открыть смену без сотрудников. Добавьте хотя бы одного сотрудника.');
+        }
+
+        // Повторно открываем смену без изменения времени первоначального открытия
+        $shift->status = 'open';
+        $shift->closed_at = null;
+        $shift->save();
+
+        // Добавляем заметку о повторном открытии
+        $existingNote = $shift->notes ?? '';
+        $reopenNote = "\n\n---\nСмена повторно открыта: " . now()->format('d.m.Y H:i');
+        $shift->update([
+            'notes' => $existingNote . $reopenNote
+        ]);
+
+        return redirect()->route('shifts.index')->with('success', 'Смена повторно открыта. Время первоначального открытия сохранено.');
     }
 
     /**
@@ -419,5 +507,81 @@ class ShiftController extends Controller
             'month' => Carbon::parse($date)->format('Y-m'),
             'focus' => $date
         ]);
+    }
+
+    public function close(Shift $shift)
+    {
+        if ($shift->isClosed()) {
+            return redirect()->route('shifts.index')->with('error', 'Смена уже закрыта.');
+        }
+
+        if (!$shift->isOpen()) {
+            return redirect()->route('shifts.index')->with('error', 'Сначала откройте смену.');
+        }
+
+        // Закрываем смену
+        $shift->close();
+        
+        // Получаем сотрудников на смене
+        $shiftUsers = $shift->employees()->get();
+        
+        if ($shiftUsers->isNotEmpty()) {
+            // Получаем продажи за период смены
+            $shiftStart = Carbon::parse($shift->opened_at);
+            $shiftEnd = Carbon::parse($shift->closed_at);
+            
+            $sales = \App\Models\Sale::where('status', 'completed')
+                ->whereBetween('created_at', [$shiftStart, $shiftEnd])
+                ->get();
+            
+            $totalRevenue = $sales->sum('total');
+            
+            // Рассчитываем зарплату для каждого сотрудника и сохраняем
+            foreach ($shiftUsers as $employee) {
+                // Проверяем, что это сотрудник
+                if ($employee->role !== 'employee') {
+                    continue;
+                }
+                
+                // Ставка за смену
+                $shiftSalaryAmount = $employee->shift_salary ?? 0;
+                
+                // Процент с выручки
+                $revenuePercentage = $employee->revenue_percentage ?? 0;
+                $revenueShareAmount = $totalRevenue * ($revenuePercentage / 100);
+                
+                // Штрафы сотрудника за день смены
+                $finesAmount = \App\Models\Fine::where('user_id', $employee->id)
+                    ->whereDate('created_at', $shift->date)
+                    ->sum('amount');
+                
+                // Общая сумма
+                $totalAmount = max(0, ($shiftSalaryAmount + $revenueShareAmount) - $finesAmount);
+                
+                // Сохраняем в ShiftSalary
+                \App\Models\ShiftSalary::updateOrCreate(
+                    [
+                        'user_id' => $employee->id,
+                        'shift_id' => $shift->id,
+                    ],
+                    [
+                        'amount' => $totalAmount,
+                    ]
+                );
+            }
+            
+            // Добавляем комментарий о расчете зарплаты
+            $existingNote = $shift->notes ?? '';
+            $salaryNote = "\n\n---\nЗарплата рассчитана: " . now()->format('d.m.Y H:i') .
+                        "\nВыручка смены: " . number_format($totalRevenue, 2) . ' руб.' .
+                        "\nСотрудников: " . $shiftUsers->count();
+            
+            $shift->update([
+                'notes' => $existingNote . $salaryNote
+            ]);
+        }
+        
+        return redirect()->route('shifts.index')
+            ->with('success', 'Смена закрыта и зарплата рассчитана.');
     }
 }

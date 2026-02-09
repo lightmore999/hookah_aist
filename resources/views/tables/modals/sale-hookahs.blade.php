@@ -55,6 +55,7 @@
                                     <tr>
                                         <th>Кальян</th>
                                         <th>Цена</th>
+                                        <th>Время добавления</th>
                                         <th width="50"></th>
                                     </tr>
                                 </thead>
@@ -63,7 +64,7 @@
                                 </tbody>
                                 <tfoot class="table-light">
                                     <tr>
-                                        <td class="text-end fw-bold">Итого:</td>
+                                        <td class="text-end fw-bold" colspan="2">Итого:</td>
                                         <td class="fw-bold">
                                             <span id="hookahsTotalAmount">0</span> ₽
                                         </td>

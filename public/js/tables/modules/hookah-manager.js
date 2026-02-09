@@ -112,7 +112,7 @@ class HookahManager {
         if (hookahs.length === 0) {
             const emptyRow = document.createElement('tr');
             emptyRow.innerHTML = `
-                <td colspan="3" class="text-center text-muted py-4">
+                <td colspan="4" class="text-center text-muted py-4">
                     <i class="bi bi-cup-straw me-2"></i>
                     Кальяны не добавлены
                 </td>
@@ -125,6 +125,7 @@ class HookahManager {
                 row.innerHTML = `
                     <td>${hookah.name}</td>
                     <td>${parseFloat(hookah.price).toFixed(0)} ₽</td>
+                    <td>${hookah.created_at || '--:--'}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-danger remove-hookah-btn" 
                                 data-hookah-id="${hookah.id}"
@@ -259,7 +260,7 @@ class HookahManager {
                 if (tbody && tbody.children.length === 0) {
                     const emptyRow = document.createElement('tr');
                     emptyRow.innerHTML = `
-                        <td colspan="3" class="text-center text-muted py-4">
+                        <td colspan="4" class="text-center text-muted py-4">
                             <i class="bi bi-cup-straw me-2"></i>
                             Кальяны не добавлены
                         </td>
@@ -475,11 +476,11 @@ class HookahManager {
             
             // Обновляем данные в кнопке "Закрыть стол"
             const closeButton = cell.querySelector('button[data-bs-target="#closeSaleModal"]');
-            if (closeButton) {
-                closeButton.setAttribute('data-total', newTotal);
-            }
-        });
-    }
+                if (closeButton) {
+                    closeButton.setAttribute('data-total', newTotal);
+                }
+            });
+        }
     
     resetForm() {
         const hookahSelect = document.getElementById('hookahSelect');
@@ -611,4 +612,4 @@ class HookahManager {
 }
 
 // Экспорт
-window.HookahManager = HookahManager;
+window.HookahManager = HookahManager;   

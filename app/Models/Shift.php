@@ -131,20 +131,11 @@ class Shift extends Model
     {
         $now = now();
         
-        // Если сейчас утро/ранний день (00:00 - 12:00), ищем вчерашнюю смену
-        if ($now->hour < 12) {
-            $yesterday = $now->copy()->subDay();
-            return Shift::whereDate('date', $yesterday->format('Y-m-d'))
-                ->where('status', 'open')
-                ->whereNull('closed_at')
-                ->first();
-        }
-        
-        // Если сейчас после 12:00 (12:01 - 23:59), ищем сегодняшнюю смену
-        return Shift::whereDate('date', $now->format('Y-m-d'))
-            ->where('status', 'open')
-            ->whereNull('closed_at')
-            ->first();
+        // Ищем ОТКРЫТУЮ смену (status = 'open'), которая еще не закрыта
+        // Не зависим от времени суток - просто ищем любую открытую смену
+        return Shift::where('status', 'open')
+                    ->whereNull('closed_at')
+                    ->first();
     }
 
     /**

@@ -108,4 +108,85 @@ class WarehouseController extends Controller
             ->with('success', 'Склад успешно удалён!');
     }
 
+    public function transferStock(Request $request)
+    {
+        $request->validate([
+            'from_warehouse_id' => 'required|exists:warehouses,id',
+            'to_warehouse_id' => 'required|exists:warehouses,id|different:from_warehouse_id',
+            'product_id' => 'required|exists:products,id',
+            'quantity' => 'required|numeric|min:0.001',
+        ]);
+
+        try {
+            // Находим товар на исходном складе
+            $fromStock = Stock::where('warehouse_id', $request->from_warehouse_id)
+                ->where('product_id', $request->product_id)
+                ->firstOrFail();
+
+            // Проверяем наличие достаточного количества
+            if ($fromStock->quantity < $request->quantity) {
+                return back()->with('error', 'Недостаточно товара на исходном складе');
+            }
+
+            // Находим или создаем запись на целевом складе
+            $toStock = Stock::firstOrCreate(
+                [
+                    'warehouse_id' => $request->to_warehouse_id,
+                    'product_id' => $request->product_id,
+                ],
+                [
+                    'quantity' => 0,
+                    'last_updated' => now(),
+                ]
+            );
+
+            // Используем транзакцию для гарантии целостности данных
+            \DB::transaction(function () use ($fromStock, $toStock, $request) {
+                // Списываем с исходного склада
+                $fromStock->quantity -= $request->quantity;
+                $fromStock->save();
+
+                // Добавляем на целевой склад
+                $toStock->quantity += $request->quantity;
+                $toStock->save();
+            });
+
+            return back()->with('success', 'Товар успешно перенесен!');
+
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return back()->with('error', 'Товар не найден на исходном складе');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Произошла ошибка при переносе товара: ' . $e->getMessage());
+        }
+    }
+
+    public function removeStock(Request $request, Warehouse $warehouse)
+    {
+        $request->validate([
+            'product_id' => 'required|exists:products,id',
+        ]);
+
+        try {
+            // Находим запись о товаре на складе
+            $stock = Stock::where('warehouse_id', $warehouse->id)
+                ->where('product_id', $request->product_id)
+                ->firstOrFail();
+
+            // Проверяем, что товар есть на складе
+            if ($stock->quantity > 0) {
+                return back()->with('error', 'Нельзя удалить товар с ненулевым остатком. Сначала списайте остатки.');
+            }
+
+            // Удаляем запись
+            $stock->delete();
+
+            return back()->with('success', 'Товар удален со склада!');
+
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return back()->with('error', 'Товар не найден на складе');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Произошла ошибка при удалении товара: ' . $e->getMessage());
+        }
+    }
+
 }

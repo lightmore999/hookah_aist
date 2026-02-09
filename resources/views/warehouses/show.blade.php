@@ -26,6 +26,12 @@
             <a href="{{ route('write-offs.index', ['warehouse_id' => $warehouse->id]) }}" class="btn btn-outline-danger">
                 <i class="bi bi-dash-circle me-1"></i> Списания
             </a>
+            <button type="button" 
+                    class="btn btn-outline-primary"
+                    data-bs-toggle="modal" 
+                    data-bs-target="#transferStockModal">
+                <i class="bi bi-arrow-left-right me-1"></i> Перенос
+            </button>
         </div>
         
         <div>
@@ -185,6 +191,18 @@
                                                 data-unit="{{ $unit }}">
                                             <i class="bi bi-dash-circle"></i> Списать
                                         </button>
+                                        
+                                        <button type="button" 
+                                                class="btn btn-sm btn-outline-danger remove-stock-btn"
+                                                data-bs-toggle="modal" 
+                                                data-bs-target="#removeStockModal"
+                                                data-warehouse-id="{{ $warehouse->id }}"
+                                                data-product-id="{{ $stock->product_id }}"
+                                                data-product-name="{{ $product->name }}"
+                                                data-quantity="{{ $quantity }}"
+                                                title="Удалить товар со склада">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -198,6 +216,8 @@
 </div>
 
 @include('write-offs.modals.create')
+@include('warehouses.modals.transfer')
+@include('warehouses.modals.remove-stock')
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -231,6 +251,110 @@ document.addEventListener('DOMContentLoaded', function() {
                     quantityInput.value = 0.001;
                 }
             }
+        });
+    }
+    const transferModal = document.getElementById('transferStockModal');
+    const productSelect = document.getElementById('transferProductId');
+    const quantityInput = document.getElementById('transferQuantity');
+    const quantityUnit = document.getElementById('transferQuantityUnit');
+    const availableQuantitySpan = document.getElementById('availableQuantity');
+    const availableQuantityUnit = document.getElementById('availableQuantityUnit');
+    
+    if (transferModal && productSelect) {
+        // Обновление доступного количества при выборе товара
+        productSelect.addEventListener('change', function() {
+            const selectedOption = this.options[this.selectedIndex];
+            if (!selectedOption.value) return;
+            
+            const quantity = selectedOption.dataset.quantity || 0;
+            const unit = selectedOption.dataset.unit || 'шт';
+            
+            // Форматируем количество для отображения
+            const formattedQuantity = parseFloat(quantity).toFixed(3).replace(/\.?0+$/, '');
+            availableQuantitySpan.textContent = formattedQuantity;
+            availableQuantityUnit.textContent = unit;
+            quantityUnit.textContent = unit;
+            
+            // Устанавливаем максимальное значение и шаг
+            if (unit === 'шт') {
+                quantityInput.max = quantity;
+                quantityInput.step = 1;
+                quantityInput.min = 1;
+                quantityInput.value = 1;
+            } else {
+                quantityInput.max = quantity;
+                quantityInput.step = 0.001;
+                quantityInput.min = 0.001;
+                quantityInput.value = 0.001;
+            }
+        });
+        
+        // Валидация количества
+        quantityInput.addEventListener('input', function() {
+            const max = parseFloat(this.max);
+            const value = parseFloat(this.value);
+            
+            if (value > max) {
+                this.value = max;
+            }
+            
+            if (value < parseFloat(this.min)) {
+                this.value = this.min;
+            }
+        });
+        
+        // Сброс формы при закрытии модального окна
+        transferModal.addEventListener('hidden.bs.modal', function() {
+            productSelect.selectedIndex = 0;
+            quantityInput.value = '';
+            availableQuantitySpan.textContent = '0';
+            availableQuantityUnit.textContent = 'шт';
+            quantityUnit.textContent = 'шт';
+        });
+    }
+
+    const removeStockModal = document.getElementById('removeStockModal');
+    
+    if (removeStockModal) {
+        removeStockModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            if (button && button.classList.contains('remove-stock-btn')) {
+                const productId = button.dataset.productId;
+                const productName = button.dataset.productName;
+                const quantity = parseFloat(button.dataset.quantity);
+                
+                // Устанавливаем product_id в скрытое поле
+                document.getElementById('removeProductId').value = productId;
+                
+                // Устанавливаем название товара
+                document.getElementById('removeProductName').textContent = productName;
+                
+                // Проверяем можно ли удалить (остаток должен быть 0)
+                const deleteBtn = document.querySelector('#removeStockForm button[type="submit"]');
+                if (quantity > 0) {
+                    deleteBtn.disabled = true;
+                    deleteBtn.innerHTML = '<i class="bi bi-slash-circle me-1"></i> Нельзя удалить (есть остаток)';
+                    deleteBtn.classList.remove('btn-danger');
+                    deleteBtn.classList.add('btn-secondary');
+                } else {
+                    deleteBtn.disabled = false;
+                    deleteBtn.innerHTML = '<i class="bi bi-trash me-1"></i> Удалить';
+                    deleteBtn.classList.remove('btn-secondary');
+                    deleteBtn.classList.add('btn-danger');
+                }
+            }
+        });
+        
+        // Сброс состояния кнопки при закрытии модального окна
+        removeStockModal.addEventListener('hidden.bs.modal', function() {
+            const deleteBtn = document.querySelector('#removeStockForm button[type="submit"]');
+            deleteBtn.disabled = false;
+            deleteBtn.innerHTML = '<i class="bi bi-trash me-1"></i> Удалить';
+            deleteBtn.classList.remove('btn-secondary');
+            deleteBtn.classList.add('btn-danger');
+            
+            // Очищаем поле
+            document.getElementById('removeProductId').value = '';
         });
     }
 });

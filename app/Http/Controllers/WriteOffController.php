@@ -150,4 +150,5 @@ class WriteOffController extends Controller
         return redirect()->route('write-offs.index', ['warehouse_id' => $writeOff->warehouse_id])
             ->with('success', 'Списание успешно удалено! Товар возвращен на склад.');
     }
+    
 }

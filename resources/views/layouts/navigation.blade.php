@@ -13,175 +13,189 @@
             </div>
 
             <!-- Центральная навигация -->
-            <div class="hidden sm:flex items-center flex-grow justify-center">
-                <div class="flex space-x-4 mx-4 gap-4">
-                    <x-nav-link :href="route('tables.index')" :active="request()->routeIs('tables.index')">
-                        Столы
-                    </x-nav-link>
-                    <div class="relative" x-data="{ openProductsDropdown: false }">
-                        <button @click="openProductsDropdown = !openProductsDropdown" 
-                                @click.away="openProductsDropdown = false"
-                                :class="{
-                                    'text-gray-900 border-b-2 border-indigo-500': request()->routeIs('hookahs.*') || request()->routeIs('products.*'),
-                                    'text-gray-500 hover:text-gray-700 hover:border-gray-300': !(request()->routeIs('hookahs.*') || request()->routeIs('products.*'))
-                                }"
-                                class="inline-flex items-center px-3 py-2 text-sm font-medium leading-5 transition duration-150 ease-in-out focus:outline-none focus:text-gray-700 focus:border-gray-300">
-                            <span>Товары / Кальяны</span>
-                            <svg class="ml-1 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                            </svg>
-                        </button>
+            @auth
+                <div class="hidden sm:flex items-center flex-grow justify-center">
+                   
+                    <div class="flex space-x-4 mx-4 gap-4">
+                        <x-nav-link :href="route('tables.index')" :active="request()->routeIs('tables.index')">
+                            Столы
+                        </x-nav-link>
                         
-                        <div x-show="openProductsDropdown" 
-                            x-transition:enter="transition ease-out duration-200"
-                            x-transition:enter-start="opacity-0 transform scale-95"
-                            x-transition:enter-end="opacity-100 transform scale-100"
-                            x-transition:leave="transition ease-in duration-75"
-                            x-transition:leave-start="opacity-100 transform scale-100"
-                            x-transition:leave-end="opacity-0 transform scale-95"
-                            class="absolute left-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
-                            <div class="py-1">
-                                <a href="{{ route('hookahs.index') }}" 
-                                class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('hookahs.*') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
-                                    Кальяны
-                                </a>
-                                <a href="{{ route('products.index') }}" 
-                                class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('products.*') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
-                                    Товары
-                                </a>
+                        @if(auth()->user()->isAdmin())
+                            <div class="relative" x-data="{ openProductsDropdown: false }">
+                                <button @click="openProductsDropdown = !openProductsDropdown" 
+                                        @click.away="openProductsDropdown = false"
+                                        :class="{
+                                            'text-gray-900 border-b-2 border-indigo-500': request()->routeIs('hookahs.*') || request()->routeIs('products.*'),
+                                            'text-gray-500 hover:text-gray-700 hover:border-gray-300': !(request()->routeIs('hookahs.*') || request()->routeIs('products.*'))
+                                        }"
+                                        class="inline-flex items-center px-3 py-2 text-sm font-medium leading-5 transition duration-150 ease-in-out focus:outline-none focus:text-gray-700 focus:border-gray-300">
+                                    <span>Товары / Кальяны</span>
+                                    <svg class="ml-1 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                                
+                                <div x-show="openProductsDropdown" 
+                                    x-transition:enter="transition ease-out duration-200"
+                                    x-transition:enter-start="opacity-0 transform scale-95"
+                                    x-transition:enter-end="opacity-100 transform scale-100"
+                                    x-transition:leave="transition ease-in duration-75"
+                                    x-transition:leave-start="opacity-100 transform scale-100"
+                                    x-transition:leave-end="opacity-0 transform scale-95"
+                                    class="absolute left-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                                    <div class="py-1">
+                                        <a href="{{ route('hookahs.index') }}" 
+                                        class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('hookahs.*') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                            Кальяны
+                                        </a>
+                                        <a href="{{ route('products.index') }}" 
+                                        class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('products.*') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                            Товары
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+                    
+                        <x-nav-link :href="route('clients.index')" :active="request()->routeIs('clients.index')">
+                            Клиенты
+                        </x-nav-link>
+                        <x-nav-link :href="route('warehouses.index')" :active="request()->routeIs('warehouses.index')">
+                            Склады 
+                        </x-nav-link>
+                        <x-nav-link :href="route('sales.index')" :active="request()->routeIs('sales.index')">
+                            Продажи
+                        </x-nav-link>
+                        <x-nav-link :href="route('accounting.index')" :active="request()->routeIs('accounting.index')">
+                            Бухгалтерия
+                        </x-nav-link>
+                        <x-nav-link :href="route('shifts.index')" :active="request()->routeIs('shifts.index')">
+                            Смены
+                        </x-nav-link>
+                    
+                    </div>
+                    
+                    <!-- Выпадающее меню для остальных разделов -->
+                    @if(auth()->user()->isAdmin())
+                        <div class="relative ml-2" x-data="{ openDropdown: false }">
+                            <button @click="openDropdown = !openDropdown" 
+                                    class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 focus:outline-none">
+                                <span>Еще</span>
+                                <svg class="ml-1 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            
+                            <div x-show="openDropdown" 
+                                @click.away="openDropdown = false"
+                                x-transition:enter="transition ease-out duration-200"
+                                x-transition:enter-start="opacity-0 transform scale-95"
+                                x-transition:enter-end="opacity-100 transform scale-100"
+                                x-transition:leave="transition ease-in duration-75"
+                                x-transition:leave-start="opacity-100 transform scale-100"
+                                x-transition:leave-end="opacity-0 transform scale-95"
+                                class="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                                <div class="py-1">
+                                    <x-dropdown-link :href="route('inventories.index')">
+                                        Инвентаризация
+                                    </x-dropdown-link>
+                                    <x-dropdown-link :href="route('fines.index')">
+                                        Штрафы
+                                    </x-dropdown-link>
+                                    <x-dropdown-link :href="route('employees.index')">
+                                        Сотрудники
+                                    </x-dropdown-link>
+                                    <x-dropdown-link :href="route('expenditures.index')">
+                                        Расходы
+                                    </x-dropdown-link>
+                                    <x-dropdown-link :href="route('payment-methods.index')">
+                                        Способы оплаты
+                                    </x-dropdown-link>
+                                    <x-dropdown-link :href="route('operation-history.index')">
+                                        История операций
+                                    </x-dropdown-link>
+                                    <x-dropdown-link :href="route('settings.index')">
+                                        Настройки
+                                    </x-dropdown-link>
+                                    <x-dropdown-link>
+                                        Сертификаты
+                                    </x-dropdown-link>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <x-nav-link :href="route('clients.index')" :active="request()->routeIs('clients.index')">
-                        Клиенты
-                    </x-nav-link>
-                    <x-nav-link :href="route('warehouses.index')" :active="request()->routeIs('warehouses.index')">
-                        Склады 
-                    </x-nav-link>
-                    <x-nav-link :href="route('sales.index')" :active="request()->routeIs('sales.index')">
-                        Продажи
-                    </x-nav-link>
-                    <x-nav-link :href="route('employees.index')" :active="request()->routeIs('employees.index')">
-                        Сотрудники
-                    </x-nav-link>
-                    <x-nav-link :href="route('shifts.index')" :active="request()->routeIs('shifts.index')">
-                        Смены
-                    </x-nav-link>
+                    @endif
                 </div>
-                
-                <!-- Выпадающее меню для остальных разделов -->
-                <div class="relative ml-2" x-data="{ openDropdown: false }">
-                    <button @click="openDropdown = !openDropdown" 
-                            class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 focus:outline-none">
-                        <span>Еще</span>
-                        <svg class="ml-1 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                    
-                    <div x-show="openDropdown" 
-                         @click.away="openDropdown = false"
-                         x-transition:enter="transition ease-out duration-200"
-                         x-transition:enter-start="opacity-0 transform scale-95"
-                         x-transition:enter-end="opacity-100 transform scale-100"
-                         x-transition:leave="transition ease-in duration-75"
-                         x-transition:leave-start="opacity-100 transform scale-100"
-                         x-transition:leave-end="opacity-0 transform scale-95"
-                         class="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
-                        <div class="py-1">
-                            <x-dropdown-link :href="route('inventories.index')">
-                                Инвентаризация
-                            </x-dropdown-link>
-                            <x-dropdown-link :href="route('fines.index')">
-                                Штрафы
-                            </x-dropdown-link>
-                            <x-dropdown-link :href="route('expenditures.index')">
-                                Расходы
-                            </x-dropdown-link>
-                            <x-dropdown-link :href="route('accounting.index')">
-                                Бухгалтерия
-                            </x-dropdown-link>
-                            <x-dropdown-link :href="route('bonus-history.index')">
-                                История бонусов
-                            </x-dropdown-link>
-                            <x-dropdown-link :href="route('payment-methods.index')">
-                                Способы оплаты
-                            </x-dropdown-link>
-                            <x-dropdown-link :href="route('operation-history.index')">
-                                История операций
-                            </x-dropdown-link>
-                            <x-dropdown-link :href="route('admin.table-names.index') ">
-                                Управление столами
-                            </x-dropdown-link>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            @endauth
 
             <!-- Правая часть навигации -->
             <div class="flex items-center space-x-4">
-                <!-- Меню статистики -->
-                <div class="relative" x-data="{ openStatisticsDropdown: false }">
-                    <button @click="openStatisticsDropdown = !openStatisticsDropdown" 
-                            @click.away="openStatisticsDropdown = false"
-                            :class="{
-                                'text-gray-900 border-b-2 border-indigo-500': request()->routeIs('statistics.*'),
-                                'text-gray-500 hover:text-gray-700 hover:border-gray-300': !request()->routeIs('statistics.*')
-                            }"
-                            class="inline-flex items-center px-3 py-2 text-sm font-medium leading-5 transition duration-150 ease-in-out focus:outline-none focus:text-gray-700 focus:border-gray-300">
-                        <span>Статистика</span>
-                        <svg class="ml-1 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                    
-                    <div x-show="openStatisticsDropdown" 
-                         x-transition:enter="transition ease-out duration-200"
-                         x-transition:enter-start="opacity-0 transform scale-95"
-                         x-transition:enter-end="opacity-100 transform scale-100"
-                         x-transition:leave="transition ease-in duration-75"
-                         x-transition:leave-start="opacity-100 transform scale-100"
-                         x-transition:leave-end="opacity-0 transform scale-95"
-                         class="absolute left-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
-                        <div class="py-1">
-                            <a href="{{ route('statistics.index') }}" 
-                               class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.index') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
-                                <div class="flex items-center">
-                                    <i class="bi bi-people mr-2"></i>
-                                    <span>Посещения и продажи</span>
+                @auth
+                    @if(auth()->user()->isAdmin())
+                        <!-- Меню статистики -->
+                        <div class="relative" x-data="{ openStatisticsDropdown: false }">
+                            <button @click="openStatisticsDropdown = !openStatisticsDropdown" 
+                                    @click.away="openStatisticsDropdown = false"
+                                    :class="{
+                                        'text-gray-900 border-b-2 border-indigo-500': request()->routeIs('statistics.*'),
+                                        'text-gray-500 hover:text-gray-700 hover:border-gray-300': !request()->routeIs('statistics.*')
+                                    }"
+                                    class="inline-flex items-center px-3 py-2 text-sm font-medium leading-5 transition duration-150 ease-in-out focus:outline-none focus:text-gray-700 focus:border-gray-300">
+                                <span>Статистика</span>
+                                <svg class="ml-1 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            
+                            <div x-show="openStatisticsDropdown" 
+                                x-transition:enter="transition ease-out duration-200"
+                                x-transition:enter-start="opacity-0 transform scale-95"
+                                x-transition:enter-end="opacity-100 transform scale-100"
+                                x-transition:leave="transition ease-in duration-75"
+                                x-transition:leave-start="opacity-100 transform scale-100"
+                                x-transition:leave-end="opacity-0 transform scale-95"
+                                class="absolute left-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                                <div class="py-1">
+                                    <a href="{{ route('statistics.index') }}" 
+                                    class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.index') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                        <div class="flex items-center">
+                                            <i class="bi bi-people mr-2"></i>
+                                            <span>Посещения и продажи</span>
+                                        </div>
+                                    </a>
+                                    <a href="{{ route('statistics.accounting') }}" 
+                                    class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                        <div class="flex items-center">
+                                            <i class="bi bi-cash-coin mr-2"></i>
+                                            <span>Финансовая статистика</span>
+                                        </div>
+                                    </a>
+                                    <a href="{{ route('statistics.hookah') }}" 
+                                    class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                        <div class="flex items-center">
+                                            <i class="bi bi-cash-coin mr-2"></i>
+                                            <span>Статистика по кальянам</span>
+                                        </div>
+                                    </a>
+                                    <a href="{{ route('statistics.products') }}" 
+                                    class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                        <div class="flex items-center">
+                                            <i class="bi bi-cash-coin mr-2"></i>
+                                            <span>Статистика по товарам</span>
+                                        </div>
+                                    </a>
+                                    <a href="{{ route('statistics.expenses') }}" 
+                                    class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
+                                        <div class="flex items-center">
+                                            <i class="bi bi-cash-coin mr-2"></i>
+                                            <span>Статистика по расходам</span>
+                                        </div>
+                                    </a>
                                 </div>
-                            </a>
-                            <a href="{{ route('statistics.accounting') }}" 
-                               class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
-                                <div class="flex items-center">
-                                    <i class="bi bi-cash-coin mr-2"></i>
-                                    <span>Финансовая статистика</span>
-                                </div>
-                            </a>
-                            <a href="{{ route('statistics.hookah') }}" 
-                               class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
-                                <div class="flex items-center">
-                                    <i class="bi bi-cash-coin mr-2"></i>
-                                    <span>Статистика по кальянам</span>
-                                </div>
-                            </a>
-                             <a href="{{ route('statistics.products') }}" 
-                               class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
-                                <div class="flex items-center">
-                                    <i class="bi bi-cash-coin mr-2"></i>
-                                    <span>Статистика по товарам</span>
-                                </div>
-                            </a>
-                            <a href="{{ route('statistics.expenses') }}" 
-                               class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 {{ request()->routeIs('statistics.accounting') ? 'bg-gray-100 text-indigo-600 font-medium' : '' }}">
-                                <div class="flex items-center">
-                                    <i class="bi bi-cash-coin mr-2"></i>
-                                    <span>Статистика по расходам</span>
-                                </div>
-                            </a>
+                            </div>
                         </div>
-                    </div>
-                </div>
+                    @endif
+                @endauth
 
                 <!-- Индикатор текущей смены -->
                 @php
@@ -262,8 +276,8 @@
                         </x-slot>
 
                         <x-slot name="content">
-                            <x-dropdown-link :href="route('profile.edit')">
-                                {{ __('Profile') }}
+                            <x-dropdown-link :href="route('profile.show')">
+                                Мой профиль
                             </x-dropdown-link>
 
                             <!-- Authentication -->
@@ -273,7 +287,7 @@
                                 <x-dropdown-link :href="route('logout')"
                                         onclick="event.preventDefault();
                                                     this.closest('form').submit();">
-                                    {{ __('Log Out') }}
+                                    Выход
                                 </x-dropdown-link>
                             </form>
                         </x-slot>
@@ -375,7 +389,7 @@
                     <x-responsive-nav-link :href="route('logout')"
                             onclick="event.preventDefault();
                                         this.closest('form').submit();">
-                        {{ __('Log Out') }}
+                        Выход
                     </x-responsive-nav-link>
                 </form>
             </div>
